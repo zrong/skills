@@ -211,7 +211,7 @@ class FeishuImage {
     }
 
     // Send image-only message
-    const url = `${this.baseUrl}/im/v1/messages`;
+    const url = `${this.baseUrl}/im/v1/messages?receive_id_type=${idType}`;
     const response = await this._request(url, {
       method: 'POST',
       headers: {
