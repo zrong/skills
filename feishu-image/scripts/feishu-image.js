@@ -212,8 +212,6 @@ class FeishuImage {
 
     // Send image-only message
     const url = `${this.baseUrl}/im/v1/messages?receive_id_type=${idType}`;
-    console.log('  URL:', url);
-    console.log('  idType:', idType);
     const response = await this._request(url, {
       method: 'POST',
       headers: {
@@ -226,8 +224,6 @@ class FeishuImage {
         content: content
       })
     });
-    console.log('  Response:', JSON.stringify(response.data, null, 2));
-
     if (response.data.code !== 0) {
       throw new FeishuImageError(
         `Send failed: ${response.data.msg}`,
