@@ -25,6 +25,14 @@ Git 提交并打 CalVer 标签。
 - 自动计算 CalVer 版本号（YY.WW.MICRO 格式）
 - 自动更新 CLAUDE.md 记录变更
 
+### mcp-deploy
+
+MCP 服务器自动部署工具。
+
+- 当用户说"部署 MCP"、"安装 MCP"、"配置 MCP"时自动激活
+- 支持智谱 MCP、Minimax MCP、Gitea MCP 等平台的自动配置
+- 提供常用 MCP 的配置参考和部署流程
+
 ### feishu-image
 
 通过飞书 (Lark) API 发送图片和截图。
