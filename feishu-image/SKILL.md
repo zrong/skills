@@ -67,25 +67,25 @@ The skill will automatically use OpenClaw's Feishu configuration:
 Send an image to a Feishu user:
 
 ```bash
-node scripts/feishu-image.js --image /path/to/screenshot.png --to ou_xxxxxxxx
+node feishu-image.js --image /path/to/screenshot.png --to ou_xxxxxxxx
 ```
 
 With an optional message:
 
 ```bash
-node scripts/feishu-image.js --image chart.png --to ou_xxxxxxxx --text "Q4 Sales Report"
+node feishu-image.js --image chart.png --to ou_xxxxxxxx --text "Q4 Sales Report"
 ```
 
 Send to a chat group:
 
 ```bash
-node scripts/feishu-image.js --image announcement.png --to oc_xxxxxxxx --chat
+node feishu-image.js --image announcement.png --to oc_xxxxxxxx --chat
 ```
 
 ### As a Node.js Library
 
 ```javascript
-const { FeishuImage } = require('./feishu-image.js');
+const { FeishuImage } = require('./scripts/feishu-image.js');
 
 const sender = new FeishuImage({
   appId: 'cli_xxxxxxxxxxxxxxxx',
@@ -124,13 +124,13 @@ await sender.sendImage({
 
 ```bash
 # Basic usage
-node scripts/feishu-image.js -i screenshot.png -t ou_123456
+node feishu-image.js -i screenshot.png -t ou_123456
 
 # With message
-node scripts/feishu-image.js --image chart.png --to ou_123456 --text "Q4 Report"
+node feishu-image.js --image chart.png --to ou_123456 --text "Q4 Report"
 
 # To group chat
-node scripts/feishu-image.js -i announcement.png -t oc_789012 --chat
+node feishu-image.js -i announcement.png -t oc_789012 --chat
 ```
 
 ## Library API Reference
@@ -197,7 +197,7 @@ All errors are instances of `FeishuImageError` with specific error codes:
 **Example error handling:**
 
 ```javascript
-const { FeishuImage, FeishuImageError } = require('./feishu-image.js');
+const { FeishuImage, FeishuImageError } = require('./scripts/feishu-image.js');
 
 try {
   await sender.sendImage({ ... });
