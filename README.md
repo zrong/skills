@@ -42,6 +42,15 @@ MCP 服务器自动部署工具。
 - 支持独立使用（通过环境变量配置）
 - 提供 CLI 工具和 Node.js SDK
 
+### video-analyzer
+
+使用视觉/视频大模型分析视频内容。
+
+- 当用户说"分析视频"、"视频理解"、"看看这个视频"时自动激活
+- 支持本地视频文件和互联网视频（直接 URL 及 YouTube/Bilibili 等站点）
+- 支持抽帧分析和原生视频输入两种模式
+- 多模型配置（豆包、GPT-4o 等 OpenAI 兼容 API）
+
 ## 相关链接
 
 - [skills.sh](https://skills.sh) - Skill 标准和发现平台
