@@ -1,0 +1,17 @@
+[project]
+name = "ffmpeg_batch"
+version = "0.1.0"
+description = "Batch video converter using ffmpeg"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "typer>=0.15.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+ffmpeg_batch = "converter:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
