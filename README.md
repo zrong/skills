@@ -51,6 +51,16 @@ MCP 服务器自动部署工具。
 - 支持查询、搜索文档空间与文件
 - 支持读取和编辑智能文档、智能表格
 
+### media-use
+
+媒体处理工具集，基于 ffmpeg 提供视频转码等功能。
+
+- 当用户需要进行视频转码、格式转换、音频处理等媒体操作时自动激活
+- 包含 ffmpeg_batch 批量视频转码工具
+- 支持多种视频编码（H.264、H.265/HEVC、AV1、VP9）
+- 支持多种音频编码（AAC、MP3、Opus、FLAC、AC3）
+- 支持 GPU 硬件加速（NVIDIA NVENC、Intel QSV、VAAPI）
+
 ### video-analyzer
 
 使用视觉/视频大模型分析视频内容。
