@@ -3,7 +3,9 @@
 
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from threading import Lock
 
 import typer
 from rich.console import Console
@@ -19,6 +21,7 @@ from rich.progress import (
 
 app = typer.Typer(help="批量转码视频工具")
 console = Console()
+print_lock = Lock()  # 用于多线程打印同步
 
 # 常用视频编码器配置
 VIDEO_CODECS = {
@@ -269,6 +272,11 @@ def main(
         "--ext", "-e",
         help="要处理的视频文件扩展名（默认 mp4）",
     ),
+    jobs: int = typer.Option(
+        1,
+        "--jobs", "-j",
+        help="并行转码任务数（默认 1，串行）",
+    ),
 ):
     """批量转码视频工具。
 
@@ -376,37 +384,69 @@ def main(
     success_count = 0
     fail_count = 0
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("[cyan]转码中...", total=len(video_files))
+    def process_single_file(video_file: Path) -> tuple[str, bool]:
+        """处理单个文件，返回 (文件名, 是否成功)"""
+        if recursive:
+            relative_path = video_file.relative_to(source)
+            output_path = target / relative_path.parent / f"{video_file.stem}{suffix}.{ext}"
+        else:
+            output_path = target / f"{video_file.stem}{suffix}.{ext}"
 
-        for video_file in video_files:
-            # 构建输出路径
-            if recursive:
-                relative_path = video_file.relative_to(source)
-                output_path = target / relative_path.parent / f"{video_file.stem}{suffix}.{ext}"
-            else:
-                output_path = target / f"{video_file.stem}{suffix}.{ext}"
+        success = convert_video(
+            video_file, output_path, video_bitrate, v_codec_name,
+            a_codec_name, audio_bitrate, hwaccel_decode
+        )
+        return video_file.name, success
 
-            progress.update(task, description=f"[cyan]正在转码 {video_file.name}...")
+    if jobs > 1:
+        # 并行处理
+        console.print(f"[cyan]使用 {jobs} 个并行任务转码...[/cyan]")
 
-            if convert_video(
-                video_file, output_path, video_bitrate, v_codec_name,
-                a_codec_name, audio_bitrate, hwaccel_decode
-            ):
-                success_count += 1
-                console.print(f"[green]✓[/green] {video_file.name}")
-            else:
-                fail_count += 1
-                console.print(f"[red]✗[/red] {video_file.name}")
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            futures = {executor.submit(process_single_file, f): f for f in video_files}
 
-            progress.advance(task)
+            for future in as_completed(futures):
+                filename, success = future.result()
+                with print_lock:
+                    if success:
+                        success_count += 1
+                        console.print(f"[green]✓[/green] {filename}")
+                    else:
+                        fail_count += 1
+                        console.print(f"[red]✗[/red] {filename}")
+    else:
+        # 串行处理（原有逻辑）
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("[cyan]转码中...", total=len(video_files))
+
+            for video_file in video_files:
+                # 构建输出路径
+                if recursive:
+                    relative_path = video_file.relative_to(source)
+                    output_path = target / relative_path.parent / f"{video_file.stem}{suffix}.{ext}"
+                else:
+                    output_path = target / f"{video_file.stem}{suffix}.{ext}"
+
+                progress.update(task, description=f"[cyan]正在转码 {video_file.name}...")
+
+                if convert_video(
+                    video_file, output_path, video_bitrate, v_codec_name,
+                    a_codec_name, audio_bitrate, hwaccel_decode
+                ):
+                    success_count += 1
+                    console.print(f"[green]✓[/green] {video_file.name}")
+                else:
+                    fail_count += 1
+                    console.print(f"[red]✗[/red] {video_file.name}")
+
+                progress.advance(task)
 
     # 汇总
     console.print(f"\n[bold]转码完成！[/bold]")
