@@ -63,14 +63,14 @@
 
 **返回字段**：
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `sheets` | array | 工作表列表 |
-| `sheets[].sheet_id` | string | 工作表唯一标识符 |
-| `sheets[].title` | string | 工作表名称 |
-| `sheets[].isVisible` | bool | 工作表可见性 |
-| `error` | string | 错误信息，操作失败时返回 |
-| `trace_id` | string | 调用链追踪 ID |
+| 字段                    | 类型 | 说明 |
+|-----------------------|------|------|
+| `sheets`              | array | 工作表列表 |
+| `sheets[].sheet_id`   | string | 工作表唯一标识符 |
+| `sheets[].title`      | string | 工作表名称 |
+| `sheets[].is_visible` | bool | 工作表可见性 |
+| `error`               | string | 错误信息，操作失败时返回 |
+| `trace_id`            | string | 调用链追踪 ID |
 
 **调用示例**：
 
@@ -88,12 +88,12 @@
     {
       "sheet_id": "sheet_abc123",
       "title": "任务列表",
-      "isVisible": true
+      "is_visible": true
     },
     {
       "sheet_id": "sheet_def456",
       "title": "已归档",
-      "isVisible": false
+      "is_visible": false
     }
   ],
   "error": "",
@@ -776,6 +776,10 @@
 | `15` | 电话 | `property_phone_number` | 字符串，无需额外配置 |
 | `16` | 邮件 | `property_email` | 字符串，无需额外配置 |
 | `17` | 单选 | `property_single_select` | 选项数组（只能单选） |
+| `18` | 关联 | - | 关联其他记录，值为 record_id 字符串数组 |
+| `25` | 自动编号 | - | 系统自动生成编号，无需手动配置 |
+| `26` | 货币 | - | 浮点数，表示货币金额 |
+| `28` | 百分比 | - | 浮点数，如 0.75 表示 75% |
 
 ### 视图类型（view_type）
 
@@ -811,19 +815,23 @@
 
 在 `add_records` 和 `update_records` 中，`field_values` 的 value 格式因字段类型而异：
 
-| 字段类型 | 值格式 | 示例 |
-|---------|--------|------|
-| 文本（1） | JSON Array of TextValue | `[{"text": "内容", "type": "text"}]` |
-| 数字（2） | number | `42` 或 `3.14` |
-| 复选框（3） | bool | `true` 或 `false` |
-| 日期（4） | string（毫秒时间戳） | `"1720000000000"` |
-| 图片（5） | JSON Array of ImageIDValue | `[{"imageID": "图片id"}]` |
+| 字段类型 | 值格式 | 示例                                                         |
+|---------|--------|------------------------------------------------------------|
+| 文本（1） | JSON Array of TextValue | `[{"text": "内容", "type": "text"}]`                         |
+| 数字（2） | number | `42` 或 `3.14`                                              |
+| 复选框（3） | bool | `true` 或 `false`                                           |
+| 日期（4） | string（毫秒时间戳） | `"1720000000000"`                                          |
+| 图片（5） | JSON Array of ImageIDValue | `[{"image_id": "图片id"}]`                                   |
 | 超链接（8） | JSON Array of UrlValue | `[{"text": "链接文字", "type": "url", "link": "https://..."}]` |
-| 多选（9） | JSON Array of OptionValue | `[{"text": "选项1"}, {"text": "选项2"}]` |
-| 进度（14） | number | `75` 或 `75.5` |
-| 电话（15） | string | `"13800138000"` |
-| 邮件（16） | string | `"user@example.com"` |
-| 单选（17） | JSON Array of OptionValue（单个） | `[{"text": "选项文字"}]` |
+| 多选（9） | JSON Array of OptionValue | `[{"text": "选项1"}, {"text": "选项2"}]`                       |
+| 进度（14） | number | `75` 或 `75.5`                                              |
+| 电话（15） | string | `"13800138000"`                                            |
+| 邮件（16） | string | `"user@example.com"`                                       |
+| 单选（17） | JSON Array of OptionValue（单个） | `[{"text": "选项文字"}]`                                       |
+| 关联（18） | array string | `["record_id_1", "record_id_2"]`                           |
+| 自动编号（25） | JSON(AutoNumberValue) | `{"seq": "1", "text": "编号内容"}`                             |
+| 货币（26） | double | `99.99`                                                    |
+| 百分比（28） | double | `0.75`（表示 75%）                                             |
 
 ### TextValue 结构
 
@@ -1034,3 +1042,9 @@
 
 > 📌 **提示**：所有操作都需要先获取 `file_id`（智能表格文档 ID）和 `sheet_id`（工作表 ID）。
 > 可通过 `search_space_file` 搜索文档获取 `file_id`，再通过 `smartsheet.list_tables` 获取 `sheet_id`。
+
+
+## 注意事项
+
+- **图片字段写入**：向图片类型字段（field_type=5）写入数据时，需先调用 `upload_image` 工具上传图片获取 `image_id`，再以 `[{"image_id": "xxx"}]` 格式填入字段值
+- **字段类型不可变**：`update_fields` 时 `field_type` 不能修改，但必须传入原值；支持的字段类型详见第 5 节字段类型枚举表

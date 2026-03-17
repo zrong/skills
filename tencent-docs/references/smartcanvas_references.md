@@ -1,6 +1,6 @@
-# 智能文档（SmartCanvas）工具完整参考文档
+# 文档（SmartCanvas）工具完整参考文档
 
-腾讯文档智能文档（SmartCanvas）提供了一套完整的文档元素操作 API，支持对页面、文本、标题、待办事项等元素进行增删改查操作。
+腾讯文档文档（SmartCanvas）提供了一套完整的文档元素操作 API，支持对页面、文本、标题、待办事项等元素进行增删改查操作。
 
 ---
 
@@ -8,7 +8,7 @@
 
 - [概念说明](#概念说明)
 - [元素操作](#元素操作)
-- [smartcanvas.create_smartcanvas_element - 新增元素](#smartcanvascreatesmartcanvaselement)
+  - [smartcanvas.create_smartcanvas_element - 新增元素](#smartcanvascreatesmartcanvaselement)
   - [smartcanvas.get_element_info - 查询元素信息](#smartcanvasgetelement_info)
   - [smartcanvas.get_page_info - 查询页面内容](#smartcanvasgetpageinfo)
   - [smartcanvas.get_top_level_pages - 查询顶层页面](#smartcanvasgettoplevelpages)
@@ -26,9 +26,9 @@
 
 | 概念 | 说明 |
 |------|------|
-| `file_id` | 智能文档的唯一标识符，每个文档有唯一的 file_id |
+| `file_id` | 文档的唯一标识符，每个文档有唯一的 file_id |
 | `element_id` | 元素 ID，文档中每个元素（页面、文本、标题、任务）都有唯一 ID |
-| `page_id` | 页面元素 ID，Page 是智能文档的基本容器单元 |
+| `page_id` | 页面元素 ID，Page 是文档的基本容器单元 |
 | `parent_id` | 父元素 ID，用于确定元素的层级关系 |
 
 **元素层级关系**：
@@ -52,7 +52,7 @@ file_id（文档）
 
 ### smartcanvas.create_smartcanvas_element
 
-**功能**：在智能文档中新增元素，支持同时添加页面、文本、标题、待办事项等多种类型元素。
+**功能**：在文档中新增元素，支持同时添加页面、文本、标题、待办事项等多种类型元素。
 
 **使用场景**：
 - 在文档中追加新页面
@@ -61,15 +61,16 @@ file_id（文档）
 
 **请求参数**：
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `file_id` | string | ✅ | 智能文档的唯一标识符 |
+| 参数 | 类型 | 必填 | 说明                                                                     |
+|------|------|------|------------------------------------------------------------------------|
+| `file_id` | string | ✅ | 文档的唯一标识符                                                             |
 | `parent_id` | string | 条件必填 | 父节点元素 ID。插入 Text/Task/Heading 时必填（父节点必须为 Page 类型）；插入 Page 时可不填（插入到根节点） |
-| `after` | string | | 插入到哪个节点之后的元素 ID，不填则作为父节点的最后一个子节点插入 |
-| `pages` | []Page | | 要添加的页面元素列表 |
-| `texts` | []Text | | 要添加的文本元素列表 |
-| `tasks` | []Task | | 要添加的待办事项元素列表 |
-| `headings` | []Heading | | 要添加的标题元素列表 |
+| `after` | string | | 插入到哪个节点之后的元素 ID，不填则作为父节点的最后一个子节点插入                                     |
+| `pages` | []Page | | 要添加的页面元素列表                                                             |
+| `texts` | []Text | | 要添加的文本元素列表                                                             |
+| `tasks` | []Task | | 要添加的待办事项元素列表                                                           |
+| `headings` | []Heading | | 要添加的标题元素列表                                                             |
+| `image` | []Image | | 要添加的图片元素列表，需先调用 `upload_image` 获取 image_ID                             |
 
 **返回字段**：
 
@@ -159,6 +160,24 @@ file_id（文档）
 }
 ```
 
+**调用示例（添加图片）**：
+
+> ⚠️ 需先调用 `upload_image` 上传图片获取 `image_id`，再传入此处。
+
+```json
+{
+  "file_id": "your_file_id",
+  "parent_id": "page_element_id",
+  "image": [
+    {
+      "image_id": "从 upload_image 返回的 image_id",
+      "width": 800,
+      "height": 600
+    }
+  ]
+}
+```
+
 ---
 
 ### smartcanvas.get_element_info
@@ -174,7 +193,7 @@ file_id（文档）
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `file_id` | string | ✅ | 智能文档的唯一标识符 |
+| `file_id` | string | ✅ | 文档的唯一标识符 |
 | `element_ids` | []string | ✅ | 查询元素 ID 列表，支持批量查询多个元素 |
 
 **返回字段**：
@@ -232,7 +251,7 @@ file_id（文档）
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `file_id` | string | ✅ | 智能文档的唯一标识符 |
+| `file_id` | string | ✅ | 文档的唯一标识符 |
 | `page_id` | string | ✅ | 要查询的页面元素 ID |
 | `cursor` | []CursorItem | | 分页游标，首次查询不传，后续查询使用上次响应返回的 cursor |
 
@@ -289,7 +308,7 @@ file_id（文档）
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `file_id` | string | ✅ | 智能文档的唯一标识符 |
+| `file_id` | string | ✅ | 文档的唯一标识符 |
 
 **返回字段**：
 
@@ -346,7 +365,7 @@ file_id（文档）
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `file_id` | string | ✅ | 智能文档的唯一标识符 |
+| `file_id` | string | ✅ | 文档的唯一标识符 |
 | `updates` | []UpdateElementRequest | ✅ | 元素更新请求列表，支持批量更新多个元素 |
 
 **UpdateElementRequest 结构**：
@@ -464,7 +483,7 @@ file_id（文档）
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `file_id` | string | ✅ | 智能文档的唯一标识符 |
+| `file_id` | string | ✅ | 文档的唯一标识符 |
 | `element_ids` | []string | ✅ | 需要批量删除的元素 ID 列表 |
 
 **返回字段**：
@@ -489,7 +508,7 @@ file_id（文档）
 
 ### smartcanvas.append_insert_smartcanvas_by_markdown 追加
 
-**功能**：通过 Markdown 文本向已有智能文档追加内容，内容追加到文档末尾。
+**功能**：通过 Markdown 文本向已有文档追加内容，内容追加到文档末尾。
 
 **使用场景**：
 - 快速向文档末尾追加大段 Markdown 内容
@@ -500,7 +519,7 @@ file_id（文档）
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `file_id` | string | ✅ | 智能文档的唯一标识符 |
+| `file_id` | string | ✅ | 文档的唯一标识符 |
 | `markdown` | string | ✅ | UTF-8 格式的 Markdown 文本，特殊字符不需要转义 |
 
 **返回字段**：
@@ -578,7 +597,7 @@ file_id（文档）
 
 ### Page（页面）
 
-页面是智能文档的基本容器单元，所有内容元素（Text、Heading、Task）都必须挂载在 Page 下。
+页面是文档的基本容器单元，所有内容元素（Text、Heading、Task）都必须挂载在 Page 下。
 
 ```json
 {
@@ -645,6 +664,28 @@ file_id（文档）
 | `rich_text` | RichText | ✅ | 富文本内容 |
 | `level` | HeadingLevel | ✅ | 标题级别，枚举值：LEVEL_1 ~ LEVEL_6 |
 | `block_color` | BackgroundColor | | 标题块背景颜色 |
+
+---
+
+### Image（图片）
+
+图片块，需先通过 `upload_image` 工具上传图片获取 `image_id`，再插入到文档中。
+
+```json
+{
+  "image_id": "从 upload_image 返回的 image_id",
+  "width": 800,
+  "height": 600
+}
+```
+
+| 字段         | 类型 | 必填 | 说明 |
+|------------|------|------|------|
+| `image_id` | string | ✅ | 图片 ID，通过 `upload_image` 工具上传图片后获取，有效期为一天 |
+| `width`    | float | | 图片显示宽度（像素），不填则使用图片原始宽度 |
+| `height`   | float | | 图片显示高度（像素），不填则使用图片原始高度 |
+
+> ⚠️ **注意**：`image_id` 有效期为一天，请在获取后及时使用。
 
 ---
 
@@ -718,7 +759,7 @@ file_id（文档）
 ### 工作流一：创建结构化文档
 
 ```
-步骤 1：创建智能文档
+步骤 1：创建文档
   → create_smartcanvas_by_markdown（创建文档，获取 file_id）
 
 步骤 2：查询顶层页面
