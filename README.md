@@ -44,7 +44,7 @@ MCP 服务器自动部署工具。
 
 ### tencent-docs
 
-腾讯文档 MCP，提供完整的腾讯文档操作能力。
+腾讯文档 MCP，提供完整的腾讯文档操作能力。参考：[腾讯文档 MCP 使用指南](https://docs.qq.com/aio/p/scg9of08ycfdc59?p=SIBSMoo4XuO9dymUo2GEDBm)
 
 - 当用户需要操作腾讯文档时自动激活
 - 支持创建各类在线文档（智能文档、Word、Excel、幻灯片、思维导图、流程图）
