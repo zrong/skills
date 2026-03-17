@@ -33,6 +33,15 @@ MCP 服务器自动部署工具。
 - 支持智谱 MCP、Minimax MCP、Gitea MCP 等平台的自动配置
 - 提供常用 MCP 的配置参考和部署流程
 
+### email
+
+邮件处理工具（基于 IMAP）。搜索、读取、下载附件、移动邮件。
+
+- 当用户需要查看、搜索、管理邮件、下载附件、移动归档邮件时自动激活
+- 支持 IMAP 协议，提供完整的邮件管理能力
+- 内置配置初始化工具，支持多账户管理
+- 密码加密存储在本地 .env 文件中
+
 ### feishu-image
 
 通过飞书 (Lark) API 发送图片和截图。
@@ -73,7 +82,9 @@ MCP 服务器自动部署工具。
 ## 更新记录
 
 ### 2026-03-17
+- 新增 email skill：邮件处理工具（基于 IMAP），支持搜索、读取、下载附件和移动邮件
 - 升级 tencent-docs skill v1.0.13：重构 SKILL.md，新增 doc/（文档编辑与格式化）、sheet/（表格操作与 JS 脚本）模块，补充认证与管理 API 参考文档，增强 setup.sh
+- 升级 git-commit skill：重构工作流，使用 README.md 代替 CLAUDE.md 记录更新记录，并启用 GEMINI.md 作为规范说明文档
 
 ### 2026-03-14
 - 新增 media-use skill：媒体处理工具集，包含 ffmpeg_batch 批量视频转码工具
