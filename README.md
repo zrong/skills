@@ -23,7 +23,7 @@ Git 提交并打 CalVer 标签。
 
 - 当用户说"提交"、"commit"、"打标签"、"tag"、"发版"时自动激活
 - 自动计算 CalVer 版本号（YY.WW.MICRO 格式）
-- 自动更新 CLAUDE.md 记录变更
+- 自动更新 README.md 记录变更
 
 ### mcp-deploy
 
@@ -70,7 +70,14 @@ MCP 服务器自动部署工具。
 - 支持抽帧分析和原生视频输入两种模式
 - 多模型配置（豆包、GPT-4o 等 OpenAI 兼容 API）
 
-## 相关链接
+## 更新记录
 
-- [skills.sh](https://skills.sh) - Skill 标准和发现平台
-- [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) - 官方 skill 集合
+### 2026-03-17
+- 升级 tencent-docs skill v1.0.13：重构 SKILL.md，新增 doc/（文档编辑与格式化）、sheet/（表格操作与 JS 脚本）模块，补充认证与管理 API 参考文档，增强 setup.sh
+
+### 2026-03-14
+- 新增 media-use skill：媒体处理工具集，包含 ffmpeg_batch 批量视频转码工具
+- 更新 README.md：添加 media-use skill 说明
+
+### 2026-03-11
+- 新增 tencent-docs skill：腾讯文档 MCP，提供完整的腾讯文档操作能力（创建、编辑、搜索文档）
