@@ -1,0 +1,15 @@
+[project]
+name = "joplin-tool"
+version = "0.1.0"
+description = "Joplin API tool for interacting with Joplin notes and notebooks."
+requires-python = ">=3.13"
+dependencies = [
+    "httpx",
+    "pydantic",
+    "python-dotenv",
+    "click",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
