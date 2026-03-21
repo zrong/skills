@@ -90,6 +90,10 @@ MCP 服务器自动部署工具。
 
 ## 更新记录
 
+### 2026-03-21
+- 新增 CLAUDE.md：为 Claude Code 创建项目规范执行手册，与 GEMINI.md 保持一致
+- 将所有 skills 通过符号链接注册到 ~/.claude/skills/，实现全局可用
+
 ### 2026-03-19
 - 新增 joplin skill：用于通过 REST API 调用本地 Joplin 笔记库，支持笔记读写、搜索和笔记本管理
 
