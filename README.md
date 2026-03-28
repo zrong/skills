@@ -90,6 +90,9 @@ MCP 服务器自动部署工具。
 
 ## 更新记录
 
+### 2026-03-28
+- 精简 git-commit skill：收紧触发描述，统一 CalVer/tag 工作流表述，并明确脚本定位规则
+
 ### 2026-03-21
 - 新增 CLAUDE.md：为 Claude Code 创建项目规范执行手册，与 GEMINI.md 保持一致
 - 将所有 skills 通过符号链接注册到 ~/.claude/skills/，实现全局可用
