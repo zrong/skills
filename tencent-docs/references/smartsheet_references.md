@@ -1041,10 +1041,12 @@
 ---
 
 > 📌 **提示**：所有操作都需要先获取 `file_id`（智能表格文档 ID）和 `sheet_id`（工作表 ID）。
-> 可通过 `search_space_file` 搜索文档获取 `file_id`，再通过 `smartsheet.list_tables` 获取 `sheet_id`。
+> 可通过 `manage.search_file` 搜索文档获取 `file_id`，再通过 `smartsheet.list_tables` 获取 `sheet_id`。
 
 
 ## 注意事项
 
+- **前置条件**：所有 smartsheet.* 工具都需要 `file_id` 和 `sheet_id`，操作前先调用 `smartsheet.list_tables` 获取 sheet_id
 - **图片字段写入**：向图片类型字段（field_type=5）写入数据时，需先调用 `upload_image` 工具上传图片获取 `image_id`，再以 `[{"image_id": "xxx"}]` 格式填入字段值
-- **字段类型不可变**：`update_fields` 时 `field_type` 不能修改，但必须传入原值；支持的字段类型详见第 5 节字段类型枚举表
+- **字段类型不可变**：`update_fields` 时 `field_type` 不能修改，但必须传入原值；支持的字段类型详见字段类型枚举表
+- **记录字段值格式**：不同字段类型的值格式不同，详见上方"字段值格式参考"章节

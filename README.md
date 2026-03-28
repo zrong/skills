@@ -91,6 +91,7 @@ MCP 服务器自动部署工具。
 ## 更新记录
 
 ### 2026-03-28
+- 升级 tencent-docs skill 到 v1.0.21：同步官方压缩包内容，新增 smartcanvas/diagram/slide/docengine/workflows 等参考文档，更新入口说明与版本元数据
 - 精简 git-commit skill：收紧触发描述，统一 CalVer/tag 工作流表述，并明确脚本定位规则
 
 ### 2026-03-21

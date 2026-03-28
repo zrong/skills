@@ -1,36 +1,592 @@
-# Sheet 表格操作参考文档
+# 腾讯文档 Sheet MCP 工具完整参考
 
-本文件包含腾讯文档 MCP 中 Sheet（在线表格）相关工具的完整 API 说明、详细调用示例、参数说明和返回值说明。
+本文件包含腾讯文档 Sheet MCP 所有工具的通用 API 说明、详细调用示例、参数说明和返回值说明。
 
 ---
 
 ## 通用说明
 
-### Sheet 工具概述
+### 公共参数
 
-Sheet 工具专门用于操作腾讯文档中的在线表格（Excel格式），提供表格信息的查询、范围数据的获取以及批量更新等功能。
+所有工具都包含以下公共参数：
+- `file_id` (string, 可选): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID（`get_sheet_info` 不需要此参数）
 
 ### 响应结构
 
-所有 API 返回都包含：
-- `error`: 错误信息（成功时为空）
-- `trace_id`: 调用链追踪 ID
-
-### 表格范围表示法
-
-Sheet 工具使用 A1 表示法来指定表格范围：
-- `A1`: 单个单元格
-- `A1:B10`: 矩形区域
-- `Sheet1!A1:B10`: 指定工作表名称的范围
-
----
+所有 API 成功时返回空对象 `{}`，失败时会抛出对应错误信息。
 
 ## 工具调用示例
 
-## 1. GetSheetInfo
+## 1. set_cell_value
 
 ### 功能说明
-查询工作表的基本信息，包括所有子表的ID、标题、大小和已使用的行列数。
+设置在线表格指定单元格的值，支持文本、数字、布尔、公式等类型（SHEET）。
+
+> 💡 **建议**：单次写入操作的请求体内容尽量不超过 **1MB**，超大内容请拆分为多次写入。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "cell": {
+    "row": 0,
+    "col": 0,
+    "value_type": "STRING",
+    "string_value": "Hello World"
+  }
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `cell` (object, 必填): 单元格值参数
+  - `row` (int64, 必填): 行索引（0-based）
+  - `col` (int64, 必填): 列索引（0-based）
+  - `value_type` (string, 必填): 值类型，可选值：`STRING`、`NUMBER`、`BOOL`、`FORMULA`
+  - `number_value` (double, 可选): 数值，`value_type` 为 `NUMBER` 时使用
+  - `string_value` (string, 可选): 字符串值，`value_type` 为 `STRING` 时使用
+  - `bool_value` (bool, 可选): 布尔值，`value_type` 为 `BOOL` 时使用
+  - `formula` (string, 可选): 公式，`value_type` 为 `FORMULA` 时使用，例如 `"=SUM(A1:A10)"`
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 2. set_range_value
+
+### 功能说明
+批量设置在线表格多个单元格的值（SHEET）。
+
+> 💡 **建议**：单次写入操作的请求体内容尽量不超过 **1MB**（大约几千个单元格，视单元格内容长度而定），超大批量请拆分为多次写入。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "values": [
+    {
+      "row": 0,
+      "col": 0,
+      "value_type": "STRING",
+      "string_value": "Name"
+    },
+    {
+      "row": 0,
+      "col": 1,
+      "value_type": "STRING",
+      "string_value": "Score"
+    },
+    {
+      "row": 1,
+      "col": 0,
+      "value_type": "STRING",
+      "string_value": "Alice"
+    },
+    {
+      "row": 1,
+      "col": 1,
+      "value_type": "NUMBER",
+      "number_value": 95.5
+    }
+  ]
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `values` (array, 必填): 单元格值列表，每个元素与 `set_cell_value` 的 `cell` 参数结构相同
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 3. set_cell_style
+
+### 功能说明
+设置在线表格指定范围单元格的样式，包括字体、颜色、对齐等（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "start_row": 0,
+  "start_col": 0,
+  "end_row": 5,
+  "end_col": 3,
+  "format": {
+    "bold": true,
+    "italic": false,
+    "font_size": 12,
+    "font_color": "FF000000",
+    "bg_color": "FFFFFF00",
+    "horizontal_align": "center",
+    "vertical_align": "center",
+    "wrap_text": true
+  }
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `start_row` (int64, 必填): 起始行索引（0-based）
+- `start_col` (int64, 必填): 起始列索引（0-based）
+- `end_row` (int64, 必填): 结束行索引
+- `end_col` (int64, 必填): 结束列索引
+- `format` (object, 必填): 样式参数对象  - `bold` (bool, 可选): 是否粗体
+  - `italic` (bool, 可选): 是否斜体
+  - `font_family` (string, 可选): 字体名称
+  - `font_size` (int32, 可选): 字号（pt）
+  - `font_color` (string, 可选): 字体颜色，ARGB hex，如 `"FF000000"`
+  - `bg_color` (string, 可选): 背景色，ARGB hex，如 `"FFFFFFFF"`
+  - `horizontal_align` (string, 可选): 水平对齐：`general` / `left` / `center` / `right` / `fill` / `justify`
+  - `vertical_align` (string, 可选): 垂直对齐：`top` / `center` / `bottom` / `justify`
+  - `wrap_text` (bool, 可选): 是否自动换行
+  - `strike_through` (bool, 可选): 是否删除线
+  - `underline` (string, 可选): 下划线类型：`none` / `single` / `double` / `single_accounting` / `double_accounting`
+  - `number_format_pattern` (string, 可选): 数字格式，如 `"0.00%"`
+- `is_clear` (bool, 可选): 若为 true，则清除格式
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 4. merge_cell
+
+### 功能说明
+合并在线表格指定范围的单元格，支持全部合并、按行合并、按列合并（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "start_row": 0,
+  "start_col": 0,
+  "end_row": 3,
+  "end_col": 3,
+  "merge_type": "all"
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `start_row` (int64, 必填): 起始行索引（0-based）
+- `start_col` (int64, 必填): 起始列索引（0-based）
+- `end_row` (int64, 必填): 结束行索引
+- `end_col` (int64, 必填): 结束列索引
+- `merge_type` (string, 必填): 合并类型
+  - `"all"`: 全部合并（默认）
+  - `"columns"`: 按列合并
+  - `"rows"`: 按行合并
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 5. insert_dimension
+
+### 功能说明
+在在线表格指定位置插入行或列（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "dimension_type": "row",
+  "index": 2,
+  "count": 3,
+  "direction": "before"
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `dimension_type` (string, 必填): 行列类型：`"row"` | `"col"`
+- `index` (int64, 必填): 起始索引（0-based）
+- `count` (int64, 必填): 插入数量
+- `direction` (string, 可选): 插入方向：`"before"`（默认）| `"after"`
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 6. delete_dimension
+
+### 功能说明
+删除在线表格指定位置的行或列（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "dimension_type": "col",
+  "index": 3,
+  "count": 2
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `dimension_type` (string, 必填): 行列类型：`"row"` | `"col"`
+- `index` (int64, 必填): 起始索引（0-based）
+- `count` (int64, 必填): 删除数量
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 7. set_freeze
+
+### 功能说明
+设置在线表格的冻结行列数，传 0 可取消冻结（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "row_count": 1,
+  "col_count": 2
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `row_count` (int64, 必填): 冻结行数（0 = 取消冻结行）
+- `col_count` (int64, 必填): 冻结列数（0 = 取消冻结列）
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 8. set_filter
+
+### 功能说明
+为在线表格指定数据区域设置筛选（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "start_row": 0,
+  "start_col": 0,
+  "end_row": 100,
+  "end_col": 5
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `start_row` (int64, 必填): 数据区域起始行（0-based）
+- `start_col` (int64, 必填): 数据区域起始列（0-based）
+- `end_row` (int64, 必填): 数据区域结束行
+- `end_col` (int64, 必填): 数据区域结束列
+- `filter_id` (string, 可选): 筛选 ID（不传则自动生成）
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 9. remove_filter
+
+### 功能说明
+移除在线表格的筛选，可按筛选 ID 精确移除或移除全部（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "filter_id": "filter_001"
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `filter_id` (string, 可选): 筛选 ID（不传则移除该子表所有筛选）
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 10. set_link
+
+### 功能说明
+为在线表格指定单元格设置超链接，可指定链接 URL 和显示文本（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "row": 0,
+  "col": 0,
+  "url": "https://docs.qq.com",
+  "display_text": "腾讯文档"
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `row` (int64, 必填): 单元格行（0-based）
+- `col` (int64, 必填): 单元格列（0-based）
+- `url` (string, 必填): 超链接 URL
+- `display_text` (string, 可选): 单元格显示文本
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 11. clear_link
+
+### 功能说明
+清除在线表格指定单元格的超链接，可按链接 ID 精确清除或清除全部超链接（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "row": 0,
+  "col": 0,
+  "link_id": "link_001"
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `row` (int64, 必填): 单元格行（0-based）
+- `col` (int64, 必填): 单元格列（0-based）
+- `link_id` (string, 可选): 链接 ID（不传则按位置清除）
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 12. unmerge_cell
+
+### 功能说明
+取消在线表格指定区域的单元格合并（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "start_row": 0,
+  "start_col": 0,
+  "end_row": 3,
+  "end_col": 3
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `start_row` (int64, 必填): 起始行索引（0-based）
+- `start_col` (int64, 必填): 起始列索引（0-based）
+- `end_row` (int64, 必填): 结束行索引
+- `end_col` (int64, 必填): 结束列索引
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 13. clear_range_cells
+
+### 功能说明
+清除在线表格指定区域内所有单元格的内容，不影响样式（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "start_row": 0,
+  "start_col": 0,
+  "end_row": 9,
+  "end_col": 4
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `start_row` (int64, 必填): 起始行索引（0-based）
+- `start_col` (int64, 必填): 起始列索引（0-based）
+- `end_row` (int64, 必填): 结束行索引
+- `end_col` (int64, 必填): 结束列索引
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 14. clear_range_style
+
+### 功能说明
+清除在线表格指定区域内所有单元格的样式，不影响内容（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "start_row": 0,
+  "start_col": 0,
+  "end_row": 9,
+  "end_col": 4
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `start_row` (int64, 必填): 起始行索引（0-based）
+- `start_col` (int64, 必填): 起始列索引（0-based）
+- `end_row` (int64, 必填): 结束行索引
+- `end_col` (int64, 必填): 结束列索引
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 15. clear_range_all
+
+### 功能说明
+清空在线表格指定区域内所有单元格的内容和样式（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "start_row": 0,
+  "start_col": 0,
+  "end_row": 9,
+  "end_col": 4
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `start_row` (int64, 必填): 起始行索引（0-based）
+- `start_col` (int64, 必填): 起始列索引（0-based）
+- `end_row` (int64, 必填): 结束行索引
+- `end_col` (int64, 必填): 结束列索引
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 16. unset_freeze
+
+### 功能说明
+删除在线表格指定子表的所有冻结行列（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001"
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 17. get_sheet_info
+
+### 功能说明
+获取在线表格的子表信息，包括子表 ID、名称、类型、行列数量（SHEET）。
 
 ### 调用示例
 ```json
@@ -40,250 +596,176 @@ Sheet 工具使用 A1 表示法来指定表格范围：
 ```
 
 ### 参数说明
-- `file_id` (string, 必填): 表格文件唯一标识符
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+
+> 注意：此工具不需要 `sheet_id` 参数，返回文档下所有子表的信息。
 
 ### 返回值说明
 ```json
 {
-  "sheet_info": {
-    "file_id": "sheet_1234567890",
-    "title": "销售数据表",
-    "sheets": [
-      {
-        "sheet_id": "sht1234567890",
-        "title": "Sheet1",
-        "row_count": 100,
-        "column_count": 10,
-        "used_row_count": 50,
-        "used_column_count": 5
-      }
-    ]
-  },
-  "error": "",
-  "trace_id": "trace_1234567890"
+  "sheets": [
+    {
+      "sheet_id": "sub_sheet_001",
+      "sheet_name": "Sheet1",
+      "sheet_type": "worksheet",
+      "row_count": 100,
+      "col_count": 26
+    }
+  ]
 }
 ```
+- `sheets` (array): 子表信息列表
+  - `sheet_id` (string): 子表 ID
+  - `sheet_name` (string): 子表名称
+  - `sheet_type` (string): 子表类型：`worksheet` / `smartsheet` / `smartcanvas`
+  - `row_count` (int32): 行数
+  - `col_count` (int32): 列数
 
-## 2. GetSheetRange
+---
+
+## 18. get_cell_data
 
 ### 功能说明
-获取指定范围内的在线表格信息，支持 A1 表示法指定查询范围。
+获取在线表格指定区域的单元格数据，支持返回 CSV 格式或结构化单元格数据（SHEET）。
+
+> ⚠️ **限制**：单次请求的单元格范围不得超过 **20000** 个（即 `(end_row - start_row + 1) × (end_col - start_col + 1) ≤ 20000`），超出将返回错误。如需获取更大范围的数据，请分多次请求。
 
 ### 调用示例
 ```json
 {
   "file_id": "sheet_1234567890",
-  "range": "A1:C10"
+  "sheet_id": "sub_sheet_001",
+  "start_row": 0,
+  "start_col": 0,
+  "end_row": 9,
+  "end_col": 4,
+  "return_csv": false
 }
 ```
 
 ### 参数说明
-- `file_id` (string, 必填): 表格文件唯一标识符
-- `range` (string, 必填): 查询范围，使用 A1 表示法
-- `sheet_id` (string, 可选): 工作表ID，不指定时使用默认工作表
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `start_row` (int64, 必填): 起始行索引（0-based）
+- `start_col` (int64, 必填): 起始列索引（0-based）
+- `end_row` (int64, 必填): 结束行索引
+- `end_col` (int64, 必填): 结束列索引
+- `return_csv` (bool, 可选): 是否以 CSV 格式返回数据，`true` 返回 `csv_data`，`false` 返回 `cells` 结构化数据（默认 `false`）
 
 ### 返回值说明
 ```json
 {
-  "range_data": {
-    "range": "A1:C10",
-    "values": [
-      ["姓名", "年龄", "部门"],
-      ["张三", "25", "技术部"],
-      ["李四", "30", "产品部"]
-    ]
-  },
-  "error": "",
-  "trace_id": "trace_1234567890"
-}
-```
-
-## 3. BatchUpdateSheet
-
-### 功能说明
-批量执行对在线表格的更新操作，支持添加工作表、更新单元格内容、删除行列、删除工作表等多种操作。
-
-### 调用示例
-```json
-{
-  "file_id": "sheet_1234567890",
-  "requests": [
+  "csv_data": "Name,Score\nAlice,95.5\n",
+  "cells": [
     {
-      "add_sheet": {
-        "properties": {
-          "title": "新工作表"
-        }
-      }
+      "row": 0,
+      "col": 0,
+      "value_type": "STRING",
+      "string_value": "Name"
     },
     {
-      "update_cells": {
-        "range": "A1:B2",
-        "rows": [
-          {"values": ["标题1", "标题2"]},
-          {"values": ["数据1", "数据2"]}
-        ]
-      }
+      "row": 0,
+      "col": 1,
+      "value_type": "STRING",
+      "string_value": "Score"
+    }
+  ]
+}
+```
+- `csv_data` (string): CSV 格式数据（`return_csv=true` 时返回）
+- `cells` (array): 结构化单元格数据（`return_csv=false` 时返回）
+  - `row` (int32): 行索引（0-based）
+  - `col` (int32): 列索引（0-based）
+  - `value_type` (string): 值类型：`NUMBER` / `STRING` / `BOOL` / `FORMULA` / `ERROR` / `TIME_STRING` / `RICH_STRING`
+  - `number_value` (double): 数值
+  - `string_value` (string): 字符串值
+  - `bool_value` (bool): 布尔值
+  - `formula` (string): 公式
+
+---
+
+## 19. get_merged_cells
+
+### 功能说明
+获取在线表格指定区域内与该区域相交的合并单元格信息，返回合并单元格范围列表（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "start_row": 0,
+  "start_col": 0,
+  "end_row": 9,
+  "end_col": 9
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `start_row` (int64, 必填): 查询区域起始行索引（0-based）
+- `start_col` (int64, 必填): 查询区域起始列索引（0-based）
+- `end_row` (int64, 必填): 查询区域结束行索引
+- `end_col` (int64, 必填): 查询区域结束列索引
+
+### 返回值说明
+```json
+{
+  "merged_cells": [
+    "sub_sheet_001$A1:B2",
+    "sub_sheet_001$C3:D5"
+  ]
+}
+```
+- `merged_cells` (array): 与查询区域相交的合并单元格范围列表，格式为 `"SheetID$A1:B2"`（列使用字母表示，A=第0列，B=第1列，以此类推）
+
+---
+
+## 20. set_dimension_size
+
+### 功能说明
+设置在线表格指定行的行高或指定列的列宽，支持批量设置多个行列的尺寸，也支持清除自定义尺寸恢复默认值（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "dimensions": [
+    {
+      "dimension_type": "row",
+      "index": 0,
+      "size": 40
+    },
+    {
+      "dimension_type": "col",
+      "index": 2,
+      "size": 120
+    },
+    {
+      "dimension_type": "row",
+      "index": 5,
+      "is_clear": true
     }
   ]
 }
 ```
 
 ### 参数说明
-- `file_id` (string, 必填): 表格文件唯一标识符
-- `requests` (array, 必填): 批量操作请求列表，单次请求的操作数量不大于5
-
-### 支持的操作类型
-
-#### 添加工作表
-```json
-{
-  "add_sheet": {
-    "properties": {
-      "title": "工作表标题",
-      "index": 0
-    }
-  }
-}
-```
-
-#### 更新单元格
-```json
-{
-  "update_cells": {
-    "range": "A1:B2",
-    "rows": [
-      {"values": ["值1", "值2"]},
-      {"values": ["值3", "值4"]}
-    ]
-  }
-}
-```
-
-#### 删除行列
-```json
-{
-  "delete_dimension": {
-    "range": {
-      "sheet_id": "sht1234567890",
-      "dimension": "ROWS",
-      "start_index": 5,
-      "end_index": 10
-    }
-  }
-}
-```
-
-#### 删除工作表
-```json
-{
-  "delete_sheet": {
-    "sheet_id": "sht1234567890"
-  }
-}
-```
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `dimensions` (array, 必填): 行高/列宽参数列表，每个元素包含：
+  - `dimension_type` (string, 必填): 行列类型：`"row"` | `"col"`
+  - `index` (int64, 必填): 行或列的索引（0-based）
+  - `size` (number, 可选): 行高或列宽的值（行高单位为pt，列宽单位为像素），`is_clear` 为 `true` 时该字段将被忽略
+  - `is_clear` (bool, 可选): 是否清除自定义行高/列宽并恢复默认值，为 `true` 时 `size` 字段将被忽略
 
 ### 返回值说明
 ```json
-{
-  "replies": [
-    {
-      "add_sheet": {
-        "properties": {
-          "sheet_id": "sht1234567890",
-          "title": "新工作表",
-          "index": 1
-        }
-      }
-    }
-  ],
-  "error": "",
-  "trace_id": "trace_1234567890"
-}
+{}
 ```
-
----
-
-## 典型工作流示例
-
-### 工作流 1：查询表格信息并获取数据
-
-```bash
-# 1. 获取表格基本信息
-mcporter call "tencent-docs.GetSheetInfo" --args '{"file_id":"sheet_1234567890"}'
-
-# 2. 获取指定范围的数据
-mcporter call "tencent-docs.GetSheetRange" --args '{"file_id":"sheet_1234567890","range":"A1:C10"}'
-```
-
-# 2. 批量更新表格内容
-
-```bash
-# 1. 批量更新单元格内容
-mcporter call "tencent-docs.BatchUpdateSheet" --args '{
-  "file_id": "sheet_1234567890",
-  "requests": [
-    {
-      "update_cells": {
-        "range": "A1:B2",
-        "rows": [
-          {"values": ["标题1", "标题2"]},
-          {"values": ["数据1", "数据2"]}
-        ]
-      }
-    }
-  ]
-}'
-```
-
-### 工作流 3：管理工作表结构
-
-```bash
-# 1. 添加新工作表
-mcporter call "tencent-docs.BatchUpdateSheet" --args '{
-  "file_id": "sheet_1234567890",
-  "requests": [
-    {
-      "add_sheet": {
-        "properties": {
-          "title": "2024年数据"
-        }
-      }
-    }
-  ]
-}'
-
-# 2. 删除不需要的工作表
-mcporter call "tencent-docs.BatchUpdateSheet" --args '{
-  "file_id": "sheet_1234567890",
-  "requests": [
-    {
-      "delete_sheet": {
-        "sheet_id": "sht1234567890"
-      }
-    }
-  ]
-}'
-```
-
----
-
-## 注意事项
-
-### 范围限制
-- `GetSheetRange` 单次查询范围限制：行数≤1000，列数≤200，单元格总数≤10000
-- `BatchUpdateSheet` 单次请求的操作数量不大于5
-
-### 数据格式
-- 单元格数据使用二维数组表示，第一维是行，第二维是列
-- 空单元格使用空字符串表示
-- 数值类型的数据会自动转换为字符串
-
-### 性能建议
-- 对于大数据量的更新，建议使用 `BatchUpdateSheet` 进行批量操作
-- 查询大范围数据时，建议分页获取数据
-- 避免频繁的小范围更新操作
-
-### 错误处理
-- 如果范围超出表格边界，会返回错误信息
-- 如果工作表不存在，会返回相应的错误提示
-- 批量操作中某个操作失败时，整个批量操作会回滚

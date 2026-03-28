@@ -87,8 +87,20 @@ _tdoc_save_token() {
     local token="$1"
     [[ -z "$token" ]] && return 1
 
-    # 使用传入的 token 写入 mcporter 配置
+    # 使用传入的 token 写入 mcporter 配置（tencent-docs）
     mcporter config add "$_TDOC_SERVICE_NAME" "$_TDOC_MCP_URL" \
+        --header "Authorization=$token" \
+        --transport http \
+        --scope home
+
+    # 同时配置 tencent-docengine（DOC 编辑引擎，独立 API 端点，复用同一 Token）
+    mcporter config add tencent-docengine "https://docs.qq.com/api/v6/doc/mcp" \
+        --header "Authorization=$token" \
+        --transport http \
+        --scope home
+    
+    # 同时配置 tencent-sheetengine（Sheet编辑引擎，独立 API 端点，复用同一 Token）
+    mcporter config add tencent-sheetengine "https://docs.qq.com/api/v6/sheet/mcp" \
         --header "Authorization=$token" \
         --transport http \
         --scope home
@@ -99,21 +111,42 @@ _tdoc_save_token() {
 
     echo "🧪 验证配置..."
     if mcporter list 2>&1 | grep -q "$_TDOC_SERVICE_NAME"; then
-        echo "✅ 配置验证成功！"
+        echo "✅ tencent-docs 配置验证成功！"
         echo ""
         mcporter list | grep -A 1 "$_TDOC_SERVICE_NAME" || true
     else
-        echo "⚠️  配置验证失败，请检查网络或 Token 是否有效"
-        echo ""
-        echo "如有问题，请访问 ${_TDOC_API_BASE}/scenario/open-claw.html?nlc=1 获取 Token"
+        echo "⚠️  tencent-docs 配置验证失败，请检查网络或 Token 是否有效"
     fi
+
+    if mcporter list 2>&1 | grep -q "tencent-docengine"; then
+        echo "✅ tencent-docengine 配置验证成功！"
+        echo ""
+        mcporter list | grep -A 1 "tencent-docengine" || true
+    else
+        echo "⚠️  tencent-docengine 配置验证失败，请检查网络或 Token 是否有效"
+    fi
+
+    if mcporter list 2>&1 | grep -q "tencent-sheetengine"; then
+        echo "✅ tencent-sheetengine 配置验证成功！"
+        echo ""
+        mcporter list | grep -A 1 "tencent-sheetengine" || true
+    else
+        echo "⚠️  tencent-sheetengine 配置验证失败，请检查网络或 Token 是否有效"
+    fi
+
+    echo ""
+    echo "如有问题，请访问 ${_TDOC_API_BASE}/scenario/open-claw.html?nlc=1 获取 Token"
 
     echo ""
     echo "─────────────────────────────────────"
     echo "🎉 设置完成！"
     echo ""
     echo "📖 使用方法："
-    echo "   mcporter call${_TDOC_SERVICE_NAME}.create_smartcanvas_by_markdown"
+    echo "   mcporter call ${_TDOC_SERVICE_NAME}.create_smartcanvas_by_markdown"
+    echo "   mcporter call tencent-docengine.find"
+    echo "   mcporter call tencent-docengine.insert_text"
+    echo "   mcporter call tencent-sheetengine.get_sheet_info"
+    echo "   mcporter call tencent-sheetengine.set_cell_value"
     echo ""
     echo "🏠 腾讯文档主页：${_TDOC_API_BASE}/home"
     echo ""
