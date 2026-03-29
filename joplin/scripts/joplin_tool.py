@@ -5,15 +5,49 @@ import json
 import click
 import httpx
 from pathlib import Path
-from dotenv import load_dotenv
 from typing import Optional, Dict, Any, List, Union
 
-# Load .env from project root
-dotenv_path = Path(__file__).parents[2] / ".env"
-load_dotenv(dotenv_path)
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
 
-JOPLIN_TOKEN = os.getenv("JOPLIN_TOKEN")
-JOPLIN_BASE_URL = os.getenv("JOPLIN_BASE_URL", "http://localhost:41184")
+
+def _find_config() -> Path:
+    """查找配置文件（与 rspeak 相同的策略）"""
+    skill_dir = Path(__file__).resolve().parent.parent
+
+    candidates = [
+        Path.cwd() / "agent_config.toml",
+        skill_dir / "agent_config.toml",
+    ]
+
+    for parent in Path.cwd().parents:
+        if (parent / ".git").exists():
+            candidates.append(parent / "agent_config.toml")
+            break
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    raise FileNotFoundError(
+        f"未找到 agent_config.toml\n"
+        f"搜索了: {', '.join(str(c) for c in candidates)}"
+    )
+
+
+CONFIG_PATH = _find_config()
+
+try:
+    _config = tomllib.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+except Exception as e:
+    print(f"Error loading config: {e}", file=sys.stderr)
+    sys.exit(1)
+
+_joplin_config = _config.get("joplin", {})
+JOPLIN_TOKEN = _joplin_config.get("token", "")
+JOPLIN_BASE_URL = _joplin_config.get("base_url", "http://localhost:41184")
 
 class JoplinClient:
     def __init__(self, token: str, base_url: str):
@@ -221,18 +255,24 @@ def note_get(id):
 
 @note.command(name="create")
 @click.option("--title", "-t", required=True)
-@click.option("--body", "-b", default="")
+@click.option("--body", "-b", default="", help="Note body (short text). For long content, use --body-from instead.")
+@click.option("--body-from", "-f", type=click.Path(exists=True), help="Read note body from a file path.")
 @click.option("--parent", "-p", help="Folder ID")
-def note_create(title, body, parent):
+def note_create(title, body, body_from, parent):
+    if body_from:
+        body = Path(body_from).read_text(encoding="utf-8")
     client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.create_note(title, body, parent), indent=2))
 
 @note.command(name="update")
 @click.argument("id")
 @click.option("--title", "-t")
-@click.option("--body", "-b")
+@click.option("--body", "-b", help="Note body (short text). For long content, use --body-from instead.")
+@click.option("--body-from", "-f", type=click.Path(exists=True), help="Read note body from a file path.")
 @click.option("--parent", "-p")
-def note_update(id, title, body, parent):
+def note_update(id, title, body, body_from, parent):
+    if body_from:
+        body = Path(body_from).read_text(encoding="utf-8")
     client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
     kwargs = {}
     if title: kwargs["title"] = title

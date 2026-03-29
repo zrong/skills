@@ -25,8 +25,9 @@ description: 完整的 Joplin REST API 客户端，支持笔记(Notes)、笔记�
 ### 2. 笔记 (Note)
 - **列出笔记**: `note list [--limit 10] [--page 1] [--fields "id,title"] [--order-by "updated_time"] [--order-dir "DESC"]`
 - **获取详情**: `note get <id>`
-- **创建笔记**: `note create --title "标题" --body "内容" [--parent <folder_id>]`
-- **更新笔记**: `note update <id> [--title "新标题"] [--body "新内容"] [--parent <new_folder_id>]`
+- **创建笔记**: `note create --title "标题" [--body "内容"] [--body-from <文件路径>] [--parent <folder_id>]`
+  - `--body` 适用于短文本；长文本或含有多行内容的，推荐用 `--body-from <文件路径>` 从本地文件读取
+- **更新笔记**: `note update <id> [--title "新标题"] [--body "新内容"] [--body-from <文件路径>] [--parent <new_folder_id>]`
 - **删除笔记**: `note delete <id>`
 - **查看笔记标签**: `note tags <id>`
 - **查看笔记资源**: `note resources <id>`
