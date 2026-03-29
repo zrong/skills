@@ -79,6 +79,15 @@ MCP 服务器自动部署工具。
 - 支持抽帧分析和原生视频输入两种模式
 - 多模型配置（豆包、GPT-4o 等 OpenAI 兼容 API）
 
+### image-generation
+
+AI 图片生成工具，通过 OpenAI/Gemini 兼容 API 生成图片。
+
+- 当用户说"生成图片"、"画图"、"封面图"、"配图"、"AI生图"时自动激活
+- 支持多 provider 配置（OpenAI 兼容 / Gemini 兼容）
+- 支持从 API 动态获取可用模型列表
+- 自动将中文 prompt 优化为英文，提升生成效果
+
 ### joplin
 
 用于调用 Joplin REST API 读写笔记、查询笔记本、搜索内容等。
@@ -89,6 +98,9 @@ MCP 服务器自动部署工具。
 - 自动读取 `.env` 中的 API Token
 
 ## 更新记录
+
+### 2026-03-29
+- 新增 image-generation skill：AI 图片生成工具，支持多 provider（OpenAI/Gemini 兼容 API），支持模型列表查询和 prompt 优化
 
 ### 2026-03-28
 - 升级 tencent-docs skill 到 v1.0.21：同步官方压缩包内容，新增 smartcanvas/diagram/slide/docengine/workflows 等参考文档，更新入口说明与版本元数据
