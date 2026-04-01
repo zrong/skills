@@ -317,7 +317,7 @@ def _sync_tasks_to_note(note_id: str, note_body: str, tasks_by_date: dict[str, l
 
                 for task in tasks_by_date[date_str]:
                     if task["id"] not in existing_ids:
-                        task_line = f"- [{task['title']}](#vikunja:{task['id']})"
+                        task_line = f"- [x] [{task['title']}](#vikunja:{task['id']})"
                         new_lines.append(task_line)
                         modified = True
 
