@@ -31,10 +31,11 @@ if sys.version_info < (3, 13):
 # ============================================================
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-CONFIG_TEMPLATE = SCRIPT_DIR.parent / "config" / "accounts.template.toml"
+SKILL_DIR = SCRIPT_DIR.parent
+CONFIG_SECTION = "email"
 
 DEFAULT_ACCOUNT = "qqmail"
-DEFAULT_CONFIG = "email_config.toml"
+DEFAULT_CONFIG = "agent_config.toml"
 
 
 # ============================================================
@@ -112,21 +113,63 @@ def _load_dotenv():
             os.environ[key] = value
 
 
-def _resolve_config_path(config_arg: str) -> Path:
-    """解析配置文件路径（相对于 cwd）。"""
-    p = Path(config_arg)
-    if not p.is_absolute():
-        p = Path.cwd() / p
-    return p
+def _find_config() -> Path:
+    """查找 agent_config.toml 配置文件（三位置发现策略）。
+
+    优先级（从高到低）：
+    1. 当前工作目录（CWD）/agent_config.toml
+    2. Skill 目录（SKILL_DIR）/agent_config.toml
+    3. 向上查找 .git 所在目录/agent_config.toml
+    """
+    candidates = [
+        Path.cwd() / "agent_config.toml",
+        SKILL_DIR / "agent_config.toml",
+    ]
+    for parent in Path.cwd().parents:
+        if (parent / ".git").exists():
+            candidates.append(parent / "agent_config.toml")
+            break
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    searched = ", ".join(str(c) for c in candidates)
+    die(
+        f"未找到 agent_config.toml\n"
+        f"搜索了: {searched}\n"
+        f"请复制 {SKILL_DIR / 'agent_config.example.toml'} 为 agent_config.toml 并填入实际值"
+    )
+
+
+def _resolve_config_path(config_arg: str | None) -> Path:
+    """解析配置文件路径。
+
+    - 显式路径：直接解析（相对 cwd）
+    - 默认值：使用三位置发现策略
+    """
+    if config_arg:
+        p = Path(config_arg)
+        if not p.is_absolute():
+            p = Path.cwd() / p
+        return p
+    return _find_config()
 
 
 def load_account(config_path: Path, account_name: str) -> dict:
-    """从配置文件加载账户，密码从环境变量 EMAIL_{ACCOUNT}_PASSWORD 读取。"""
+    """从 agent_config.toml 加载账户，密码优先从环境变量读取。
+
+    密码优先级：
+    1. .env 文件中的 EMAIL_{ACCOUNT}_PASSWORD 环境变量
+    2. agent_config.toml 中账户的 password 字段
+    """
     if not config_path.exists():
         die(f"Config file not found: {config_path}\nRun 'email_tool.py init' to create one.")
     with open(config_path, "rb") as f:
         config = tomllib.load(f)
-    accounts = config.get("accounts", {})
+
+    email_config = config.get(CONFIG_SECTION, {})
+    accounts = email_config.get("accounts", {})
     if account_name not in accounts:
         available = ", ".join(accounts.keys()) or "(none)"
         die(f"Account '{account_name}' not found. Available: {available}")
@@ -134,9 +177,12 @@ def load_account(config_path: Path, account_name: str) -> dict:
 
     _load_dotenv()
     env_key = f"EMAIL_{account_name.upper()}_PASSWORD"
-    password = os.environ.get(env_key, "")
+    password = os.environ.get(env_key, "") or acct.get("password", "")
     if not password:
-        die(f"Password not found. Set {env_key} in .env or environment.")
+        die(
+            f"Password not found for account '{account_name}'.\n"
+            f"Set {env_key} in .env, or add 'password' to [email.accounts.{account_name}] in agent_config.toml"
+        )
 
     return {
         "host": acct.get("imap_host", "imap.qq.com"),
@@ -292,14 +338,15 @@ def _fetch_subjects(imap: imaplib.IMAP4_SSL, uid_list: list[bytes]) -> list[str]
 
 def cmd_init(args):
     """交互式初始化配置文件。"""
-    config_path = _resolve_config_path(args.config)
+    default_config_path = Path.cwd() / DEFAULT_CONFIG
     env_path = Path.cwd() / ".env"
 
     # 询问配置保存路径
-    print(f"Config file path [{config_path}]: ", end="", flush=True)
+    print(f"Config file path [{default_config_path}]: ", end="", flush=True)
     user_path = input().strip()
-    if user_path:
-        config_path = _resolve_config_path(user_path)
+    config_path = Path(user_path) if user_path else default_config_path
+    if not config_path.is_absolute():
+        config_path = Path.cwd() / config_path
 
     # 询问账户信息
     print(f"Account name [{DEFAULT_ACCOUNT}]: ", end="", flush=True)
@@ -329,31 +376,54 @@ def cmd_init(args):
     if not password:
         die("Password is required.")
 
-    # 写入配置文件（非敏感信息）
-    toml_content = f"""# 邮箱账户配置
-# 密码从环境变量读取：EMAIL_{{ACCOUNT}}_PASSWORD（account 大写）
-# 环境变量在项目 .env 文件中配置
+    # 构建账户区块内容
+    account_section = (
+        f'[email.accounts.{account_name}]\n'
+        f'email = "{email_addr}"\n'
+        f'imap_host = "{imap_host}"\n'
+        f'imap_port = {imap_port}\n'
+        f'smtp_host = "{smtp_host}"\n'
+        f'smtp_port = {smtp_port}\n'
+        f'password = "{password}"\n'
+    )
 
-[accounts.{account_name}]
-email = "{email_addr}"
-imap_host = "{imap_host}"
-imap_port = {imap_port}
-smtp_host = "{smtp_host}"
-smtp_port = {smtp_port}
-"""
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(toml_content)
+
+    if config_path.exists():
+        # 追加到已有配置文件，不覆盖其他 skill 配置
+        existing = config_path.read_text(encoding="utf-8")
+        with open(config_path, "rb") as f:
+            existing_config = tomllib.load(f)
+
+        email_accounts = existing_config.get(CONFIG_SECTION, {}).get("accounts", {})
+        if account_name in email_accounts:
+            info(f"Account '{account_name}' already exists in {config_path}, overwriting...")
+
+        # 确保文件以换行结尾
+        if not existing.endswith("\n"):
+            existing += "\n"
+        existing += "\n" + account_section
+        config_path.write_text(existing, encoding="utf-8")
+    else:
+        # 创建新配置文件
+        header = (
+            "# Skill 配置文件（多 skill 共用，按 [skill名] 分区）\n"
+            "# 密码优先从 .env 环境变量 EMAIL_{ACCOUNT}_PASSWORD 读取\n"
+            "# 也可直接在账户配置中填写 password 字段\n"
+            "\n"
+        )
+        config_path.write_text(header + account_section, encoding="utf-8")
+
     info(f"Config saved to: {config_path}")
 
-    # 写入 .env（追加，不覆盖已有内容）
+    # 同时写入 .env（追加，不覆盖已有内容）
     env_key = f"EMAIL_{account_name.upper()}_PASSWORD"
     env_line = f"{env_key}={password}\n"
 
     if env_path.exists():
-        existing = env_path.read_text()
-        if env_key in existing:
-            # 替换已有的同名变量
-            lines = existing.splitlines(keepends=True)
+        existing_env = env_path.read_text()
+        if env_key in existing_env:
+            lines = existing_env.splitlines(keepends=True)
             new_lines = []
             for line in lines:
                 if line.strip().startswith(f"{env_key}="):
@@ -798,8 +868,8 @@ def build_parser():
     )
     parser.add_argument("--account", default=DEFAULT_ACCOUNT,
                         help=f"账户名（配置文件中的 key，默认: {DEFAULT_ACCOUNT}）")
-    parser.add_argument("--config", default=DEFAULT_CONFIG,
-                        help=f"配置文件路径（默认: {DEFAULT_CONFIG}）")
+    parser.add_argument("--config", default=None,
+                        help="配置文件路径（默认使用 agent_config.toml 发现策略）")
 
     sub = parser.add_subparsers(dest="command")
 

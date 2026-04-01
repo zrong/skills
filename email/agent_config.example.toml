@@ -1,0 +1,21 @@
+# Skill 配置文件（多 skill 共用，按 [skill名] 分区）
+# 复制到项目根目录为 agent_config.toml 并填入实际值
+# 也可使用 email_tool.py init 交互式创建配置
+
+[email.accounts.qqmail]
+email = "your_email@example.com"
+imap_host = "imap.qq.com"
+imap_port = 993
+smtp_host = "smtp.qq.com"
+smtp_port = 465
+# 密码可选填：优先从 .env 环境变量 EMAIL_{ACCOUNT}_PASSWORD 读取
+# password = ""
+
+# 添加更多账户：
+# [email.accounts.gmail]
+# email = "you@gmail.com"
+# imap_host = "imap.gmail.com"
+# imap_port = 993
+# smtp_host = "smtp.gmail.com"
+# smtp_port = 465
+# password = ""

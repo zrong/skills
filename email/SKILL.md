@@ -23,41 +23,45 @@ python3 scripts/email_tool.py init
 ```
 
 会依次询问：
-1. 配置文件保存路径（默认 `email_config.toml`，保存在当前项目目录）
+1. 配置文件保存路径（默认 `agent_config.toml`，保存在当前项目目录）
 2. 账户名（默认 `qqmail`）
 3. 邮箱地址、IMAP/SMTP 服务器信息
 4. 密码/授权码
 
 结果：
-- 非敏感信息写入配置文件（如 `email_config.toml`）
-- 密码追加到项目 `.env` 文件（不覆盖已有内容）
+- 配置（含密码）写入 `agent_config.toml`（与其他 skill 共用同一配置文件）
+- 密码同时写入 `.env`（优先级更高）
 - 自动将 `.env` 加入 `.gitignore`
 - 自动测试 IMAP 连接
 
 ## 配置说明
 
-**配置文件**（非敏感，可提交到仓库）：
+配置文件为 `agent_config.toml`（多 skill 共用，按 `[skill名]` 分区）。
+查找策略：当前目录 → skill 目录 → git 根目录。
+模板位于 skill 目录的 `agent_config.example.toml`。
+
+**agent_config.toml**（`[email]` 区块）：
 ```toml
-[accounts.qqmail]
+[email.accounts.qqmail]
 email = "user@example.com"
 imap_host = "imap.qq.com"
 imap_port = 993
+smtp_host = "smtp.qq.com"
+smtp_port = 465
+password = "your_app_password"
 ```
 
-**项目 .env 文件**（敏感，已 gitignore）：
-```
-EMAIL_QQMAIL_PASSWORD=your_app_password
-```
+**密码优先级**（从高到低）：
+1. `.env` 文件中的 `EMAIL_{ACCOUNT}_PASSWORD` 环境变量
+2. `agent_config.toml` 中账户的 `password` 字段
 
 环境变量命名规则：`EMAIL_{ACCOUNT}_PASSWORD`，ACCOUNT 为账户名大写。
-
-配置文件模板位于 `config/accounts.template.toml`。
 
 ## 脚本路径
 
 相对于 skill 安装目录：`scripts/email_tool.py`
 
-所有命令在**项目目录**下执行（`.env` 和配置文件从 cwd 读取）。
+所有命令在**项目目录**下执行（配置文件通过三位置发现策略自动查找）。
 
 ## 命令速查
 
@@ -73,7 +77,7 @@ EMAIL_QQMAIL_PASSWORD=your_app_password
 
 ## 通用参数
 
-- `--config PATH`：配置文件路径（默认 `email_config.toml`，相对于 cwd）
+- `--config PATH`：配置文件路径（默认使用 agent_config.toml 三位置发现策略）
 - `--account NAME`：账户名（默认 qqmail）
 - `--subject TEXT`：主题关键词搜索
 - `--sender TEXT`：发件人搜索
@@ -88,12 +92,12 @@ EMAIL_QQMAIL_PASSWORD=your_app_password
 ```bash
 email_tool.py init
 # 或指定配置路径
-email_tool.py --config my_email.toml init
+email_tool.py --config /path/to/agent_config.toml init
 ```
 
 交互式询问账户信息，自动：
-- 创建配置文件（非敏感信息）
-- 将密码追加到 `.env`（不覆盖已有内容）
+- 创建或追加到 `agent_config.toml`（`[email.accounts.{name}]` 区块）
+- 将密码同时写入 `.env`（不覆盖已有内容）
 - 将 `.env` 加入 `.gitignore`
 - 测试 IMAP 连接
 
@@ -151,7 +155,7 @@ email_tool.py search-links --sender "didifapiao"
 
 1. **Python 版本**：必须 3.13+，无第三方依赖
 2. **QQ 邮箱**需要使用**授权码**（非登录密码），在 QQ 邮箱设置 → 账户 → IMAP 服务中生成
-3. **密码安全**：密码仅存放在项目 `.env` 中，通过环境变量 `EMAIL_{ACCOUNT}_PASSWORD` 读取
+3. **密码安全**：密码可存放在 `agent_config.toml` 的 `password` 字段中，或通过环境变量 `EMAIL_{ACCOUNT}_PASSWORD` 读取（环境变量优先）
 4. IMAP 搜索支持中文（自动使用 UTF-8 charset）
 5. **QQ Mail BEFORE bug**：QQ 邮箱 IMAP 在 CHARSET UTF-8 模式下 `BEFORE` 关键词返回空结果。工具已自动处理：服务端只发 `SINCE`，`BEFORE` 在本地按 Date 头过滤
 6. `move` 命令默认 dry run，必须加 `--yes` 才执行
