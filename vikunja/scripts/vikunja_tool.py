@@ -95,7 +95,7 @@ class VikunjaClient:
     def list_tasks(self, page: int = 1, per_page: int = 50, **filters):
         params = {"page": page, "per_page": per_page}
         params.update(filters)
-        return self._request("GET", "tasks/all", params=params)
+        return self._request("GET", "tasks", params=params)
 
     def get_task(self, task_id: int):
         return self._request("GET", f"tasks/{task_id}")
@@ -152,14 +152,16 @@ def list_tasks(project, done, week, limit):
     if done:
         done_filter = 'done = true'
         if "filter" in filters:
-            filters["filter"] += f" AND {done_filter}"
+            filters["filter"] += f" && {done_filter}"
         else:
             filters["filter"] = done_filter
     if week:
         monday, sunday = _week_range(week)
-        week_filter = f'done_at >= "{monday.isoformat()}" AND done_at <= "{sunday.isoformat()}"'
+        utc_monday = monday.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        utc_sunday = sunday.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        week_filter = f'done_at >= "{utc_monday}" && done_at <= "{utc_sunday}"'
         if "filter" in filters:
-            filters["filter"] += f" AND {week_filter}"
+            filters["filter"] += f" && {week_filter}"
         else:
             filters["filter"] = week_filter
 
@@ -225,17 +227,13 @@ def _week_range(week_str: str) -> tuple:
 def _parse_week_from_note_title(title: str) -> Optional[str]:
     """从笔记标题解析 ISO 周字符串。
 
-    标题格式: '2026-03-14weeks' → 返回该周对应的 ISO 周字符串如 '2026-W14'
+    标题格式: '2026-03-14weeks' → '2026-W14'（03 是月份，仅作展示用途）
     """
-    m = re.match(r"(\d{4})-(\d{2})-(\d{1,2})weeks", title)
+    m = re.match(r"(\d{4})-\d{2}-(\d{1,2})weeks", title)
     if not m:
         return None
-    year, month, week_num = int(m.group(1)), int(m.group(2)), int(m.group(3))
-    # 用该月第 week_num 个周一作为锚点计算
-    first_day = datetime(year, month, 1)
-    first_monday = first_day + timedelta(days=(7 - first_day.weekday()) % 7)
-    target_monday = first_monday + timedelta(weeks=week_num - 1)
-    return target_monday.strftime("%G-W%V")
+    year, week_num = int(m.group(1)), int(m.group(2))
+    return f"{year}-W{week_num:02d}"
 
 
 def _find_weekly_note(target_week_str: str) -> Optional[dict]:
@@ -258,12 +256,14 @@ def _find_weekly_note(target_week_str: str) -> Optional[dict]:
 
 def _get_vikunja_tasks_for_week(client: VikunjaClient, monday: datetime, sunday: datetime) -> list:
     """获取 Vikunja 中指定周已完成的任务"""
+    utc_monday = monday.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    utc_sunday = sunday.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     all_tasks = []
     page = 1
     while True:
         result = client.list_tasks(
             page=page, per_page=100,
-            **{"filter": f'done = true AND done_at >= "{monday.isoformat()}" AND done_at <= "{sunday.isoformat()}"'}
+            **{"filter": f'done = true && done_at >= "{utc_monday}" && done_at <= "{utc_sunday}"'}
         )
         tasks = result if isinstance(result, list) else result.get("items", [])
         all_tasks.extend(tasks)
@@ -278,10 +278,10 @@ def _group_tasks_by_date(tasks: list) -> dict[str, list]:
     tz = timezone(timedelta(hours=8))
     groups: dict[str, list] = {}
     for task in tasks:
-        done_at = task.get("done_at", 0)
-        if done_at == 0:
+        done_at = task.get("done_at", "")
+        if not done_at:
             continue
-        dt = datetime.fromtimestamp(done_at, tz=tz)
+        dt = datetime.fromisoformat(done_at.replace("Z", "+00:00")).astimezone(tz)
         date_str = dt.strftime("%Y-%m-%d")
         groups.setdefault(date_str, []).append(task)
     return groups
