@@ -302,6 +302,15 @@ def _sync_tasks_to_note(note_id: str, note_body: str, tasks_by_date: dict[str, l
     modified = False
 
     while i < len(lines):
+        # 修复已有 Vikunja 任务缺少 [x] 的格式
+        vikunja_fix = re.match(r"^- \[(.+?)\]\(#vikunja:(\d+)\)$", lines[i])
+        if not vikunja_fix or vikunja_fix.group(1) != "x":
+            # 匹配 "- [title](#vikunja:id)" 但不是 "- [x] [title](#vikunja:id)"
+            old_format = re.match(r"^- \[(?!x\] )(.+?)\]\(#vikunja:(\d+)\)$", lines[i])
+            if old_format:
+                lines[i] = f"- [x] [{old_format.group(1)}](#vikunja:{old_format.group(2)})"
+                modified = True
+
         new_lines.append(lines[i])
 
         # 检测 "# YYYY-MM-DD DayName" 格式的日期标题
@@ -312,6 +321,11 @@ def _sync_tasks_to_note(note_id: str, note_body: str, tasks_by_date: dict[str, l
                 # 找到这个日期下的任务列表末尾，然后追加新任务
                 j = i + 1
                 while j < len(lines) and lines[j].strip() != "" and not lines[j].startswith("# "):
+                    # 同样修复子行格式
+                    old_fmt = re.match(r"^- \[(?!x\] )(.+?)\]\(#vikunja:(\d+)\)$", lines[j])
+                    if old_fmt:
+                        lines[j] = f"- [x] [{old_fmt.group(1)}](#vikunja:{old_fmt.group(2)})"
+                        modified = True
                     new_lines.append(lines[j])
                     j += 1
 
