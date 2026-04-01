@@ -1,0 +1,13 @@
+[project]
+name = "vikunja-tool"
+version = "0.1.0"
+description = "Vikunja API tool for syncing tasks to Joplin."
+requires-python = ">=3.13"
+dependencies = [
+    "httpx",
+    "click",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
