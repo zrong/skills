@@ -769,3 +769,89 @@
 ```json
 {}
 ```
+
+---
+
+## 21. add_sheet
+
+### 功能说明
+在在线表格中添加一个新的子表，支持指定子表名称和位置（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "name": "新子表",
+  "index": 0,
+  "append_index": false
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `name` (string, 可选): 子表名称，长度限制为 31 个字符，不传则使用默认名称
+- `index` (int64, 可选): 子表位置索引（0-based），不传或 `append_index` 为 `true` 时追加到末尾
+- `append_index` (bool, 可选): 是否追加到末尾，为 `true` 时 `index` 字段将被忽略
+
+> 注意：此工具不需要 `sheet_id` 参数，用于创建新的子表。
+
+### 返回值说明
+```json
+{
+  "sheet_id": "new_sheet_001"
+}
+```
+- `sheet_id` (string): 新创建的子表 ID
+
+---
+
+## 22. delete_sheet
+
+### 功能说明
+删除在线表格中指定的子表（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001"
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 要删除的子表 ID
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 23. rename_sheet
+
+### 功能说明
+重命名在线表格中指定的子表（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "name": "新名称"
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `name` (string, 必填): 新的子表名称，长度限制为 31 个字符
+
+### 返回值说明
+```json
+{}
+```

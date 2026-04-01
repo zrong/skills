@@ -7,7 +7,7 @@
 > **操作优先级说明：请按以下顺序选择合适的操作方式。**
 
 **🥇 优先使用（重点1）：** 对于以下明确支持的操作，**必须优先**使用 `api/mcp-api.md` 内的接口处理：
-设置单元格值、批量设置单元格值、设置单元格样式、合并/取消合并单元格、插入/删除行列、设置行高列宽、冻结/取消冻结行列、筛选、超链接、清除内容/样式、获取子表信息、获取单元格数据、获取合并单元格信息。
+设置单元格值、批量设置单元格值、设置单元格样式、合并/取消合并单元格、插入/删除行列、设置行高列宽、冻结/取消冻结行列、筛选、超链接、清除内容/样式、获取子表信息、获取单元格数据、获取合并单元格信息、插入删除重命名子表。
 
 **🥈 次选使用（重点2）：** 当上述接口无法满足需求时（如涉及更复杂的表格操作），再考虑使用 `api/operation-api.md` 的 `OperationSheet` 完成。
 
@@ -15,13 +15,13 @@
 
 ## 服务信息
 
-| 项目 | 说明 |
-|------|------|
-| 服务名 | `tencent-sheetengine` |
-| API 地址 | `https://docs.qq.com/api/v6/sheet/mcp` |
-| 调用方式 | `mcporter call tencent-sheetengine <工具名>` |
-| Token | 与 tencent-docs **共用同一个 Token**，完成 tencent-docs 授权后自动配置，无需单独鉴权 |
-| 文档类型 | 仅支持 Sheet 文档类型 |
+| 项目     | 说明                                                                                 |
+| -------- | ------------------------------------------------------------------------------------ |
+| 服务名   | `tencent-sheetengine`                                                                |
+| API 地址 | `https://docs.qq.com/api/v6/sheet/mcp`                                               |
+| 调用方式 | `mcporter call tencent-sheetengine <工具名>`                                         |
+| Token    | 与 tencent-docs **共用同一个 Token**，完成 tencent-docs 授权后自动配置，无需单独鉴权 |
+| 文档类型 | 仅支持 Sheet 文档类型                                                                |
 
 ---
 
@@ -37,28 +37,31 @@
 
 ## 工具列表
 
-| 工具名称 | 功能说明 |
-|---------|---------|
-| set_cell_value | 设置单个单元格的值 |
-| set_range_value | 批量设置单元格的值 |
-| set_cell_style | 设置单个单元格的样式 |
-| merge_cell | 合并单元格 |
-| insert_dimension | 插入行或列 |
-| delete_dimension | 删除行或列 |
-| set_freeze | 设置冻结行列 |
-| set_filter | 设置筛选 |
-| remove_filter | 移除筛选 |
-| set_link | 设置单元格超链接 |
-| clear_link | 清除单元格超链接 |
-| clear_range_cells | 清除区域单元格内容 |
-| clear_range_style | 清除区域单元格样式 |
-| get_sheet_info | 获取子表信息 |
-| clear_range_all | 清空区域内容和样式 |
-| unset_freeze | 删除所有冻结 |
-| unmerge_cell | 取消合并单元格 |
-| get_cell_data | 获取单元格数据 |
-| get_merged_cells | 获取合并单元格信息 |
-| set_dimension_size | 设置行高或列宽 |
+| 工具名称           | 功能说明             |
+| ------------------ | -------------------- |
+| set_cell_value     | 设置单个单元格的值   |
+| set_range_value    | 批量设置单元格的值   |
+| set_cell_style     | 设置单个单元格的样式 |
+| merge_cell         | 合并单元格           |
+| insert_dimension   | 插入行或列           |
+| delete_dimension   | 删除行或列           |
+| set_freeze         | 设置冻结行列         |
+| set_filter         | 设置筛选             |
+| remove_filter      | 移除筛选             |
+| set_link           | 设置单元格超链接     |
+| clear_link         | 清除单元格超链接     |
+| clear_range_cells  | 清除区域单元格内容   |
+| clear_range_style  | 清除区域单元格样式   |
+| get_sheet_info     | 获取子表信息         |
+| clear_range_all    | 清空区域内容和样式   |
+| unset_freeze       | 删除所有冻结         |
+| unmerge_cell       | 取消合并单元格       |
+| get_cell_data      | 获取单元格数据       |
+| get_merged_cells   | 获取合并单元格信息   |
+| set_dimension_size | 设置行高或列宽       |
+| add_sheet          | 增加子表             |
+| delete_sheet       | 删除子表             |
+| rename_sheet       | 重命名子表           |
 
 ---
 
@@ -129,6 +132,13 @@
 
 ```
 1. 调用tencent-sheetengine的set_dimension_size，可以设置指定行的行高或指定列的列宽，支持批量设置和清除自定义尺寸
+```
+
+### 子表管理
+```
+1. 调用tencent-sheetengine的add_sheet，可以增加子表，支持指定位置插入和尾部追加两种
+2. 调用tencent-sheetengine的delete_sheet，可以删除指定的子表
+3. 调用tencent-sheetengine的rename_sheet，可以重命名子表
 ```
 
 ### 查询接口
