@@ -97,7 +97,19 @@ AI 图片生成工具，通过 OpenAI/Gemini 兼容 API 生成图片。
 - 支持笔记搜索、内容获取、创建、列出笔记本等操作
 - 自动读取 `.env` 中的 API Token
 
+### vikunja
+
+Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
+
+- 当用户需要查看 Vikunja 项目/任务、同步任务到 Joplin 时自动激活
+- 支持列出项目和任务（按项目、完成状态、周过滤）
+- 支持将指定周的已完成任务同步到 Joplin GTD 笔记本的 weekly 笔记
+- 自动去重，带 `[x]` 标记已完成任务
+
 ## 更新记录
+
+### 2026-04-01
+- 新增 vikunja skill：Vikunja 任务管理工具，支持查看项目和任务，并将每周已完成的任务同步到 Joplin weekly 笔记
 
 ### 2026-03-29
 - 新增 image-generation skill：AI 图片生成工具，支持多 provider（OpenAI/Gemini 兼容 API），支持模型列表查询和 prompt 优化
