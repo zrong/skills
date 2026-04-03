@@ -48,7 +48,7 @@ except Exception as e:
     sys.exit(1)
 
 _vikunja_config = _config.get("vikunja", {})
-VIKUNJA_API_URL = _vikunja_config.get("api_url", "").rstrip("/")
+VIKUNJA_BASE_URL = _vikunja_config.get("base_url", "").rstrip("/")
 VIKUNJA_API_TOKEN = _vikunja_config.get("api_token", "")
 
 _joplin_config = _config.get("joplin", {})
@@ -59,13 +59,13 @@ JOPLIN_BASE_URL = _joplin_config.get("base_url", "http://localhost:41184")
 class VikunjaClient:
     """Vikunja REST API 客户端"""
 
-    def __init__(self, api_url: str, token: str):
-        self.api_url = api_url.rstrip("/")
+    def __init__(self, base_url: str, token: str):
+        self.base_url = base_url.rstrip("/")
         self.token = token
 
     def _request(self, method: str, path: str, params: Optional[Dict[str, Any]] = None,
                  json_data: Optional[Dict[str, Any]] = None):
-        url = f"{self.api_url}/{path.lstrip('/')}"
+        url = f"{self.base_url}/{path.lstrip('/')}"
         headers = {"Authorization": f"Bearer {self.token}"}
 
         try:
@@ -80,7 +80,7 @@ class VikunjaClient:
                 except json.JSONDecodeError:
                     return {"content": response.text}
         except httpx.ConnectError:
-            click.echo(f"Error: 无法连接 Vikunja API ({self.api_url})", err=True)
+            click.echo(f"Error: 无法连接 Vikunja API ({self.base_url})", err=True)
             sys.exit(1)
         except httpx.HTTPStatusError as e:
             click.echo(f"HTTP Error {e.response.status_code}: {e.response.text}", err=True)
@@ -132,7 +132,7 @@ def cli():
 @cli.command("list-projects")
 def list_projects():
     """列出所有项目"""
-    client = VikunjaClient(VIKUNJA_API_URL, VIKUNJA_API_TOKEN)
+    client = VikunjaClient(VIKUNJA_BASE_URL, VIKUNJA_API_TOKEN)
     projects = client.list_projects()
     click.echo(json.dumps(projects, indent=2, ensure_ascii=False))
 
@@ -144,7 +144,7 @@ def list_projects():
 @click.option("--limit", "-l", default=50, help="每页数量")
 def list_tasks(project, done, week, limit):
     """列出任务"""
-    client = VikunjaClient(VIKUNJA_API_URL, VIKUNJA_API_TOKEN)
+    client = VikunjaClient(VIKUNJA_BASE_URL, VIKUNJA_API_TOKEN)
     filters = {}
 
     if project:
@@ -201,7 +201,7 @@ def sync_weekly(note, week):
     click.echo(f"找到笔记: {note_data.get('title', note_id)}")
 
     # 4. 获取 Vikunja 任务
-    client = VikunjaClient(VIKUNJA_API_URL, VIKUNJA_API_TOKEN)
+    client = VikunjaClient(VIKUNJA_BASE_URL, VIKUNJA_API_TOKEN)
     tasks = _get_vikunja_tasks_for_week(client, monday, sunday)
     if not tasks:
         click.echo("该周没有已完成的任务")

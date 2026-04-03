@@ -19,7 +19,7 @@ description: Vikunja 任务管理工具，支持查看项目和任务，并将�
 
 ```toml
 [vikunja]
-api_url = "https://nas.zengrong.net:8456/api/v1"
+base_url = "https://nas.zengrong.net:8456/api/v1"
 api_token = "<your-api-token>"
 ```
 
