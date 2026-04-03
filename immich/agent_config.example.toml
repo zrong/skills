@@ -1,0 +1,13 @@
+# Immich Skill 配置示例
+# 复制此文件到项目根目录或 skill 目录，重命名为 agent_config.toml
+
+[immich]
+# Immich 服务器地址（必须包含 /api 后缀）
+base_url = "https://your-immich-server.com/api"
+
+# API 密钥（从 Immich Web 界面获取：用户设置 > API Key）
+api_key = "your-api-key-here"
+
+# 默认上传的 Album 名称（可选）
+# 如果不设置，上传时需要通过 --album 参数指定
+default_album = "My Photos"

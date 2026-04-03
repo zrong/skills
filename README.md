@@ -97,6 +97,15 @@ AI 图片生成工具，通过 OpenAI/Gemini 兼容 API 生成图片。
 - 支持笔记搜索、内容获取、创建、列出笔记本等操作
 - 自动读取 `.env` 中的 API Token
 
+### immich
+
+将图像和视频上传到 Immich 服务器。
+
+- 当用户说"上传到 Immich"、"上传图片"、"备份照片"、"上传视频"、"下载视频并上传"时自动激活
+- 支持本地文件上传、远程 URL 下载上传（yt-dlp）
+- 支持批量上传、Album 管理
+- 提供 Python SDK 和 CLI 工具
+
 ### vikunja
 
 Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
@@ -107,6 +116,9 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - 自动去重，带 `[x]` 标记已完成任务
 
 ## 更新记录
+
+### 2026-04-03
+- 新增 immich skill：将图像和视频上传到 Immich 服务器，支持本地文件上传、远程 URL 下载上传、批量上传和 Album 管理
 
 ### 2026-04-01
 - 新增 vikunja skill：Vikunja 任务管理工具，支持查看项目和任务，并将每周已完成的任务同步到 Joplin weekly 笔记
