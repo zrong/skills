@@ -1,6 +1,6 @@
 # DOC 编辑引擎 API 参考
 
-本文件包含腾讯文档 DOC 编辑引擎（docengine）的所有工具 API 说明。这些工具专用于 Word 文档的编辑操作，包括文本插入、替换、查找、段落设置、文本属性修改、任务插入、图片插入、分页符和表格插入等。
+本文件包含腾讯文档 DOC 编辑引擎（docengine）的所有工具 API 说明。这些工具专用于 Word 文档的编辑操作，包括用 Markdown 创建文档（create_with_markdown）、插入markdown(一般与创建文档组合使用，1.创建文档 2.插入markdown)，文本插入、替换、查找、段落设置、文本属性修改、任务插入、图片插入、分页符和表格插入等。
 
 > ⚠️ **注意**：本文档中的工具仅适用于 **Word 文档（doc_type: word）** 类型，不适用于智能文档（smartcanvas）等其他类型。
 
@@ -21,6 +21,8 @@
 > 编辑前推荐先调用 `get_outline` 获取文档大纲结构，了解各标题和正文的可操作位置。
 >
 > 当用户要求「在文档开头插入」时，需向用户确认是在「文档标题之前」（使用 `HEADING_LEVEL_TITLE` 的 `title_start`）还是「正文开头/标题之后」（使用 `HEADING_LEVEL_TITLE` 的 `content_start`）插入，未明确时应主动询问。
+> 
+> 当用户要求将结果写入文档时, 推荐使用 `create_with_markdown` 一步创建 Word 文档；也可以与创建文档manage.create_file组合使用，1.创建word文档 2.获取插入位置get_last_operable_pos 3.插入markdown(insert_markdown)
 
 ---
 
@@ -52,6 +54,7 @@
 
 | 工具名称 | 功能说明 |
 |---------|---------|
+| create_with_markdown | 用 Markdown 创建 Word 文档，一步完成文档创建和内容写入 |
 | find | 查找文本所在位置，返回匹配位置和上下文 |
 | insert_text | 在指定位置插入文本 |
 | insert_paragraph | 在指定位置插入段落，支持设置标题级别、编号类别和编号级别 |
@@ -73,6 +76,60 @@
 ---
 
 ## 工具详细说明
+
+## 0. create_with_markdown
+
+### 功能说明
+用 Markdown 内容直接创建一篇新的 Word 文档（DOC）。无需先调用 `manage.create_file` 再 `insert_markdown`，一步完成文档创建和内容写入。适合需要快速将 Markdown 格式内容生成为 Word 文档的场景。
+
+> ⚠️ **推荐使用 `base64_markdown` 参数**：由于 Markdown 内容中可能包含特殊字符（如换行符、引号等），直接传递可能导致 JSON 解析问题。**建议先将 Markdown 内容进行 base64 编码后，通过 `base64_markdown` 参数传递**。
+
+### 调用示例
+
+**使用 base64_markdown（推荐）：**
+```json
+{
+  "base64_markdown": "IyDmoIfpopgKCui/meaYr+S4gOautSoq5Yqg57KXKirmlofmnKzjgIIKCi0g5YiX6KGo6aG5MQotIOWIl+ihqOmhuTIKCnwg5aeT5ZCNIHwg5bm06b6EIHwKfC0tLS0tLXwtLS0tLS18Cnwg5byg5LiJIHwgMjUgfA==",
+  "title": "我的文档"
+}
+```
+
+### 参数说明
+- `base64_markdown` (string, ⭐ 推荐): Markdown 内容的 base64 编码字符串。**推荐优先使用此参数**，先将 Markdown 文本进行标准 base64 编码后传入
+- `title` (string, 可选): 文档标题。不传时使用 Markdown 内容中的第一个标题，或自动生成
+
+### 返回值说明
+```json
+{
+  "file_id": "doc_1234567890",
+  "file_url": "https://docs.qq.com/doc/xxxxxxxx",
+  "version": 1,
+  "last_index": 100
+}
+```
+- `file_id` (string): 创建的文档唯一标识符
+- `file_url` (string): 创建的文档链接，可直接在浏览器中打开
+- `version` (int64): 当前文档版本号
+- `last_index` (int64): 文档最后一个字符的索引位置，可用于后续在文档末尾追加内容
+
+### 推荐使用流程
+1. 准备好 Markdown 格式的文档内容，将其保存为 `<workspace>/.tmp/tencent_docs/<标题>.md` 文件（`<标题>` 为文档标题）
+2. 使用系统 `base64` 命令将 Markdown 文件进行 base64 编码，并将结果写入**当前工作区目录下**的文件（确保 agent 可通过 read_file 访问）：
+   ```bash
+   mkdir -p <workspace>/.tmp/tencent_docs
+   # 输入为已保存的 .md 文件，编码后写入工作区目录下的文件
+   base64 -w 0 <workspace>/.tmp/tencent_docs/<标题>.md > <workspace>/.tmp/tencent_docs/encoded_<标题>.txt
+   # 输入为文本字符串，编码后写入工作区目录下的文件
+   echo -n "# 标题\n正文内容" | base64 -w 0 > <workspace>/.tmp/tencent_docs/encoded_<标题>.txt
+   ```
+   > 💡 macOS 上使用 `base64`（无需 `-w 0` 参数），Linux 上使用 `base64 -w 0` 禁止换行
+   > ⚠️ `<workspace>` 为当前项目的工作区根目录绝对路径。文件必须保存在工作区目录下，否则 agent 的 read_file 工具无法读取。首次使用前需确保目录存在（`mkdir -p <workspace>/.tmp/tencent_docs`）
+3. 使用 read_file 工具读取工作区下的输出文件（如 `<workspace>/.tmp/tencent_docs/encoded_<标题>.txt`）获取 base64 编码后的 Markdown 内容
+4. 调用 `create_with_markdown` 传入读取到的 `base64_markdown` 和可选的 `title`
+5. 从返回值中获取 `file_url`，即可访问创建好的 Word 文档
+6. 如需继续编辑，可使用返回的 `file_id`/`file_url` 和 `last_index` 调用其他 docengine 工具
+
+---
 
 ## 1. find
 
@@ -615,7 +672,24 @@
 ### 功能说明
 在 Word 文档的指定位置插入 Markdown 格式内容。引擎会自动将 Markdown 转换为文档富文本格式，支持标题、列表、表格、链接、加粗/斜体等常见 Markdown 语法。适合需要批量插入富文本内容的场景，比直接调用多个 `insert_text`/`insert_paragraph` 更高效。
 
+> ⚠️ **推荐使用 `base64_markdown` 参数**：由于 Markdown 内容中可能包含特殊字符（如换行符、引号等），直接传递 `markdown` 参数容易导致 JSON 解析问题。**建议 agent 先将 Markdown 内容进行 base64 编码后，通过 `base64_markdown` 参数传递**。如果填写了 `base64_markdown`，则无需再填写 `markdown`。
+
 ### 调用示例
+
+**使用 base64_markdown（推荐）：**
+```json
+{
+  "file_url": "https://docs.qq.com/doc/xxxxxxxx",
+  "index": 0,
+  "base64_markdown": "IyDmoIfpopgKCui/meaYr+S4gOautSoq5Yqg57KXKirmlofmnKzjgIIKCi0g5YiX6KGo6aG5MQotIOWIl+ihqOmhuTIKCnwg5aeT5ZCNIHwg5bm06b6EIHwKfC0tLS0tLXwtLS0tLS18Cnwg5byg5LiJIHwgMjUgfA==",
+  "version_info": {
+    "base_version": 5,
+    "is_latest": false
+  }
+}
+```
+
+**使用 markdown（备选）：**
 ```json
 {
   "file_url": "https://docs.qq.com/doc/xxxxxxxx",
@@ -628,7 +702,8 @@
 - `file_url` (string, 推荐): 腾讯文档的文档链接，与 `file_id` 二选一，**推荐优先使用**
 - `file_id` (string, 可选): 文档唯一标识符，与 `file_url` 二选一
 - `index` (integer, 必填): 插入位置的索引，从 0 开始
-- `markdown` (string, 必填): Markdown 格式的文本内容，支持以下语法：
+- `base64_markdown` (string, ⭐ 首选): Markdown 内容的 base64 编码字符串。**推荐优先使用此参数**，agent 需要先将 Markdown 文本进行标准 base64 编码后传入。与 `markdown` 二选一，如果填写了 `base64_markdown` 则无需再填写 `markdown`
+- `markdown` (string, 备选): Markdown 格式的原始文本内容，与 `base64_markdown` 二选一。当未提供 `base64_markdown` 时使用此参数。支持以下语法：
   - 标题：`# H1`、`## H2`、`### H3` 等
   - 加粗/斜体：`**加粗**`、`*斜体*`
   - 链接：`[文本](URL)`
@@ -636,6 +711,11 @@
   - 有序列表：`1. 列表项`
   - 表格：使用 `|` 和 `---` 语法
   - 代码块：使用反引号包裹
+- `version_info` (object, 可选): 版本控制参数，用于指定基于哪个版本进行编辑。不传时默认基于最新版本操作。包含以下字段：
+  - `base_version` (int64, 可选): 基准版本号，通常使用 `get_last_operable_pos`、`get_outline` 或 `resolve_document_structure` 返回的 `version` 值，基于该版本继续编辑，确保编辑操作的连续性。值为 0 表示不指定
+  - `is_latest` (bool, 可选): 是否基于最新版本操作。设为 `true` 时忽略 `base_version`，直接在文档最新版本上编辑
+
+> 💡 **version_info 使用场景**：当需要连续执行多步编辑操作时（如先 `get_outline` 获取大纲，再 `insert_markdown` 插入内容），建议将前一步返回的 `version` 传入 `version_info.base_version`，以确保编辑基于同一版本，避免并发冲突。
 
 ### 返回值说明
 ```json
@@ -913,6 +993,20 @@
 
 ## 典型工作流示例
 
+### 用 Markdown 创建 Word 文档（推荐）
+
+```
+1. 准备好 Markdown 格式的文档内容，将其保存为 <workspace>/.tmp/tencent_docs/<标题>.md 文件（<标题> 为文档标题）
+2. 使用系统 base64 命令进行编码，并将结果写入工作区目录下的文件（确保 agent 可通过 read_file 访问）：
+   mkdir -p <workspace>/.tmp/tencent_docs
+   base64 -w 0 <workspace>/.tmp/tencent_docs/<标题>.md > <workspace>/.tmp/tencent_docs/encoded_<标题>.txt
+   或：echo -n "Markdown文本" | base64 -w 0 > <workspace>/.tmp/tencent_docs/encoded_<标题>.txt
+   （macOS 上无需 -w 0 参数；<workspace> 为当前项目工作区根目录绝对路径）
+3. 使用 read_file 工具读取工作区下的输出文件（如 <workspace>/.tmp/tencent_docs/encoded_<标题>.txt），获取 base64 编码后的 Markdown 内容
+4. 调用 create_with_markdown 传入 base64_markdown 和可选的 title
+5. 从返回值获取 file_url 即可访问文档；如需继续编辑，使用 file_id/file_url 和 last_index 调用其他工具
+```
+
 ### 编辑已有 Word 文档
 
 ```
@@ -1030,5 +1124,6 @@
 - `get_outline` 返回树形大纲结构，每个节点的 `content_start`/`content_end` 表示该标题下正文区域的可操作范围，可直接用作 `insert_text` 等工具的 `index` 参数
 - **「在文档开头插入」需明确位置**：用户要求在文档开头插入内容时，应先通过 `get_outline` 获取大纲，区分「文档标题前」（`HEADING_LEVEL_TITLE` 的 `title_start`）和「正文开头」（`HEADING_LEVEL_TITLE` 的 `content_start`），并向用户确认具体插入位置
 - `resolve_document_structure` 返回所有块级元素的完整结构树，`table_rows[row].cells[col].end_index` 即为对应单元格末尾可插入位置；TextBox/CodeBlock 的内部段落通过 `children` 字段获取；`logical_index` 表示节点在同级中的顺序（从 1 开始）
+- `create_with_markdown` 可一步完成 Word 文档的创建和内容写入，无需先 `manage.create_file` 再 `insert_markdown`，适合快速生成 Word 文档的场景
 - `insert_comment` 的 `range` 必须在文档有效范围内，建议先用 `find` 获取精确范围
 - `replace_image` 需要通过 `old_image_url` 或 `old_attachment_id` 定位旧图片，新图片通过 `image_id` 或 `content`（base64）指定

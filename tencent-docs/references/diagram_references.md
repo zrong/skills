@@ -62,7 +62,7 @@
 
 #### 参数说明
 - `title` (string, 必填): 流程图标题
-- `mermaid` (string, 必填): 不包含中文的 Mermaid 语法文本
+- `mermaid` (string, 必填): Mermaid 语法文本，支持中英文内容
 - `parent_id` (string, 可选): 父节点ID，为空时在空间根目录创建，不为空时在指定节点下创建
 
 #### 返回值说明
@@ -79,5 +79,4 @@
 
 ## 注意事项
 
-- `create_flowchart_by_mermaid` 的 mermaid 内容**必须全部使用英文**，不支持中文字符
 - 两个工具均支持 `parent_id` 参数，可将文档创建到指定目录；不填则在根目录创建

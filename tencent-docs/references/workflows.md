@@ -73,6 +73,31 @@
 
 ## 常见工作流
 
+### 用 Markdown 创建 Word 文档
+
+**📖 参考文档：** `docengine_references.md` — create_with_markdown
+
+使用 `tencent-docengine` 的 `create_with_markdown` 工具，可一步将 Markdown 内容创建为 Word 文档，无需先创建空文档再插入内容。
+
+> 💡 **base64 编码**：使用系统 `base64` 命令将 Markdown 内容编码后写入**工作区目录下**的文件，再通过 read_file 工具读取编码结果填入请求参数。
+
+```
+1. 准备好 Markdown 格式的文档内容，将其保存为 <workspace>/.tmp/tencent_docs/<标题>.md 文件（<标题> 为文档标题）
+2. 使用系统 base64 命令将 Markdown 文件编码并写入工作区目录下的文件（确保 agent 可通过 read_file 访问）：
+   mkdir -p <workspace>/.tmp/tencent_docs
+   # 输入为已保存的 .md 文件
+   base64 -w 0 <workspace>/.tmp/tencent_docs/<标题>.md > <workspace>/.tmp/tencent_docs/encoded_<标题>.txt
+   # 输入为文本字符串
+   echo -n "# 标题\n正文内容" | base64 -w 0 > <workspace>/.tmp/tencent_docs/encoded_<标题>.txt
+   （macOS 下不需要 -w 0 参数；<workspace> 为当前项目工作区根目录绝对路径）
+3. 使用 read_file 工具读取工作区下的输出文件（如 <workspace>/.tmp/tencent_docs/encoded_<标题>.txt），获取 base64 编码后的 Markdown 内容
+4. 调用 tencent-docengine 的 create_with_markdown，将读取到的内容填入 base64_markdown 参数，并传入可选的 title
+5. 从返回值获取 file_url 即可访问文档
+6. 如需继续编辑，使用返回的 file_id/file_url 和 last_index 调用其他 docengine 工具
+```
+
+---
+
 ### 组织文档到指定目录
 
 **📖 参考文档：** `space_references.md` — query_space_node, create_space_node；`manage_references.md` — manage.create_file

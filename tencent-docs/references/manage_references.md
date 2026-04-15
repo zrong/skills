@@ -25,7 +25,6 @@
 - [文档删除操作](#文档删除操作)
   - [manage.delete_file](#managedelete_file)
 - [文档导入操作](#文档导入操作)
-  - [manage.import_file](#manageimport_file)
   - [manage.pre_import](#managepre_import)
   - [manage.async_import](#manageasync_import)
   - [manage.import_progress](#manageimport_progress)
@@ -743,55 +742,6 @@
 
 ## 文档导入操作
 
-### manage.import_file
-
-**功能**：将本地文件导入到腾讯云文档。调用后返回task_id，必须配合 `manage.import_progress` 轮询查询导入进度（建议间隔3-5秒），直到progress=100表示导入完成。
-
-**使用场景**：
-- 将本地 docx/xlsx/pptx 等文件导入为腾讯云文档在线文档
-- 批量迁移本地文件到云端
-
-**支持的文件格式**：`xls`、`xlsx`、`csv`、`doc`、`docx`、`txt`、`text`、`ppt`、`pptx`、`pdf`、`xmind`
-
-**请求参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|-----|------|
-| `file_name` | string | ✅ | 文件名称（含后缀），如 `report.docx`。支持的文件后缀有xls,xlsx,csv,doc,docx,txt,text,ppt,pptx,pdf,xmind |
-| `file_size` | integer | ✅ | 文件大小，单位为字节(bytes)，如 `36752` |
-| `file_md5` | string | ✅ | 文件的MD5哈希值，hex编码的32位小写字符串，如 `d41d8cd98f00b204e9800998ecf8427e` |
-| `file_base64` | string | ✅ | 文件完整内容经标准Base64编码(StdEncoding)后的字符串，注意不是URL-safe编码 |
-
-**返回字段**：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `task_id` | string | 导入任务 ID，用于查询导入进度 |
-
-**调用示例**：
-
-```json
-{
-  "file_name": "report.docx",
-  "file_size": 36752,
-  "file_md5": "a1b2c3d4e5f6...",
-  "file_base64": "UEsDBBQAAAAI..."
-}
-```
-
-**返回示例**：
-
-```json
-{
-  "task_id": "144115210435508643_e52cf886-5eae-e61c-c828-a0dddb59703d",
-  "trace_id": "trace_xyz"
-}
-```
-
-> **注意**：由于 `file_base64` 字段可能非常大（文件越大 Base64 字符串越长），建议使用 `manage.pre_import` + `manage.async_import` 的两步导入方式，避免大文件超出长度限制。
-
----
-
 ### manage.pre_import
 
 **功能**：预导入文档，传入文件名称、文件大小和MD5值，返回COS上传链接和file_key。客户端根据返回的COS上传链接将文件上传后，再调用 `manage.async_import` 触发导入。
@@ -812,11 +762,11 @@
 
 **返回字段**：
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `upload_url` | string | COS上传链接，客户端需使用HTTP PUT方法将文件二进制内容上传到此URL |
+| 字段 | 类型 | 说明                                          |
+|------|------|---------------------------------------------|
+| `upload_url` | string | COS上传链接，客户端需使用HTTP PUT方法将文件二进制内容上传到此URL     |
 | `file_key` | string | 文件唯一标识，上传完成后调用 `manage.async_import` 时需传入此值 |
-
+| `task_id` | string | 导入任务 ID，请使用 `manage.import_progress` 轮询导入进度 |
 **调用示例**：
 
 ```json
@@ -832,7 +782,8 @@
 ```json
 {
   "upload_url": "https://cos.ap-guangzhou.myqcloud.com/import/...",
-  "file_key": "import/abc123def456"
+  "file_key": "import/abc123def456",
+  "task_id": "drivetask_414b0637da6b4eb097acc6d43e337e1c"
 }
 ```
 
@@ -840,11 +791,10 @@
 
 ### manage.async_import
 
-**功能**：异步导入文档，传入 `file_key`、`file_name`、`file_md5` 触发异步导入，返回 `task_id`。前置条件：需先调用 `manage.pre_import` 获取上传链接和 `file_key`，并将文件上传到COS后再调用此接口。
+**功能**：异步导入文档，传入`file_size`、`task_id`、`file_key`、`file_name`、`file_md5` 触发异步导入，返回 `task_id`。前置条件：需先调用 `manage.pre_import` 获取上传链接和 `file_key`，并将文件上传到COS后再调用此接口。
 
 **使用场景**：
 - 配合 `manage.pre_import` 完成两步导入
-- 大文件导入场景
 
 **请求参数**：
 
@@ -853,6 +803,8 @@
 | `file_key` | string | ✅ | 文件唯一标识，由 `manage.pre_import` 返回 |
 | `file_name` | string | ✅ | 文件名称（含后缀），需与 `pre_import` 时传入的一致 |
 | `file_md5` | string | ✅ | 文件的MD5哈希值，需与 `pre_import` 时传入的一致 |
+| `file_size` | integer | ✅ | 文件大小，单位为字节(bytes)，如 `36752` |
+| `task_id` | string |  | 导入任务ID，由 `manage.pre_import` 返回 |
 
 **返回字段**：
 
@@ -866,7 +818,9 @@
 {
   "file_key": "import/abc123def456",
   "file_name": "report.docx",
-  "file_md5": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+  "file_md5": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+  "file_size": 36752,
+  "task_id": "drivetask_414b0637da6b4eb097acc6d43e337e1c"
 }
 ```
 
@@ -875,7 +829,6 @@
 ```json
 {
   "task_id": "144115210435508643_e52cf886-5eae-e61c-c828-a0dddb59703d",
-  "trace_id": "trace_xyz"
 }
 ```
 
@@ -886,14 +839,14 @@
 **功能**：根据导入任务 `task_id` 查询导入进度。每隔3-5秒轮询一次，当progress=100时表示导入完成，此时返回file_id和file_url。
 
 **使用场景**：
-- 调用 `manage.import_file` 后轮询查询导入状态
+- 调用 `manage.async_import` 后轮询查询导入状态
 - 导入完成后获取生成的云文档 ID 和访问链接
 
 **请求参数**：
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|-----|------|
-| `task_id` | string | ✅ | 导入任务 ID（由 `manage.import_file` 返回） |
+| `task_id` | string | ✅ | 导入任务 ID（由 `manage.async_import` 返回） |
 
 **返回字段**：
 
@@ -910,7 +863,7 @@
 
 ```json
 {
-  "task_id": "144115210435508643_e52cf886-5eae-e61c-c828-a0dddb59703d"
+  "task_id": "drivetask_414b0637da6b4eb097acc6d43e337e1c"
 }
 ```
 
@@ -1088,10 +1041,10 @@
 步骤 1：使用脚本完成预导入和上传（推荐）
  → 执行 bash import_file.sh <文件路径>
  → 脚本自动：计算文件 MD5 和大小 → 调用 manage.pre_import 获取上传链接 → curl 上传文件到 COS
- → 成功后输出 FILE_KEY、FILE_NAME、FILE_MD5
+ → 成功后输出 FILE_KEY、FILE_NAME、FILE_MD5、TASK_ID
 
 步骤 2：调用异步导入接口
- → manage.async_import（传入 file_key、file_name、file_md5）
+ → manage.async_import（传入 task_id、file_size、file_key、file_name、file_md5）
  → 返回 task_id
 
 步骤 3：轮询查询导入进度
@@ -1108,39 +1061,18 @@
 
 步骤 2：调用预导入接口
  → manage.pre_import（传入 file_name、file_size、file_md5）
- → 返回 upload_url 和 file_key
+ → 返回 upload_url、file_key 和 task_id
 
 步骤 3：上传文件到 COS
  → curl -X PUT -H "Content-Type: application/octet-stream" --data-binary "@<文件路径>" "<upload_url>"
 
 步骤 4：触发异步导入
- → manage.async_import（传入 file_key、file_name、file_md5）
+ → manage.async_import（传入 task_id、file_size、file_key、file_name、file_md5）
  → 返回 task_id
 
 步骤 5：轮询查询导入进度
  → manage.import_progress（传入 task_id）
  → 每隔 3-5 秒轮询一次，直到 progress=100
-```
-
-### 工作流五（备选）：一步导入（仅适合小文件）
-
-> **注意**：仅适合小文件。大文件建议使用上方的两步导入方式。
-
-```
-步骤 1：读取本地文件并编码
- → 读取本地文件的二进制内容
- → 计算文件大小（file_size，单位字节）
- → 计算文件 MD5 哈希值（file_md5）
- → 将文件内容进行 Base64 编码（file_base64）
-
-步骤 2：调用导入接口
- → manage.import_file（传入 file_name、file_size、file_md5、file_base64）
- → 返回 task_id
-
-步骤 3：轮询查询导入进度
- → manage.import_progress（传入 task_id）
- → 每隔 3-5 秒轮询一次，直到 progress=100 或返回错误
- → 导入完成后获取 file_id 和 file_url
 ```
 
 ### 工作流六：将云文档导出到本地

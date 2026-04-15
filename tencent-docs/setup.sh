@@ -56,7 +56,7 @@ _tdoc_check_mcporter() {
     if ! command -v mcporter &> /dev/null; then
         echo "⚠️  未找到 mcporter，正在安装..."
         if command -v npm &>/dev/null; then
-            npm install -g mcporter 2>&1 | tail -3
+            npm install -g mcporter@0.8.1 2>&1 | tail -3
             echo "✅ mcporter 安装完成"
         else
             echo "ERROR:no_npm"

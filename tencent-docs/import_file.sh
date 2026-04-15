@@ -7,7 +7,7 @@
 #   1. 计算文件的 MD5 和大小
 #   2. 调用 manage.pre_import 获取 COS 上传链接和 file_key
 #   3. 使用 curl 将文件 PUT 上传到 COS
-#   4. 输出 file_key、file_name、file_md5 供后续调用 manage.async_import
+#   4. 输出 file_key、file_name、file_md5、file_size、task_id 供后续调用 manage.async_import
 #
 # 用法：
 #   bash import_file.sh <file_path>
@@ -104,6 +104,7 @@ PRE_IMPORT_RESULT=$(mcporter call "tencent-docs" "manage.pre_import" --args "$PR
 # 解析返回的 upload_url 和 file_key
 UPLOAD_URL=$(echo "$PRE_IMPORT_RESULT" | jq -r '.upload_url // empty' 2>/dev/null || echo "")
 FILE_KEY=$(echo "$PRE_IMPORT_RESULT" | jq -r '.file_key // empty' 2>/dev/null || echo "")
+TASK_ID=$(echo "$PRE_IMPORT_RESULT" | jq -r '.task_id // empty' 2>/dev/null || echo "")
 
 if [[ -z "$UPLOAD_URL" ]]; then
     echo "ERROR:no_upload_url - 未获取到上传链接，pre_import 返回: $PRE_IMPORT_RESULT"
@@ -144,6 +145,8 @@ echo "IMPORT_READY"
 echo "FILE_KEY:$FILE_KEY"
 echo "FILE_NAME:$FILE_NAME"
 echo "FILE_MD5:$FILE_MD5"
+echo "TASK_ID:$TASK_ID"
+echo "FILE_SIZE:$FILE_SIZE"
 echo ""
 echo "📋 下一步：调用 manage.async_import 触发导入"
-echo "   mcporter call \"tencent-docs\" \"manage.async_import\" --args '{\"file_key\": \"$FILE_KEY\", \"file_name\": \"$FILE_NAME\", \"file_md5\": \"$FILE_MD5\"}'"
+echo "   mcporter call \"tencent-docs\" \"manage.async_import\" --args '{\"task_id\": \"$TASK_ID\", \"file_size\": \"$FILE_SIZE\", \"file_key\": \"$FILE_KEY\", \"file_name\": \"$FILE_NAME\", \"file_md5\": \"$FILE_MD5\"}'"

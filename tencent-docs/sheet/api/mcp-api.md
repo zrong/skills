@@ -19,6 +19,51 @@
 
 ## 工具调用示例
 
+## insert_image
+
+### 功能说明
+在在线表格指定单元格插入一张图片，图片内容可通过 base64 或 image_id 传入（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "file_url": "https://docs.qq.com/sheet/xxxxxxxx",
+  "sheet_id": "sub_sheet_001",
+  "row_index": 0,
+  "col_index": 0,
+  "content": "iVBORw0KGgoAAAANSUhEUgAA..."
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
+- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `sheet_id` (string, 必填): 子表 ID
+- `row_index` (int64, 必填): 目标行索引（0-based）
+- `col_index` (int64, 必填): 目标列索引（0-based）
+- `content` (string, 可选): 图片的 base64 内容，与 `image_id` 二选一，适合图片体积较小的场景；若图片过大导致 base64 内容超出传输限制，请改用 `image_id` 方式
+- `image_id` (string, 可选): 图片的 image_id，本质是对图片信息加密后的字符串，与 `content` 二选一，适合图片体积较大的场景。获取方式：
+  - 通过 `upload_image` MCP 接口上传图片后获取
+  - 通过[腾讯文档开放平台 OpenAPI](https://docs.qq.com/open/developers/?nlc=1#/login) 图片上传接口获取（需先完成 OAuth 授权流程获取 `Access-Token`），示例命令：
+
+```bash
+curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images' \
+  --header 'Access-Token: ACCESS_TOKEN' \
+  --header 'Client-Id: CLIENT_ID' \
+  --header 'Open-Id: OPEN_ID' \
+  --form 'image=@"/path/to/your/image.png"'
+```
+
+上传成功后，取返回结果中的 `imageID` 字段值传入此参数
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
 ## 1. set_cell_value
 
 ### 功能说明
