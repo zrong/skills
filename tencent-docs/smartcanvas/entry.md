@@ -1,6 +1,6 @@
 # 文档（SmartCanvas）工具完整参考文档
 
-腾讯文档（SmartCanvas）提供了一套完整的文档元素操作 API，支持对页面、文本、标题、待办事项等元素进行增删改查操作。
+腾讯文档（SmartCanvas）提供了一套完整的在线文档操作工具，支持创建、编辑智能文档。**内容格式使用 MDX，向下兼容全部 Markdown 语法**——标题、列表、表格、代码块、引用、图片、链接等标准 Markdown 可直接使用，同时支持分栏、高亮块、待办等高级排版组件。
 
 ---
 
@@ -61,20 +61,22 @@ file_id（文档）
 
 **【创建文档的首选工具】** 创建排版丰富的在线智能文档。
 
-**【格式选择】** 通过 `content_format` 参数指定内容格式：
-- **mdx（默认，强烈推荐）**：支持分栏布局 ColumnList、高亮块 Callout、待办列表 Todo、表格 Table、带样式文本 Mark 等丰富排版组件，适用于需要复杂排版和视觉效果的场景。内容必须严格遵循 `mdx_references.md` 规范，生成后须对照规范逐条自校验，确保合规后再提交。
-- **markdown**：仅当用户明确要求时使用，`mdx` 字段传入标准 Markdown 格式内容即可，无需遵循 MDX 组件规范。
+**【格式说明】** 统一使用 mdx 格式（`content_format="mdx"`，默认值，无需显式传入）。
 
-**【图片约束（两种格式通用）】** 所有图片禁止直接使用 http/https 外链，必须先调用 `upload_image` 工具上传获取 `image_id`，再填入对应位置：
-- **MDX 格式**：封面图 `cover: image_id值`，正文图片 `<Image src='image_id值' alt='描述' />`
-- **Markdown 格式**：`![描述](image_id值)`
+- **MDX 向下兼容全部 Markdown 语法**：标题、列表、表格、代码块、引用、图片、链接等标准 md 语法可直接写入 `mdx` 字段，无需转换
+- **MDX 同时支持高级组件**：分栏布局 `ColumnList`、高亮块 `Callout`、待办列表 `Todo`、表格 `Table`、带样式文本 `Mark` 等丰富排版组件，适用于需要复杂排版和视觉效果的场景
+- 生成包含 MDX 高级组件的内容时，须严格遵循 `mdx_references.md` 规范，并对照规范逐条自校验；纯 Markdown 语法无此约束
+
+**【图片约束】** 所有图片禁止直接使用 http/https 外链，必须先调用 `upload_image` 工具上传获取 `image_id`，再填入对应位置：
+- **MDX 组件**：封面图 `cover: image_id值`，正文图片 `<Image src='image_id值' alt='描述' />`
+- **标准 Markdown 图片**：`![描述](image_id值)`
 - 如果图片过大导致上传失败，必须先本地压缩图片再重新上传，严禁回退使用 URL。
 
 **📖 MDX 规范详见：** `mdx_references.md`
 
 ### 工作流
 
-【MDX 格式（content_format 为 "mdx"，默认，强烈推荐）】
+【统一使用 mdx 格式（content_format 默认 "mdx"，兼容全部 Markdown 语法）】
 
 步骤 1：【模板匹配 - 必须优先执行】
   根据用户需求，在下方【模板列表】中查找最匹配的模板：
@@ -156,14 +158,6 @@ file_id（文档）
 步骤 6：【调用工具创建文档】
   调用 create_smartcanvas_by_mdx 创建文档（传入 title + MDX 内容）
   从返回结果中获取 file_id 和 url
-
-
-【Markdown 格式（content_format 为 "markdown"）】
-
-步骤 1：按标准 Markdown 格式编写内容，无需遵循 MDX 组件规范
-步骤 2：【图片检查】若内容包含图片：先调用 `upload_image` 上传获取 image_id，填入 `![描述](image_id值)`（约束详见工具说明开头）
-步骤 3：调用 create_smartcanvas_by_mdx 创建文档（传入 title + Markdown 内容 + content_format="markdown"）
-步骤 4：从返回结果中获取 file_id 和 url
 ```
 
 ### 参数说明
@@ -171,8 +165,8 @@ file_id（文档）
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `title` | string | ✅ | 文档标题。参数名必须为 `title`，不要使用 `doc_title`、`name`、`file_name` 等其他名称 |
-| `mdx` | string | ✅ | 文档正文内容。MDX 格式（默认）：必须严格符合 `mdx_references` 规范，生成后须逐条自校验。Markdown 格式：传入标准 Markdown 内容即可，无需遵循 MDX 规范。图片约束见工具说明开头 |
-| `content_format` | string | | 内容格式。可选值：`"mdx"`（默认，推荐）、`"markdown"`。为空时默认 mdx 格式，支持丰富排版组件；仅当不需要高级排版或用户明确要求时才指定为 `"markdown"` |
+| `mdx` | string | ✅ | 文档正文内容。MDX 向下兼容全部 Markdown 语法，标准 md 内容可直接填入；使用 MDX 高级组件（`Callout` / `ColumnList` / `Todo` / `Table` 等）时须严格遵循 `mdx_references` 规范并逐条自校验。图片约束见工具说明开头 |
+| `content_format` | string | | 内容格式。默认 `"mdx"`，建议始终使用默认值——MDX 已向下兼容全部 Markdown 语法，无需切换 |
 
 ### 调用示例
 

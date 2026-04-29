@@ -5,6 +5,9 @@ env/
 venv/
 ENV/
 
+# skillhub
+.skills_store_lock.json
+
 # Python
 __pycache__/
 *.py[cod]

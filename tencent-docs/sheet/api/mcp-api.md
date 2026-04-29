@@ -9,8 +9,7 @@
 ### 公共参数
 
 所有工具都包含以下公共参数：
-- `file_id` (string, 可选): 文档唯一标识符，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档唯一标识符
 - `sheet_id` (string, 必填): 子表 ID（`get_sheet_info` 不需要此参数）
 
 ### 响应结构
@@ -18,51 +17,6 @@
 所有 API 成功时返回空对象 `{}`，失败时会抛出对应错误信息。
 
 ## 工具调用示例
-
-## insert_image
-
-### 功能说明
-在在线表格指定单元格插入一张图片，图片内容可通过 base64 或 image_id 传入（SHEET）。
-
-### 调用示例
-```json
-{
-  "file_id": "sheet_1234567890",
-  "file_url": "https://docs.qq.com/sheet/xxxxxxxx",
-  "sheet_id": "sub_sheet_001",
-  "row_index": 0,
-  "col_index": 0,
-  "content": "iVBORw0KGgoAAAANSUhEUgAA..."
-}
-```
-
-### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
-- `sheet_id` (string, 必填): 子表 ID
-- `row_index` (int64, 必填): 目标行索引（0-based）
-- `col_index` (int64, 必填): 目标列索引（0-based）
-- `content` (string, 可选): 图片的 base64 内容，与 `image_id` 二选一，适合图片体积较小的场景；若图片过大导致 base64 内容超出传输限制，请改用 `image_id` 方式
-- `image_id` (string, 可选): 图片的 image_id，本质是对图片信息加密后的字符串，与 `content` 二选一，适合图片体积较大的场景。获取方式：
-  - 通过 `upload_image` MCP 接口上传图片后获取
-  - 通过[腾讯文档开放平台 OpenAPI](https://docs.qq.com/open/developers/?nlc=1#/login) 图片上传接口获取（需先完成 OAuth 授权流程获取 `Access-Token`），示例命令：
-
-```bash
-curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images' \
-  --header 'Access-Token: ACCESS_TOKEN' \
-  --header 'Client-Id: CLIENT_ID' \
-  --header 'Open-Id: OPEN_ID' \
-  --form 'image=@"/path/to/your/image.png"'
-```
-
-上传成功后，取返回结果中的 `imageID` 字段值传入此参数
-
-### 返回值说明
-```json
-{}
-```
-
----
 
 ## 1. set_cell_value
 
@@ -86,8 +40,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `cell` (object, 必填): 单元格值参数
   - `row` (int64, 必填): 行索引（0-based）
@@ -147,8 +100,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `values` (array, 必填): 单元格值列表，每个元素与 `set_cell_value` 的 `cell` 参数结构相同
 
@@ -187,8 +139,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 起始行索引（0-based）
 - `start_col` (int64, 必填): 起始列索引（0-based）
@@ -234,8 +185,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 起始行索引（0-based）
 - `start_col` (int64, 必填): 起始列索引（0-based）
@@ -271,8 +221,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `dimension_type` (string, 必填): 行列类型：`"row"` | `"col"`
 - `index` (int64, 必填): 起始索引（0-based）
@@ -303,8 +252,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `dimension_type` (string, 必填): 行列类型：`"row"` | `"col"`
 - `index` (int64, 必填): 起始索引（0-based）
@@ -333,8 +281,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `row_count` (int64, 必填): 冻结行数（0 = 取消冻结行）
 - `col_count` (int64, 必填): 冻结列数（0 = 取消冻结列）
@@ -364,8 +311,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 数据区域起始行（0-based）
 - `start_col` (int64, 必填): 数据区域起始列（0-based）
@@ -395,8 +341,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `filter_id` (string, 可选): 筛选 ID（不传则移除该子表所有筛选）
 
@@ -425,8 +370,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `row` (int64, 必填): 单元格行（0-based）
 - `col` (int64, 必填): 单元格列（0-based）
@@ -457,8 +401,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `row` (int64, 必填): 单元格行（0-based）
 - `col` (int64, 必填): 单元格列（0-based）
@@ -489,8 +432,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 起始行索引（0-based）
 - `start_col` (int64, 必填): 起始列索引（0-based）
@@ -522,8 +464,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 起始行索引（0-based）
 - `start_col` (int64, 必填): 起始列索引（0-based）
@@ -555,8 +496,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 起始行索引（0-based）
 - `start_col` (int64, 必填): 起始列索引（0-based）
@@ -588,8 +528,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 起始行索引（0-based）
 - `start_col` (int64, 必填): 起始列索引（0-based）
@@ -617,8 +556,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 
 ### 返回值说明
@@ -641,8 +579,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 
 > 注意：此工具不需要 `sheet_id` 参数，返回文档下所有子表的信息。
 
@@ -690,8 +627,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 起始行索引（0-based）
 - `start_col` (int64, 必填): 起始列索引（0-based）
@@ -749,8 +685,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 查询区域起始行索引（0-based）
 - `start_col` (int64, 必填): 查询区域起始列索引（0-based）
@@ -801,8 +736,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `dimensions` (array, 必填): 行高/列宽参数列表，每个元素包含：
   - `dimension_type` (string, 必填): 行列类型：`"row"` | `"col"`
@@ -833,8 +767,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `name` (string, 可选): 子表名称，长度限制为 31 个字符，不传则使用默认名称
 - `index` (int64, 可选): 子表位置索引（0-based），不传或 `append_index` 为 `true` 时追加到末尾
 - `append_index` (bool, 可选): 是否追加到末尾，为 `true` 时 `index` 字段将被忽略
@@ -865,8 +798,7 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 要删除的子表 ID
 
 ### 返回值说明
@@ -891,10 +823,52 @@ curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images'
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID，与 `file_url` 二选一
-- `file_url` (string, 可选): 在线表格的URL链接，与 `file_id` 二选一
+- `file_id` (string, 可选): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `name` (string, 必填): 新的子表名称，长度限制为 31 个字符
+
+### 返回值说明
+```json
+{}
+```
+
+---
+
+## 24. insert_image
+
+### 功能说明
+在在线表格指定单元格插入一张图片，图片内容可通过 base64 或 image_id 传入（SHEET）。
+
+### 调用示例
+```json
+{
+  "file_id": "sheet_1234567890",
+  "sheet_id": "sub_sheet_001",
+  "row_index": 0,
+  "col_index": 0,
+  "content": "iVBORw0KGgoAAAANSUhEUgAA..."
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档 ID
+- `sheet_id` (string, 必填): 子表 ID
+- `row_index` (int64, 必填): 目标行索引（0-based）
+- `col_index` (int64, 必填): 目标列索引（0-based）
+- `content` (string, 可选): 图片的 base64 内容，与 `image_id` 二选一，适合图片体积较小的场景；若图片过大导致 base64 内容超出传输限制，请改用 `image_id` 方式
+- `image_id` (string, 可选): 图片的 image_id，本质是对图片信息加密后的字符串，与 `content` 二选一，适合图片体积较大的场景。获取方式：
+  - 通过 `upload_image` MCP 接口上传图片后获取
+  - 通过[腾讯文档开放平台 OpenAPI](https://docs.qq.com/open/developers/?nlc=1#/login) 图片上传接口获取（需先完成 OAuth 授权流程获取 `Access-Token`），示例命令：
+
+```bash
+curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images' \
+  --header 'Access-Token: ACCESS_TOKEN' \
+  --header 'Client-Id: CLIENT_ID' \
+  --header 'Open-Id: OPEN_ID' \
+  --form 'image=@"/path/to/your/image.png"'
+```
+
+上传成功后，取返回结果中的 `imageID` 字段值传入此参数
 
 ### 返回值说明
 ```json

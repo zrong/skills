@@ -181,11 +181,11 @@ async function main() {
         );
         process.exit(1);
         break;
-      case "vip_required":
+      case "400008":
         console.log("");
         console.log("DO_NOT_RETRY");
         console.log(
-            "ERROR:vip_required - 积分已消耗完毕，超级会员专享2000积分/月，立即购买：https://docs.qq.com/vip/asset-center?tab=ai&aid=txdocs_mac_web_aihomepage_aipoints_aichat&fromPage=linktext&nlc=1"
+            "ERROR:400008 - 积分已消耗完毕，超级会员专享2000积分/月，立即购买：https://docs.qq.com/vip/asset-center?tab=ai&fromPage=offsite&part_aid=offsite_claw"
         );
         process.exit(1);
         break;

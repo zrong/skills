@@ -42,24 +42,8 @@ if [[ ! -f "$FILE_PATH" ]]; then
     exit 1
 fi
 
-# ── 支持的文件格式校验 ────────────────────────────────────────────────────────
+# ── 提取文件名（格式支持性由后端 manage.pre_import 判定）────────────────────
 FILE_NAME=$(basename "$FILE_PATH")
-FILE_EXT="${FILE_NAME##*.}"
-FILE_EXT_LOWER=$(echo "$FILE_EXT" | tr '[:upper:]' '[:lower:]')
-
-SUPPORTED_EXTS="xls xlsx csv doc docx txt text ppt pptx pdf xmind"
-EXT_VALID=false
-for ext in $SUPPORTED_EXTS; do
-    if [[ "$FILE_EXT_LOWER" == "$ext" ]]; then
-        EXT_VALID=true
-        break
-    fi
-done
-
-if [[ "$EXT_VALID" != "true" ]]; then
-    echo "ERROR:unsupported_format - 不支持的文件格式 '.$FILE_EXT_LOWER'，支持: $SUPPORTED_EXTS"
-    exit 1
-fi
 
 # ── 计算文件大小 ──────────────────────────────────────────────────────────────
 if [[ "$(uname)" == "Darwin" ]]; then

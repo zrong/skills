@@ -2,8 +2,6 @@
 
 腾讯文档授权流程，**必须按以下步骤执行**：
 
-> 💡 **说明**：授权成功后，Token 会同时配置到 `tencent-docs` 、 `tencent-docengine`、`tencent-sheetengine` 三个服务，无需为 tencent-docengine和tencent-sheetengine 单独授权。
-
 ## 第一步：检查状态（立即返回）
 
 ```bash
@@ -41,18 +39,6 @@ bash ./setup.sh tdoc_fetch_token
 ```bash
 # 使用传入的 Token 写入 mcporter 配置（tencent-docs）
 mcporter config add tencent-docs "https://docs.qq.com/openapi/mcp" \
-    --header "Authorization=$Token" \
-    --transport http \
-    --scope home
-
-# 同时配置 tencent-docengine（复用相同 Token）
-mcporter config add tencent-docengine "https://docs.qq.com/api/v6/doc/mcp" \
-    --header "Authorization=$Token" \
-    --transport http \
-    --scope home
-
-# 同时配置 tencent-sheetengine（复用相同 Token）
-mcporter config add tencent-sheetengine "https://docs.qq.com/api/v6/sheet/mcp" \
     --header "Authorization=$Token" \
     --transport http \
     --scope home

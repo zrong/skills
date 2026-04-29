@@ -61,6 +61,7 @@
 | replace_text | 替换指定范围内的文本 |
 | find_and_replace_text | 查找并替换文档中所有匹配的文本 |
 | update_text_property | 更新指定范围内文本的属性（加粗、斜体、下划线、删除线、颜色等） |
+| update_line_spacing | 更新段落行距和段落间距（段前间距、段后间距、行距） |
 | insert_task | 在指定位置插入一个或多个任务，支持设置任务状态和内容文本 |
 | insert_image | 在指定位置插入图片 |
 | insert_page_break | 在指定位置插入分页符 |
@@ -359,6 +360,144 @@
   "err_msg": ""
 }
 ```
+
+---
+
+## 6.5. update_line_spacing
+
+### 功能说明
+更新 Word 文档中指定段落的行距和段落间距。支持设置段前间距、段后间距和行距。建议先使用 `get_outline` 或 `resolve_document_structure` 工具获取段落位置范围，再调用此工具修改行距。
+
+> 💡 **提示**：
+> - 可以一次性更新多个段落的行距（通过 `ranges` 数组传入多个范围）
+> - `before`、`after`、`line` 三个参数至少需要设置其中一个
+> - `line_rule` 决定了 `line` 值的含义：
+>   - `"auto"`（默认）：`line` 表示**倍数行距**，如 `1.5` 表示 1.5 倍行距，`2` 表示 2 倍行距
+>   - `"exact"`：`line` 表示**固定磅值**，如 `24` 表示固定 24 磅行距
+>   - `"atLeast"`：`line` 表示**最小磅值**，如 `20` 表示行距不小于 20 磅
+
+### 调用示例
+
+**设置 1.5 倍行距（默认 auto 模式）：**
+```json
+{
+  "file_url": "https://docs.qq.com/doc/xxxxxxxx",
+  "ranges": [{"begin": 0, "end": 50}],
+  "spacing": {
+    "line": 1.5
+  }
+}
+```
+
+**设置 2 倍行距和段落间距：**
+```json
+{
+  "file_url": "https://docs.qq.com/doc/xxxxxxxx",
+  "ranges": [{"begin": 0, "end": 50}],
+  "spacing": {
+    "before": 6,
+    "after": 6,
+    "line": 2
+  }
+}
+```
+
+**设置固定 24 磅行距：**
+```json
+{
+  "file_url": "https://docs.qq.com/doc/xxxxxxxx",
+  "ranges": [{"begin": 100, "end": 200}],
+  "spacing": {
+    "line": 24,
+    "line_rule": "exact"
+  }
+}
+```
+
+**设置最小 20 磅行距：**
+```json
+{
+  "file_url": "https://docs.qq.com/doc/xxxxxxxx",
+  "ranges": [{"begin": 100, "end": 200}],
+  "spacing": {
+    "line": 20,
+    "line_rule": "atLeast"
+  }
+}
+```
+
+**批量更新多个段落：**
+```json
+{
+  "file_url": "https://docs.qq.com/doc/xxxxxxxx",
+  "ranges": [
+    {"begin": 0, "end": 50},
+    {"begin": 100, "end": 150},
+    {"begin": 200, "end": 300}
+  ],
+  "spacing": {
+    "before": 12,
+    "after": 12,
+    "line": 1.5
+  }
+}
+```
+
+### 参数说明
+- `file_url` (string, 推荐): 腾讯文档的文档链接，与 `file_id` 二选一，**推荐优先使用**
+- `file_id` (string, 可选): 文档唯一标识符，与 `file_url` 二选一
+- `ranges` (array, 必填): 需要更新行距的段落范围列表，每个范围包含：
+  - `begin` (integer): 段落起始位置索引
+  - `end` (integer): 段落结束位置索引
+- `spacing` (object, 必填): 行距和段落间距属性，至少需要设置以下字段之一：
+  - `before` (number, 可选): 段前间距，单位为磅（pt），如 `6` 表示段前 6 磅间距
+  - `after` (number, 可选): 段后间距，单位为磅（pt），如 `6` 表示段后 6 磅间距
+  - `line` (number, 可选): 行距数值，含义取决于 `line_rule`：
+    - 当 `line_rule` 为 `"auto"`（默认）时：表示**倍数行距**，直接传入倍数值即可。常用值：
+      - `1` - 单倍行距
+      - `1.15` - 1.15 倍行距
+      - `1.5` - 1.5 倍行距
+      - `2` - 2 倍行距
+      - `2.5` - 2.5 倍行距
+      - `3` - 3 倍行距
+    - 当 `line_rule` 为 `"exact"` 时：表示**固定磅值**，如 `24` 表示固定 24 磅
+    - 当 `line_rule` 为 `"atLeast"` 时：表示**最小磅值**，如 `20` 表示行距不小于 20 磅
+  - `line_rule` (string, 可选): 行距规则，默认为 `"auto"`。取值：
+    - `"auto"` - 多倍行距（默认值，用户说"几倍行距"时使用此模式）
+    - `"exact"` - 固定值（用户说"固定 XX 磅行距"时使用此模式）
+    - `"atLeast"` - 最小值（用户说"最小 XX 磅行距"时使用此模式）
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+### 使用场景
+
+**场景 1：用户要求「把第一段的行距调成 1.5 倍」**
+1. 调用 `get_outline` 或 `resolve_document_structure` 获取第一段的位置范围（如 `begin: 0, end: 50`）
+2. 调用 `update_line_spacing`，设置 `line: 1.5`（默认 auto 模式，1.5 倍行距）
+
+**场景 2：用户要求「增加段落间距，让文档看起来更疏松」**
+1. 获取需要调整的段落范围
+2. 调用 `update_line_spacing`，设置 `before: 12, after: 12`（段前段后各 12 磅）
+
+**场景 3：用户要求「把所有正文段落的行距改成 2 倍行距」**
+1. 调用 `get_outline` 获取所有正文段落的范围列表
+2. 调用 `update_line_spacing`，在 `ranges` 中传入所有段落范围，设置 `line: 2`
+
+**场景 4：用户要求「把行距设为固定 24 磅」**
+1. 获取需要调整的段落范围
+2. 调用 `update_line_spacing`，设置 `line: 24, line_rule: "exact"`
+
+**场景 5：用户要求「把行距设为最小 20 磅」**
+1. 获取需要调整的段落范围
+2. 调用 `update_line_spacing`，设置 `line: 20, line_rule: "atLeast"`
 
 ---
 
@@ -972,7 +1111,13 @@
   - `type` (string): 节点类型，取值：`Paragraph`、`Heading`、`Table`、`TextBox`、`CodeBlock`、`HighlightBlock`
   - `start_index` (uint32): 节点起始位置（inclusive）
   - `end_index` (uint32): 节点结束位置（在此处插入可追加到节点末尾）
-  - `text_preview` (string): 文本预览，最多 50 字符，仅 Paragraph/Heading 有值
+  - `text_preview` (string): 文本预览，最多 50 字符，仅 Paragraph/Heading 有值。文本中可能包含以下占位符标记，表示段落内嵌入的非文字元素：
+    - `[Image]`：嵌入的图片
+    - `[Math]`：数学公式
+    - `[TextBox]`：嵌入的文本框/代码块/高亮块锚点（对应的 TextBox/CodeBlock/HighlightBlock 节点会作为独立的顶层节点出现在 `nodes` 中）
+    - `[Drawing]`：其他嵌入的图形/形状对象
+    - `[Hyperlink]`：超链接（普通链接、文档链接、附件链接等）
+    - `[addonHina]`：内嵌插件（流程图、思维导图、白板、内嵌表格等腾讯文档内嵌的第三方插件内容）
   - `heading_level` (int32): 标题级别 1-9，仅 Heading 类型有值，其余为 0
   - `logical_index` (int32): 在同级中的逻辑序号（从 1 开始）
   - `table_rows` (array): 仅 Table 类型有值，包含行列结构：
@@ -982,7 +1127,7 @@
       - `col` (int32): 列号（从 1 开始）
       - `start_index` (uint32): 单元格起始位置
       - `end_index` (uint32): 单元格结束位置（在此处插入可追加到单元格末尾）
-      - `text_preview` (string): 单元格文本预览，最多 30 字符
+      - `text_preview` (string): 单元格文本预览，最多 30 字符，可能包含 `[Image]`/`[TextBox]`/`[Drawing]`/`[Hyperlink]`/`[addonHina]` 等占位符标记（含义同上）
   - `children` (array): 子节点列表，TextBox/CodeBlock 内部的段落等
 - `version` (int64): 当前文档版本号
 - `total_paragraphs` (int32): 正文段落总数（不含标题）

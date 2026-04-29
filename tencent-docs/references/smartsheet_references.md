@@ -207,7 +207,7 @@
 | `views` | array | 视图列表 |
 | `views[].view_id` | string | 视图唯一标识符 |
 | `views[].view_name` | string | 视图名称 |
-| `views[].view_type` | uint32 | 视图类型，枚举值见下方 |
+| `views[].view_type` | string | 视图类型，枚举值见下方 |
 | `total` | uint32 | 符合条件的视图总数 |
 | `hasMore` | bool | 是否还有更多项 |
 | `next` | uint32 | 下一页偏移量 |
@@ -218,8 +218,8 @@
 
 | 值 | 说明 |
 |----|------|
-| `1` | 网格视图（grid） |
-| `2` | 看板视图（kanban） |
+| `grid` | 网格视图 |
+| `kanban` | 看板视图 |
 
 **调用示例**：
 
@@ -249,7 +249,7 @@
 | `file_id` | string | ✅ | 智能表格文档的唯一标识符 |
 | `sheet_id` | string | ✅ | 工作表 ID |
 | `view_title` | string | ✅ | 视图标题 |
-| `view_type` | uint32 | | 视图类型：1-网格视图，2-看板视图 |
+| `view_type` | string | | 视图类型：grid-网格视图，kanban-看板视图 |
 
 **返回字段**：
 
@@ -257,7 +257,7 @@
 |------|------|------|
 | `view_id` | string | 新创建的视图 ID |
 | `view_title` | string | 视图标题 |
-| `view_type` | uint32 | 视图类型 |
+| `view_type` | string | 视图类型 |
 | `error` | string | 错误信息 |
 | `trace_id` | string | 调用链追踪 ID |
 
@@ -268,7 +268,7 @@
   "file_id": "your_file_id",
   "sheet_id": "sheet_abc123",
   "view_title": "按状态分组",
-  "view_type": 2
+  "view_type": "kanban"
 }
 ```
 
@@ -347,7 +347,7 @@
 |------|------|------|
 | `field_id` | string | 字段唯一 ID |
 | `field_title` | string | 字段标题（列名） |
-| `field_type` | uint32 | 字段类型，枚举值见下方 |
+| `field_type` | string | 字段类型，枚举值见下方 |
 | `property_*` | object | 字段属性，根据 field_type 不同而不同 |
 
 **调用示例**：
@@ -382,7 +382,7 @@
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `field_title` | string | ✅ | 字段标题（列名） |
-| `field_type` | uint32 | ✅ | 字段类型，枚举值见下方 |
+| `field_type` | string | ✅ | 字段类型，枚举值见下方 |
 | `property_text` | object | | 文本类型属性（无需额外配置） |
 | `property_number` | object | | 数字类型属性 |
 | `property_checkbox` | object | | 复选框类型属性 |
@@ -409,12 +409,12 @@
   "fields": [
       {
         "field_title": "任务名称",
-        "field_type": 1,
+        "field_type": "text",
         "property_text": {}
       },
       {
         "field_title": "优先级",
-        "field_type": 17,
+        "field_type": "singleSelect",
         "property_single_select": {
           "options": [
             { "text": "高", "style": 1 },
@@ -425,7 +425,7 @@
       },
       {
         "field_title": "截止日期",
-        "field_type": 4,
+        "field_type": "dateTime",
         "property_date_time": {
           "format": "yyyy-mm-dd",
           "auto_fill": false
@@ -433,14 +433,14 @@
       },
       {
         "field_title": "完成进度",
-        "field_type": 14,
+        "field_type": "progress",
         "property_progress": {
           "decimal_places": 0
         }
       },
       {
         "field_title": "是否完成",
-        "field_type": 3,
+        "field_type": "checkbox",
         "property_checkbox": {
           "checked": false
         }
@@ -488,7 +488,7 @@
       {
         "field_id": "field_id_001",
         "field_title": "任务状态",
-        "field_type": 17,
+        "field_type": "singleSelect",
         "property_single_select": {
           "options": [
             { "text": "待处理", "style": 7 },
@@ -586,7 +586,24 @@
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `record_id` | string | 记录唯一 ID |
-| `field_values` | map | 字段值映射，key 为字段标题，value 为字段值 |
+| `field_values` | array | 字段值列表，每个元素为 FieldValueEntry，包含 `field`（字段标题）和对应的值（oneof） |
+
+**FieldValueEntry 结构**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `field` | string | 字段标题（必填） |
+| `number_value` | double | 数字类型的值，用于数字、进度、货币、百分数等字段 |
+| `string_value` | string | 字符串类型的值，用于日期(毫秒级unix时间戳)、电话、邮箱等字段 |
+| `bool_value` | bool | 布尔类型的值，用于复选框字段 |
+| `text_value` | TextValueList | 文本类型的值列表，用于文本字段 |
+| `url_value` | UrlValueList | 超链接类型的值列表，用于超链接字段 |
+| `option_value` | OptionValueList | 选项类型的值列表，用于多选、单选字段 |
+| `image_value` | ImageIDValueList | 图片类型的值列表，用于图片字段 |
+| `auto_number_value` | AutoNumberValue | 自动编号类型的值，用于自动编号字段 |
+| `reference_value` | StringValueList | 关联记录ID列表，用于关联字段 |
+
+> ⚠️ **注意**：`field` 之外的值字段为 oneof 关系，每个 FieldValueEntry 只能设置其中一个值字段。
 
 **调用示例**：
 
@@ -626,7 +643,7 @@
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `field_values` | map | ✅ | 字段值映射，key 为字段标题，value 为字段值（格式见下方） |
+| `field_values` | []FieldValueEntry | ✅ | 字段值列表，每个元素包含 `field`（字段标题）和对应的值（oneof），格式见下方 |
 
 **返回字段**：
 
@@ -644,22 +661,22 @@
   "sheet_id": "sheet_abc123",
   "records": [
       {
-        "field_values": {
-          "任务名称": [{"text": "完成需求文档", "type": "text"}],
-          "优先级": [{"text": "高"}],
-          "截止日期": "1720000000000",
-          "完成进度": 30,
-          "是否完成": false
-        }
+        "field_values": [
+          {"field": "任务名称", "text_value": {"items": [{"text": "完成需求文档", "type": "text"}]}},
+          {"field": "优先级", "option_value": {"items": [{"text": "高"}]}},
+          {"field": "截止日期", "string_value": "1720000000000"},
+          {"field": "完成进度", "number_value": 30},
+          {"field": "是否完成", "bool_value": false}
+        ]
       },
       {
-        "field_values": {
-          "任务名称": [{"text": "代码评审", "type": "text"}],
-          "优先级": [{"text": "中"}],
-          "截止日期": "1720086400000",
-          "完成进度": 0,
-          "是否完成": false
-        }
+        "field_values": [
+          {"field": "任务名称", "text_value": {"items": [{"text": "代码评审", "type": "text"}]}},
+          {"field": "优先级", "option_value": {"items": [{"text": "中"}]}},
+          {"field": "截止日期", "string_value": "1720086400000"},
+          {"field": "完成进度", "number_value": 0},
+          {"field": "是否完成", "bool_value": false}
+        ]
       }
     ]
 }
@@ -689,7 +706,7 @@
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `record_id` | string | ✅ | 记录 ID，标识要更新哪条记录 |
-| `field_values` | map | ✅ | 要更新的字段值映射 |
+| `field_values` | []FieldValueEntry | ✅ | 要更新的字段值列表，每个元素包含 `field`（字段标题）和对应的值 |
 
 **返回字段**：
 
@@ -707,11 +724,11 @@
   "records": [
       {
         "record_id": "record_id_001",
-        "field_values": {
-          "完成进度": 100,
-          "是否完成": true,
-          "优先级": [{"text": "高"}]
-        }
+        "field_values": [
+          {"field": "完成进度", "number_value": 100},
+          {"field": "是否完成", "bool_value": true},
+          {"field": "优先级", "option_value": {"items": [{"text": "高"}]}}
+        ]
       }
     ]
 }
@@ -761,32 +778,32 @@
 
 | 枚举值 | 类型名称 | 对应 property 字段 | 说明 |
 |--------|---------|-------------------|------|
-| `1` | 文本 | `property_text` | 普通文本，无需额外配置 |
-| `2` | 数字 | `property_number` | 整数或浮点数 |
-| `3` | 复选框 | `property_checkbox` | 布尔值 true/false |
-| `4` | 日期 | `property_date_time` | 毫秒时间戳字符串 |
-| `5` | 图片 | `property_image` | 图片 ID 数组 |
-| `8` | 超链接 | `property_url` | URL 数组 |
-| `9` | 多选 | `property_select` | 选项数组（可多选） |
-| `10` | 创建人 | `property_user` | 系统自动填充，无需配置 |
-| `11` | 最后编辑人 | `property_modified_user` | 系统自动填充，无需配置 |
-| `12` | 创建时间 | `property_created_time` | 系统自动填充，无需配置 |
-| `13` | 最后编辑时间 | `property_modified_time` | 系统自动填充，无需配置 |
-| `14` | 进度 | `property_progress` | 整数或浮点数（百分比） |
-| `15` | 电话 | `property_phone_number` | 字符串，无需额外配置 |
-| `16` | 邮件 | `property_email` | 字符串，无需额外配置 |
-| `17` | 单选 | `property_single_select` | 选项数组（只能单选） |
-| `18` | 关联 | - | 关联其他记录，值为 record_id 字符串数组 |
-| `25` | 自动编号 | - | 系统自动生成编号，无需手动配置 |
-| `26` | 货币 | - | 浮点数，表示货币金额 |
-| `28` | 百分比 | - | 浮点数，如 0.75 表示 75% |
+| `text` | 文本 | `property_text` | 普通文本，无需额外配置 |
+| `number` | 数字 | `property_number` | 整数或浮点数 |
+| `checkbox` | 复选框 | `property_checkbox` | 布尔值 true/false |
+| `dateTime` | 日期 | `property_date_time` | 毫秒时间戳字符串 |
+| `image` | 图片 | `property_image` | 图片 ID 数组 |
+| `url` | 超链接 | `property_url` | URL 数组 |
+| `select` | 多选 | `property_select` | 选项数组（可多选） |
+| `createdUser` | 创建人 | `property_user` | 系统自动填充，无需配置 |
+| `modifiedUser` | 最后编辑人 | `property_modified_user` | 系统自动填充，无需配置 |
+| `createdTime` | 创建时间 | `property_created_time` | 系统自动填充，无需配置 |
+| `modifiedTime` | 最后编辑时间 | `property_modified_time` | 系统自动填充，无需配置 |
+| `progress` | 进度 | `property_progress` | 整数或浮点数（百分比） |
+| `phoneNumber` | 电话 | `property_phone_number` | 字符串，无需额外配置 |
+| `email` | 邮件 | `property_email` | 字符串，无需额外配置 |
+| `singleSelect` | 单选 | `property_single_select` | 选项数组（只能单选） |
+| `reference` | 关联 | - | 关联其他记录，值为 record_id 字符串数组 |
+| `autoNumber` | 自动编号 | - | 系统自动生成编号，无需手动配置 |
+| `currency` | 货币 | - | 浮点数，表示货币金额 |
+| `percentage` | 百分比 | - | 浮点数，如 0.75 表示 75% |
 
 ### 视图类型（view_type）
 
 | 枚举值 | 说明 |
 |--------|------|
-| `1` | 网格视图（grid）- 传统表格形式 |
-| `2` | 看板视图（kanban）- 按列分组展示 |
+| `grid` | 网格视图 - 传统表格形式 |
+| `kanban` | 看板视图 - 按列分组展示 |
 
 ### 选项颜色（style）
 
@@ -813,52 +830,80 @@
 
 ## 字段值格式参考
 
-在 `add_records` 和 `update_records` 中，`field_values` 的 value 格式因字段类型而异：
+在 `add_records` 和 `update_records` 中，`field_values` 是一个 `FieldValueEntry` 数组，每个元素包含 `field`（字段标题）和一个 oneof 值字段。根据字段类型选择对应的值字段：
 
-| 字段类型 | 值格式 | 示例                                                         |
-|---------|--------|------------------------------------------------------------|
-| 文本（1） | JSON Array of TextValue | `[{"text": "内容", "type": "text"}]`                         |
-| 数字（2） | number | `42` 或 `3.14`                                              |
-| 复选框（3） | bool | `true` 或 `false`                                           |
-| 日期（4） | string（毫秒时间戳） | `"1720000000000"`                                          |
-| 图片（5） | JSON Array of ImageIDValue | `[{"image_id": "图片id"}]`                                   |
-| 超链接（8） | JSON Array of UrlValue | `[{"text": "链接文字", "type": "url", "link": "https://..."}]` |
-| 多选（9） | JSON Array of OptionValue | `[{"text": "选项1"}, {"text": "选项2"}]`                       |
-| 进度（14） | number | `75` 或 `75.5`                                              |
-| 电话（15） | string | `"13800138000"`                                            |
-| 邮件（16） | string | `"user@example.com"`                                       |
-| 单选（17） | JSON Array of OptionValue（单个） | `[{"text": "选项文字"}]`                                       |
-| 关联（18） | array string | `["record_id_1", "record_id_2"]`                           |
-| 自动编号（25） | JSON(AutoNumberValue) | `{"seq": "1", "text": "编号内容"}`                             |
-| 货币（26） | double | `99.99`                                                    |
-| 百分比（28） | double | `0.75`（表示 75%）                                             |
+| 字段类型 | 使用的 oneof 值字段 | 示例 |
+|---------|-------------------|------|
+| 文本（text） | `text_value` | `{"field": "标题", "text_value": {"items": [{"text": "内容", "type": "text"}]}}` |
+| 数字（number） | `number_value` | `{"field": "数量", "number_value": 42}` |
+| 复选框（checkbox） | `bool_value` | `{"field": "已完成", "bool_value": true}` |
+| 日期（dateTime） | `string_value` | `{"field": "日期", "string_value": "1720000000000"}` |
+| 图片（image） | `image_value` | `{"field": "封面", "image_value": {"items": [{"image_id": "图片id"}]}}` |
+| 超链接（url） | `url_value` | `{"field": "链接", "url_value": {"items": [{"text": "链接文字", "type": "url", "link": "https://..."}]}}` |
+| 多选（select） | `option_value` | `{"field": "标签", "option_value": {"items": [{"text": "选项1"}, {"text": "选项2"}]}}` |
+| 进度（progress） | `number_value` | `{"field": "进度", "number_value": 75}` |
+| 电话（phoneNumber） | `string_value` | `{"field": "电话", "string_value": "13800138000"}` |
+| 邮件（email） | `string_value` | `{"field": "邮箱", "string_value": "user@example.com"}` |
+| 单选（singleSelect） | `option_value` | `{"field": "状态", "option_value": {"items": [{"text": "选项文字"}]}}` |
+| 关联（reference） | `reference_value` | `{"field": "关联", "reference_value": {"items": ["record_id_1", "record_id_2"]}}` |
+| 自动编号（autoNumber） | `auto_number_value` | `{"field": "编号", "auto_number_value": {"seq": "1", "text": "编号内容"}}` |
+| 货币（currency） | `number_value` | `{"field": "金额", "number_value": 99.99}` |
+| 百分比（percentage） | `number_value` | `{"field": "占比", "number_value": 0.75}` |
 
-### TextValue 结构
+### TextValueList 结构
 
 ```json
 {
-  "text": "文本内容",
-  "type": "text"
+  "items": [
+    {"text": "文本内容", "type": "text"}
+  ]
 }
 ```
 
-### UrlValue 结构
+### UrlValueList 结构
 
 ```json
 {
-  "text": "链接显示文字",
-  "type": "url",
-  "link": "https://example.com"
+  "items": [
+    {"text": "链接显示文字", "type": "url", "link": "https://example.com"}
+  ]
 }
 ```
 
-### OptionValue 结构
+### OptionValueList 结构
 
 ```json
 {
-  "id": "选项ID（可选）",
-  "text": "选项文字",
-  "style": 3
+  "items": [
+    {"id": "选项ID（可选）", "text": "选项文字", "style": "3"}
+  ]
+}
+```
+
+### ImageIDValueList 结构
+
+```json
+{
+  "items": [
+    {"image_id": "图片ID"}
+  ]
+}
+```
+
+### StringValueList 结构（关联字段）
+
+```json
+{
+  "items": ["record_id_1", "record_id_2"]
+}
+```
+
+### AutoNumberValue 结构
+
+```json
+{
+  "seq": "1",
+  "text": "编号内容"
 }
 ```
 
@@ -992,7 +1037,7 @@
   → smartsheet.delete_fields（传入默认列 field_ids，批量删除默认列）
 
 步骤 5：（可选）创建看板视图
-  → smartsheet.add_view（view_type=2，按状态分组）
+→ smartsheet.add_view（view_type="kanban"，按状态分组）
 ```
 
 ### 工作流二：查询并更新任务状态
@@ -1047,6 +1092,6 @@
 ## 注意事项
 
 - **前置条件**：所有 smartsheet.* 工具都需要 `file_id` 和 `sheet_id`，操作前先调用 `smartsheet.list_tables` 获取 sheet_id
-- **图片字段写入**：向图片类型字段（field_type=5）写入数据时，需先调用 `upload_image` 工具上传图片获取 `image_id`，再以 `[{"image_id": "xxx"}]` 格式填入字段值
+- **图片字段写入**：向图片类型字段（field_type=image）写入数据时，需先调用 `upload_image` 工具上传图片获取 `image_id`，再以 `[{"image_id": "xxx"}]` 格式填入字段值
 - **字段类型不可变**：`update_fields` 时 `field_type` 不能修改，但必须传入原值；支持的字段类型详见字段类型枚举表
 - **记录字段值格式**：不同字段类型的值格式不同，详见上方"字段值格式参考"章节
