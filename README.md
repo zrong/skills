@@ -106,6 +106,15 @@ AI 图片生成工具，通过 OpenAI/Gemini 兼容 API 生成图片。
 - 支持批量上传、Album 管理
 - 提供 Python SDK 和 CLI 工具
 
+### jellyfin
+
+Jellyfin 媒体库文件命名工具。按 Jellyfin 标准批量重命名电影/剧集文件夹和文件。
+
+- 当用户需要整理 Jellyfin 媒体库、重命名媒体文件夹、获取 IMDB ID 时自动激活
+- 支持解析 BT/字幕组命名风格（点分隔、中英混合、质量标记如 `1080P.X264.AAC`）
+- `clean`：批量去除文件名中的空格，图片重命名为 poster 格式
+- `rename`：查询 OMDb API 获取 IMDB ID，重命名为 `Movie (year) [imdbid-ttXXXX]` 格式，支持电影和剧集
+
 ### vikunja
 
 Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
@@ -116,6 +125,9 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - 自动去重，带 `[x]` 标记已完成任务
 
 ## 更新记录
+
+### 2026-05-01
+- 新增 jellyfin skill：Jellyfin 媒体库文件命名工具，支持解析 BT/字幕组命名风格，查询 OMDb API 获取 IMDB ID，按 Jellyfin 标准重命名电影和剧集文件夹及内部文件
 
 ### 2026-04-03
 - 新增 immich skill：将图像和视频上传到 Immich 服务器，支持本地文件上传、远程 URL 下载上传、批量上传和 Album 管理

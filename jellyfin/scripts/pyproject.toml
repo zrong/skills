@@ -1,0 +1,13 @@
+[project]
+name = "jellyfin-tool"
+version = "0.1.0"
+description = "Jellyfin 媒体库文件重命名工具：按 Jellyfin 命名规范重命名电影/剧集文件夹和文件。"
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.27.0",
+    "click>=8.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
