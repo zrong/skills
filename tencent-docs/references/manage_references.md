@@ -802,7 +802,7 @@
 | `file_name` | string | ✅ | 文件名称（含后缀），需与 `pre_import` 时传入的一致 |
 | `file_md5` | string | ✅ | 文件的MD5哈希值，需与 `pre_import` 时传入的一致 |
 | `file_size` | integer | ✅ | 文件大小，单位为字节(bytes)，如 `36752` |
-| `task_id` | string |  | 导入任务ID，由 `manage.pre_import` 返回 |
+| `task_id` | string | ✅ | 导入任务ID，由 `manage.pre_import` 返回 |
 
 **返回字段**：
 
@@ -1118,7 +1118,7 @@
 
 ```
 步骤 1：创建文档
- → create_smartcanvas_by_markdown（传入标题和Markdown内容）
+ → create_smartcanvas_by_mdx（传入标题和MDX/Markdown内容）
  → 返回 file_id 和 url
 
 步骤 2：设置文档权限

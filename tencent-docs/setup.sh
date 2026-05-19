@@ -150,6 +150,27 @@ _tdoc_check_service() {
     return 0
 }
 
+# ── JSON 字段提取辅助函数 ─────────────────────────────────────────────────────
+# 用法：_tdoc_json_extract <json_string> <jq_filter> <grep_pattern> <sed_script>
+#   - 优先使用 jq（若可用）按 jq_filter 提取
+#   - 失败或 jq 不可用时，回退到 grep + sed 组合
+# 示例：
+#   _tdoc_json_extract "$response" '.data.token // empty' \
+#       '"token":"[^"]*"' 's/"token":"//;s/"$//'
+_tdoc_json_extract() {
+    local json="$1"
+    local jq_filter="$2"
+    local grep_pattern="$3"
+    local sed_script="$4"
+
+    local value
+    value=$(echo "$json" | jq -r "$jq_filter" 2>/dev/null)
+    if [[ -z "$value" || "$value" == "null" ]]; then
+        value=$(echo "$json" | grep -o "$grep_pattern" | head -1 | sed "$sed_script")
+    fi
+    echo "$value"
+}
+
 # ── 生成授权链接 ──────────────────────────────────────────────────────────────
 # 输出：auth_url 字符串，同时将 code 写入 $_TDOC_CODE_FILE
 _tdoc_generate_auth_url() {
@@ -232,10 +253,14 @@ tdoc_fetch_token() {
         return 1
     fi
 
-    # 提取 token
+   # 提取 token（优先 jq，fallback 到 grep/sed）
     local token
-    token=$(echo "$response" | jq -r '.data.token // empty' 2>/dev/null || echo "")
-    if [[ -n "$token" ]]; then
+    token=$(_tdoc_json_extract "$response" \
+        '.data.token // empty' \
+        '"token":"[^"]*"' \
+        's/"token":"//;s/"$//')
+    echo "DEBUG:token=$token"
+    if [[ -n "$token" && "$token" != "null" ]]; then
         if _tdoc_save_token "$token"; then
             _tdoc_cleanup
             echo "TOKEN_READY"
@@ -247,9 +272,12 @@ tdoc_fetch_token() {
         fi
     fi
 
-    # 提取错误码
+    # 提取错误码（优先 jq，fallback 到 grep/sed）
     local ret
-    ret=$(echo "$response" | jq -r '.ret // empty' 2>/dev/null || echo "")
+    ret=$(_tdoc_json_extract "$response" \
+        '.ret // empty' \
+        '"ret":[0-9]*' \
+        's/"ret"://')
 
     case "$ret" in
         "11510")
@@ -270,7 +298,10 @@ tdoc_fetch_token() {
             ;;
         *)
             local expired
-            expired=$(echo "$response" | jq -r '.data.expired // empty' 2>/dev/null || echo "")
+            expired=$(_tdoc_json_extract "$response" \
+                '.data.expired // empty' \
+                '"expired":[a-z]*' \
+                's/"expired"://')
             if [[ "$expired" == "true" ]]; then
                 _tdoc_cleanup
                 echo "ERROR:expired - Token 已过期"

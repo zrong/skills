@@ -9,7 +9,7 @@
 ### 公共参数
 
 所有工具都包含以下公共参数：
-- `file_id` (string, 可选): 文档唯一标识符
+- `file_id` (string, 必填): 文档唯一标识符
 - `sheet_id` (string, 必填): 子表 ID（`get_sheet_info` 不需要此参数）
 
 ### 响应结构
@@ -30,26 +30,23 @@
 {
   "file_id": "sheet_1234567890",
   "sheet_id": "sub_sheet_001",
-  "cell": {
-    "row": 0,
-    "col": 0,
-    "value_type": "STRING",
-    "string_value": "Hello World"
-  }
+  "row": 0,
+  "col": 0,
+  "value_type": "STRING",
+  "string_value": "Hello World"
 }
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
-- `cell` (object, 必填): 单元格值参数
-  - `row` (int64, 必填): 行索引（0-based）
-  - `col` (int64, 必填): 列索引（0-based）
-  - `value_type` (string, 必填): 值类型，可选值：`STRING`、`NUMBER`、`BOOL`、`FORMULA`
-  - `number_value` (double, 可选): 数值，`value_type` 为 `NUMBER` 时使用
-  - `string_value` (string, 可选): 字符串值，`value_type` 为 `STRING` 时使用
-  - `bool_value` (bool, 可选): 布尔值，`value_type` 为 `BOOL` 时使用
-  - `formula` (string, 可选): 公式，`value_type` 为 `FORMULA` 时使用，例如 `"=SUM(A1:A10)"`
+- `row` (int64, 可选): 行索引（0-based）
+- `col` (int64, 可选): 列索引（0-based）
+- `value_type` (string, 可选): 值类型，可选值：`STRING`、`NUMBER`、`BOOL`、`FORMULA`
+- `number_value` (double, 可选): 数值，`value_type` 为 `NUMBER` 时使用
+- `string_value` (string, 可选): 字符串值，`value_type` 为 `STRING` 时使用
+- `bool_value` (bool, 可选): 布尔值，`value_type` 为 `BOOL` 时使用
+- `formula` (string, 可选): 公式，`value_type` 为 `FORMULA` 时使用，例如 `"=SUM(A1:A10)"`
 
 ### 返回值说明
 ```json
@@ -100,9 +97,9 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
-- `values` (array, 必填): 单元格值列表，每个元素与 `set_cell_value` 的 `cell` 参数结构相同
+- `values` (array, 必填): 单元格值列表，每个元素与 `set_cell_value` 的参数结构相同
 
 ### 返回值说明
 ```json
@@ -125,38 +122,36 @@
   "start_col": 0,
   "end_row": 5,
   "end_col": 3,
-  "format": {
-    "bold": true,
-    "italic": false,
-    "font_size": 12,
-    "font_color": "FF000000",
-    "bg_color": "FFFFFF00",
-    "horizontal_align": "center",
-    "vertical_align": "center",
-    "wrap_text": true
-  }
+  "bold": true,
+  "italic": false,
+  "font_size": 12,
+  "font_color": "FF000000",
+  "bg_color": "FFFFFF00",
+  "horizontal_align": "center",
+  "vertical_align": "center",
+  "wrap_text": true
 }
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 起始行索引（0-based）
 - `start_col` (int64, 必填): 起始列索引（0-based）
 - `end_row` (int64, 必填): 结束行索引
 - `end_col` (int64, 必填): 结束列索引
-- `format` (object, 必填): 样式参数对象  - `bold` (bool, 可选): 是否粗体
-  - `italic` (bool, 可选): 是否斜体
-  - `font_family` (string, 可选): 字体名称
-  - `font_size` (int32, 可选): 字号（pt）
-  - `font_color` (string, 可选): 字体颜色，ARGB hex，如 `"FF000000"`
-  - `bg_color` (string, 可选): 背景色，ARGB hex，如 `"FFFFFFFF"`
-  - `horizontal_align` (string, 可选): 水平对齐：`general` / `left` / `center` / `right` / `fill` / `justify`
-  - `vertical_align` (string, 可选): 垂直对齐：`top` / `center` / `bottom` / `justify`
-  - `wrap_text` (bool, 可选): 是否自动换行
-  - `strike_through` (bool, 可选): 是否删除线
-  - `underline` (string, 可选): 下划线类型：`none` / `single` / `double` / `single_accounting` / `double_accounting`
-  - `number_format_pattern` (string, 可选): 数字格式，如 `"0.00%"`
+- `bold` (bool, 可选): 是否粗体
+- `italic` (bool, 可选): 是否斜体
+- `font_family` (string, 可选): 字体名称
+- `font_size` (int32, 可选): 字号（pt）
+- `font_color` (string, 可选): 字体颜色，ARGB hex，如 `"FF000000"`
+- `bg_color` (string, 可选): 背景色，ARGB hex，如 `"FFFFFFFF"`
+- `horizontal_align` (string, 可选): 水平对齐：`general` / `left` / `center` / `right` / `fill` / `justify`
+- `vertical_align` (string, 可选): 垂直对齐：`top` / `center` / `bottom` / `justify`
+- `wrap_text` (bool, 可选): 是否自动换行
+- `strike_through` (bool, 可选): 是否删除线
+- `underline` (string, 可选): 下划线类型：`none` / `single` / `double` / `single_accounting` / `double_accounting`
+- `number_format_pattern` (string, 可选): 数字格式，如 `"0.00%"`
 - `is_clear` (bool, 可选): 若为 true，则清除格式
 
 ### 返回值说明
@@ -185,7 +180,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 起始行索引（0-based）
 - `start_col` (int64, 必填): 起始列索引（0-based）
@@ -221,7 +216,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `dimension_type` (string, 必填): 行列类型：`"row"` | `"col"`
 - `index` (int64, 必填): 起始索引（0-based）
@@ -252,7 +247,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `dimension_type` (string, 必填): 行列类型：`"row"` | `"col"`
 - `index` (int64, 必填): 起始索引（0-based）
@@ -281,7 +276,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `row_count` (int64, 必填): 冻结行数（0 = 取消冻结行）
 - `col_count` (int64, 必填): 冻结列数（0 = 取消冻结列）
@@ -311,7 +306,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 数据区域起始行（0-based）
 - `start_col` (int64, 必填): 数据区域起始列（0-based）
@@ -341,7 +336,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `filter_id` (string, 可选): 筛选 ID（不传则移除该子表所有筛选）
 
@@ -370,7 +365,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `row` (int64, 必填): 单元格行（0-based）
 - `col` (int64, 必填): 单元格列（0-based）
@@ -401,7 +396,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `row` (int64, 必填): 单元格行（0-based）
 - `col` (int64, 必填): 单元格列（0-based）
@@ -432,7 +427,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 起始行索引（0-based）
 - `start_col` (int64, 必填): 起始列索引（0-based）
@@ -464,7 +459,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 起始行索引（0-based）
 - `start_col` (int64, 必填): 起始列索引（0-based）
@@ -496,7 +491,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 起始行索引（0-based）
 - `start_col` (int64, 必填): 起始列索引（0-based）
@@ -528,7 +523,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 起始行索引（0-based）
 - `start_col` (int64, 必填): 起始列索引（0-based）
@@ -556,7 +551,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 
 ### 返回值说明
@@ -579,7 +574,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 
 > 注意：此工具不需要 `sheet_id` 参数，返回文档下所有子表的信息。
 
@@ -627,7 +622,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 起始行索引（0-based）
 - `start_col` (int64, 必填): 起始列索引（0-based）
@@ -685,7 +680,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `start_row` (int64, 必填): 查询区域起始行索引（0-based）
 - `start_col` (int64, 必填): 查询区域起始列索引（0-based）
@@ -736,7 +731,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `dimensions` (array, 必填): 行高/列宽参数列表，每个元素包含：
   - `dimension_type` (string, 必填): 行列类型：`"row"` | `"col"`
@@ -767,7 +762,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `name` (string, 可选): 子表名称，长度限制为 31 个字符，不传则使用默认名称
 - `index` (int64, 可选): 子表位置索引（0-based），不传或 `append_index` 为 `true` 时追加到末尾
 - `append_index` (bool, 可选): 是否追加到末尾，为 `true` 时 `index` 字段将被忽略
@@ -798,7 +793,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 要删除的子表 ID
 
 ### 返回值说明
@@ -823,7 +818,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `name` (string, 必填): 新的子表名称，长度限制为 31 个字符
 
@@ -851,7 +846,7 @@
 ```
 
 ### 参数说明
-- `file_id` (string, 可选): 文档 ID
+- `file_id` (string, 必填): 文档 ID
 - `sheet_id` (string, 必填): 子表 ID
 - `row_index` (int64, 必填): 目标行索引（0-based）
 - `col_index` (int64, 必填): 目标列索引（0-based）

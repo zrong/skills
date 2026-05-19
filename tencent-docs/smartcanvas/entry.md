@@ -9,6 +9,7 @@
 - [概念说明](#概念说明)
 - [创建智能文档 — create_smartcanvas_by_mdx](#创建智能文档--create_smartcanvas_by_mdx)
 - [统一编辑工具（推荐）](#统一编辑工具推荐)
+  - [smartcanvas.get_top_level_pages - 查询顶层页面列表](#smartcanvasget_top_level_pages)
   - [smartcanvas.read - 读取页面内容](#smartcanvasread)
   - [smartcanvas.find - 搜索文档内容](#smartcanvasfind)
   - [smartcanvas.edit - 编辑文档内容](#smartcanvasedit)
@@ -192,7 +193,42 @@ file_id（文档）
 
 ## 统一编辑工具（推荐）
 
-> 💡 **推荐使用统一编辑工具**：`smartcanvas.read` + `smartcanvas.find` + `smartcanvas.edit` 组合，支持 MDX 格式内容、更简洁的 API 设计。
+> 💡 **推荐使用统一编辑工具**：`smartcanvas.get_top_level_pages` + `smartcanvas.read` + `smartcanvas.find` + `smartcanvas.edit` 组合，支持 MDX 格式内容、更简洁的 API 设计。
+
+### smartcanvas.get_top_level_pages
+
+**功能**：查询文档的顶层页面列表，返回文档中所有顶级页面的基本信息，用于快速浏览文档结构。
+
+**使用场景**：
+- 获取文档的所有页面列表及其 page_id
+- 在读取或编辑文档前先了解文档的页面结构
+- 当文档包含多个页面时，确定要操作的目标页面
+
+**请求参数**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `file_id` | string | ✅ | 智能文档的唯一标识符 |
+
+**返回字段**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `pages` | array | 顶层页面列表 |
+| `pages[].page_id` | string | 页面 ID |
+| `pages[].title` | string | 页面标题 |
+| `error` | string | 错误信息 |
+| `trace_id` | string | 调用链追踪 ID |
+
+**调用示例**：
+
+```json
+{
+  "file_id": "your_file_id"
+}
+```
+
+---
 
 ### smartcanvas.read
 
@@ -209,14 +245,17 @@ file_id（文档）
 |------|------|------|------|
 | `file_id` | string | ✅ | 智能文档的唯一标识符 |
 | `page_id` | string | | 要读取的页面 ID，为空时自动获取文档的第一个页面 |
+| `next_token` | string | | 分页游标，首次请求为空，后续请求传入上次返回的 next_token 以获取下一页内容 |
+| `size` | integer | | 每页返回的子节点数量，最大为 20，为 0 或不传时默认为 20 |
 
 **返回字段**：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `content` | string | 页面完整的 MDX 格式文本内容 |
+| `content` | string | 页面内容的 MDX 格式文本 |
 | `error` | string | 错误信息 |
 | `trace_id` | string | 调用链追踪 ID |
+| `next_token` | string | 下一页游标，非空表示还有更多内容，客户端可传入此值继续拉取 |
 
 **调用示例（读取文档第一个页面）**：
 
