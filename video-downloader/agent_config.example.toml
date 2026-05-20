@@ -1,0 +1,24 @@
+# 复制到项目根目录 ~/storage/ai_agent/skills/agent_config.toml
+# 若项目根目录没有该文件，则脚本会回退到 ~/.agents/agent_config.toml
+
+[video-downloader]
+# auto | douyin | yt-dlp
+default_backend = "auto"
+
+# 通用下载输出目录（主要给 yt-dlp 使用）
+default_output_dir = "~/Downloads/video-downloads"
+
+# 可选：skill 自己的运行时目录
+# 为空时默认使用 skill 目录下的 .runtime/
+runtime_dir = ""
+
+# 可选：显式指定 yt-dlp 可执行文件
+yt_dlp_path = ""
+yt_dlp_output_template = "%(title)s [%(id)s].%(ext)s"
+
+# 可选：显式指定 douyin-downloader 项目目录和配置文件
+# 注意：这里不要存放 cookies。本 skill 只在这里保存路径和默认行为；
+# douyin-downloader 的 cookies、browser_fallback、thread 等底层配置
+# 仍保存在它自己的 config.yml 中。
+douyin_downloader_home = ""
+douyin_config_path = ""

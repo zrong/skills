@@ -1,5 +1,6 @@
 # Environments
 .env
+agent_config.toml
 .venv/
 env/
 venv/
@@ -52,3 +53,4 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+video-downloader/.runtime/

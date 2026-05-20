@@ -70,6 +70,15 @@ MCP 服务器自动部署工具。
 - 支持多种音频编码（AAC、MP3、Opus、FLAC、AC3）
 - 支持 GPU 硬件加速（NVIDIA NVENC、Intel QSV、VAAPI）
 
+### video-downloader
+
+统一视频下载工具，封装 `douyin-downloader` 与 `yt-dlp` 两种 backend。
+
+- 当用户发来视频链接并要求下载，或提到 `yt-dlp` / `douyin-downloader` / 抖音短链时自动激活
+- 支持抖音视频下载，以及 yt-dlp 支持的网站视频下载
+- 统一从 `agent_config.toml` 读取高层配置，并保留 `douyin-downloader` 原生 `config.yml` 作为底层配置
+- 在 backend 缺失时，要求先安装或在配置中指定调用路径
+
 ### video-analyzer
 
 使用视觉/视频大模型分析视频内容。
@@ -125,6 +134,10 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - 自动去重，带 `[x]` 标记已完成任务
 
 ## 更新记录
+
+### 2026-05-20
+- 新增 video-downloader skill：统一封装 `douyin-downloader` 与 `yt-dlp`，支持项目级/全局 `agent_config.toml` 配置回退，保留 `douyin-downloader` 原生 `config.yml` 作为底层运行配置
+- 更新 `.gitignore`：忽略项目级 `agent_config.toml` 与 `video-downloader/.runtime/`
 
 ### 2026-05-01
 - 新增 jellyfin skill：Jellyfin 媒体库文件命名工具，支持解析 BT/字幕组命名风格，查询 OMDb API 获取 IMDB ID，按 Jellyfin 标准重命名电影和剧集文件夹及内部文件
