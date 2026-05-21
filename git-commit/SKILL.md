@@ -53,11 +53,12 @@ Agent-Limitation: <已知局限或后续 TODO>
 
 - **`<type>`**：变更类型，如 `feat` (新功能), `fix` (修复), `docs` (文档), `style` (格式), `refactor` (重构), `perf` (性能), `test` (测试), `chore` (构建/工具)。
 - **`<scope>`**：影响范围，可以是具体的组件、模块或 Skill 名称。
-- **`<summary>`**：简短概括变更内容。
+- **`<summary>`**：简短概括变更内容（必须使用简体中文）。
 - **`Agent-Task`**：原始任务描述或任务 ID。
 - **`Agent-Model`**：执行任务时所使用的模型名称（例如，本轮运行所使用的模型，如 gemini-3.5-flash-high 等）。
 - **`Agent-Decision`**：关键技术/设计决策及其背后的合理理由。
 - **`Agent-Limitation`**：任何已知的局限性、潜在风险或后续待办事项（TODO）。
+- **语言约束（简体中文）**：除了必要的 Conventional Commits 英文关键字（如 `feat`, `fix` 等 `<type>` 和 `<scope>`）以及英文字段名/元数据（Meta）的 Key（如 `Agent-Task:`）之外，**`<summary>`、`<正文>` 以及各元数据字段的具体 Value 描述，必须使用简体中文进行撰写**。
 
 ## 原子提交规范
 
