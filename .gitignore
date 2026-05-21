@@ -54,3 +54,5 @@ Thumbs.db
 *.swp
 *.swo
 video-downloader/.runtime/
+.antigravitycli/
+

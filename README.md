@@ -135,6 +135,13 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 
 ## 更新记录
 
+### 2026-05-21
+- 升级 git-commit skill：
+  - 新增 Commit Message 规范，强制使用 Conventional Commits 格式并附加 AI 元数据（`Agent-Task`, `Agent-Model`, `Agent-Decision`, `Agent-Limitation`）作为 Git Trailers。
+  - 新增原子提交（Atomic Commits）规范与工作流，规范化逻辑独立的提交拆分。
+  - 新增“整理提交历史/PR准备”工作流，支持交互式变基（rebase/squash）的方案预览与用户确认流程。
+- 更新 `.gitignore`：加入 `.antigravitycli/` 目录以忽略本地 CLI 配置与运行缓存。
+
 ### 2026-05-20
 - 新增 video-downloader skill：统一封装 `douyin-downloader` 与 `yt-dlp`，支持项目级/全局 `agent_config.toml` 配置回退，保留 `douyin-downloader` 原生 `config.yml` 作为底层运行配置
 - 更新 `.gitignore`：忽略项目级 `agent_config.toml` 与 `video-downloader/.runtime/`
