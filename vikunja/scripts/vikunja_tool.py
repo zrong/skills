@@ -15,6 +15,9 @@ except ImportError:
     import tomli as tomllib
 
 
+LOCAL_TZ = timezone(timedelta(hours=8))
+
+
 def _find_config() -> Path:
     """查找 agent_config.toml"""
     skill_dir = Path(__file__).resolve().parent.parent
@@ -181,7 +184,7 @@ def sync_weekly(note, week):
             click.echo(f"Error: 无法从笔记标题 '{note}' 解析周数", err=True)
             sys.exit(1)
     elif not week:
-        week = datetime.now(timezone(timedelta(hours=8))).strftime("%G-W%V")
+        week = datetime.now(LOCAL_TZ).strftime("%G-W%V")
 
     click.echo(f"目标周: {week}")
 
@@ -217,7 +220,7 @@ def sync_weekly(note, week):
 def _week_range(week_str: str) -> tuple:
     """从 ISO 周字符串 (如 '2026-W14') 计算该周的周一和周日"""
     monday = datetime.strptime(week_str + "-1", "%G-W%V-%u").replace(
-        tzinfo=timezone(timedelta(hours=8))
+        tzinfo=LOCAL_TZ
     )
     sunday = monday + timedelta(days=6)
     sunday = sunday.replace(hour=23, minute=59, second=59)
