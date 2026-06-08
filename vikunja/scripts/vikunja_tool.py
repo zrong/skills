@@ -160,15 +160,12 @@ def list_tasks(project, done, week, limit):
             filters["filter"] = done_filter
     if week:
         monday, sunday = _week_range(week)
-        utc_monday = monday.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        utc_sunday = sunday.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        week_filter = f'done_at >= "{utc_monday}" && done_at <= "{utc_sunday}"'
-        if "filter" in filters:
-            filters["filter"] += f" && {week_filter}"
-        else:
-            filters["filter"] = week_filter
+        tasks = _list_all_tasks(client, **filters)
+        tasks = [task for task in tasks if _task_in_range(task, monday, sunday)]
+        tasks = tasks[:limit]
+    else:
+        tasks = client.list_tasks(per_page=limit, **filters)
 
-    tasks = client.list_tasks(per_page=limit, **filters)
     click.echo(json.dumps(tasks, indent=2, ensure_ascii=False))
 
 
@@ -258,33 +255,56 @@ def _find_weekly_note(target_week_str: str) -> Optional[dict]:
 
 
 def _get_vikunja_tasks_for_week(client: VikunjaClient, monday: datetime, sunday: datetime) -> list:
-    """获取 Vikunja 中指定周已完成的任务"""
-    utc_monday = monday.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    utc_sunday = sunday.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    """获取 Vikunja 中有效日期落在指定周的已完成任务"""
+    tasks = _list_all_tasks(client, **{"filter": "done = true"})
+    tasks = [task for task in tasks if _task_in_range(task, monday, sunday)]
+    return sorted(tasks, key=lambda task: (_task_effective_datetime(task) or datetime.max, task.get("id", 0)))
+
+
+def _list_all_tasks(client: VikunjaClient, **filters) -> list:
+    """分页读取符合 Vikunja API 过滤条件的任务"""
+    per_page = 50
     all_tasks = []
     page = 1
     while True:
-        result = client.list_tasks(
-            page=page, per_page=100,
-            **{"filter": f'done = true && done_at >= "{utc_monday}" && done_at <= "{utc_sunday}"'}
-        )
+        result = client.list_tasks(page=page, per_page=per_page, **filters)
         tasks = result if isinstance(result, list) else result.get("items", [])
         all_tasks.extend(tasks)
-        if len(tasks) < 100:
+        if len(tasks) < per_page:
             break
         page += 1
     return all_tasks
 
 
+def _parse_vikunja_datetime(value: Any) -> Optional[datetime]:
+    """解析 Vikunja 时间字段，空日期返回 None。"""
+    if not isinstance(value, str) or not value:
+        return None
+    if value.startswith("0001-01-01"):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(LOCAL_TZ)
+    except ValueError:
+        return None
+
+
+def _task_effective_datetime(task: dict) -> Optional[datetime]:
+    """任务日期优先使用 end_date，未设置时使用 done_at。"""
+    return _parse_vikunja_datetime(task.get("end_date")) or _parse_vikunja_datetime(task.get("done_at"))
+
+
+def _task_in_range(task: dict, start: datetime, end: datetime) -> bool:
+    effective_dt = _task_effective_datetime(task)
+    return effective_dt is not None and start <= effective_dt <= end
+
+
 def _group_tasks_by_date(tasks: list) -> dict[str, list]:
-    """按 done_at 日期分组任务"""
-    tz = timezone(timedelta(hours=8))
+    """按任务有效日期分组，优先 end_date，否则 done_at"""
     groups: dict[str, list] = {}
     for task in tasks:
-        done_at = task.get("done_at", "")
-        if not done_at:
+        dt = _task_effective_datetime(task)
+        if dt is None:
             continue
-        dt = datetime.fromisoformat(done_at.replace("Z", "+00:00")).astimezone(tz)
         date_str = dt.strftime("%Y-%m-%d")
         groups.setdefault(date_str, []).append(task)
     return groups

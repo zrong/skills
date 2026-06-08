@@ -34,6 +34,7 @@ api_token = "<your-api-token>"
 ### 2. 任务
 
 - **列出任务**: `list-tasks [--project ID] [--done] [--week YYYY-Www] [--limit N]`
+  - 使用 `--week` 时，任务归属周按有效日期判断：若任务设置了 `end_date`，优先使用 `end_date`；否则使用 `done_at`
 
 ### 3. 同步
 
@@ -41,6 +42,7 @@ api_token = "<your-api-token>"
   - 无参数：同步当前周
   - `--note`：从笔记标题解析目标周
   - `--week`：直接指定 ISO 周
+  - 写入 daily 小节时按任务有效日期分组：优先 `end_date`，未设置时使用 `done_at`
 
 ## 测试流程
 
