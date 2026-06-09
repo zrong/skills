@@ -16,7 +16,7 @@
 | Token    | 使用 tencent-docs 统一 Token，完成授权（`references/auth.md`）后自动配置      |
 | 文档类型 | 仅支持 Word 文档类型（`doc_type: word`）                                      |
 
-> ⚠️ **所有 `doc.*` 工具均使用 `file_id` 标识文档**（必填）。若用户提供的是文档链接（形如 `https://docs.qq.com/doc/<file_id>`），请先从链接末尾解析出 `file_id` 再调用。
+> ⚠️ **所有 `doc.*` 工具均支持 `file_id` / `file_url` 二选一**。若用户提供的是文档链接（形如 `https://docs.qq.com/doc/<file_id>`），可直接传 `file_url`，或先从链接末尾解析出 `file_id` 再调用。
 >
 > 编辑前推荐先调用 `doc.get_outline` 获取文档大纲结构，了解各标题和正文的可操作位置。
 >
@@ -30,17 +30,20 @@
 
 ### 文档标识
 
-所有 docengine 工具都通过 `file_id` 标识文档：
-- `file_id` (string, **必填**): 文档唯一标识符。若用户提供的是腾讯文档链接（形如 `https://docs.qq.com/doc/<file_id>`），请从链接末尾解析出 `file_id` 再传入。
+所有 docengine 工具都支持 `file_id` 与 `file_url` 二选一：
+- `file_id` (string, 可选): 文档唯一标识符
+- `file_url` (string, 可选): 腾讯文档链接（形如 `https://docs.qq.com/doc/<file_id>`）
+
+> 💡 推荐优先沿用用户输入：用户给了链接就传 `file_url`，给了 ID 就传 `file_id`。
 
 ### 版本参数
 
-所有 docengine 工具都支持可选的 `version_info` 参数，用于指定基于哪个版本进行编辑（不传时默认基于最新版本操作）：
+部分 docengine 工具支持可选的 `version_info` 参数，用于指定基于哪个版本进行编辑（不传时默认基于最新版本操作）；**是否支持以各工具参数说明为准**：
 - `version_info` (object, 可选):
   - `base_version` (int64, 可选): 基准版本号，通常使用上一步查询类接口（`doc.get_last_operable_pos`、`doc.get_outline`、`doc.resolve_document_structure`、`doc.find` 等）返回的 `version` 值，基于该版本继续编辑，确保编辑操作的连续性。值为 0 表示不指定。
   - `is_latest` (bool, 可选): 是否基于最新版本操作。设为 `true` 时忽略 `base_version`，直接在文档最新版本上编辑。
 
-> 💡 连续多步编辑时，建议将上一步查询接口返回的 `version` 传入下一步的 `version_info.base_version`，以避免并发冲突。
+> 💡 连续多步编辑时，若目标工具支持 `version_info`，建议将上一步查询接口返回的 `version` 传入下一步的 `version_info.base_version`，以避免并发冲突。
 
 ### 响应结构
 
@@ -63,20 +66,44 @@
 | doc.find | 查找文本所在位置，返回匹配位置和上下文 |
 | doc.insert_text | 在指定位置插入文本 |
 | doc.insert_paragraph | 在指定位置插入段落，支持设置标题级别、编号类别和编号级别 |
+| doc.insert_paragraph_with_text | 一步插入带文本的段落（原子操作），避免两步调用的位置漂移 |
 | doc.replace_text | 替换指定范围内的文本 |
 | doc.find_and_replace | 查找并替换文档中所有匹配的文本 |
 | doc.update_text_property | 更新指定范围内文本的属性（加粗、斜体、下划线、删除线、颜色等） |
+| doc.modify_paragraph | 修改已有段落的属性（对齐方式、行间距、段前段后间距、段落样式） |
 | doc.insert_task | 在指定位置插入一个或多个任务，支持设置任务状态和内容文本 |
 | doc.insert_image | 在指定位置插入图片 |
 | doc.insert_page_break | 在指定位置插入分页符 |
 | doc.insert_table | 在指定位置插入表格 |
+| doc.insert_rows | 在指定表格中批量插入多行 |
+| doc.insert_cols | 在指定表格中批量插入多列 |
 | doc.insert_comment | 在指定范围插入批注 |
 | doc.replace_image | 替换文档中的图片 |
 | doc.insert_markdown | 在指定位置插入 Markdown 格式内容，引擎自动转换为富文本 |
-| doc.get_images | 获取文档中所有图片的信息，包括图片位置（idx）、图片 URL 或附件 ID，可用于后续 doc.replace_image 操作 |
+| doc.insert_normal_link | 在指定位置插入普通超链接 |
+| doc.insert_header | 设置页眉文本内容 |
+| doc.insert_footer | 设置页脚文本内容 |
+| doc.insert_code_block | 在指定位置插入代码块 |
+| doc.insert_footnote | 在指定位置插入脚注或尾注 |
+| doc.insert_border | 在指定位置插入分隔符（水平分隔线） |
+| doc.insert_numbering | 在指定范围插入项目列表（编号/项目符号） |
+| doc.insert_html_content | 在指定位置插入 HTML 内容，引擎自动转换为富文本 |
+| doc.insert_attachment | 在指定位置插入附件（需先调用 pre_insert_attachment） |
+| doc.pre_insert_attachment | 预插入附件，获取上传链接和 object_key |
+| doc.get_images | 获取文档中所有图片的信息 |
 | doc.get_last_operable_pos | 获取文档末尾最后一个可操作位置的索引及前面内容 |
-| doc.get_outline | 获取文档大纲结构（标题层级树），包含各标题和正文的可操作起止位置 |
-| doc.resolve_document_structure | 获取文档完整结构树，返回所有块级元素（段落、标题、表格、文本框、代码块等）的层级结构和精确位置，可用于定位表格指定行列、文本框内部等复杂位置 |
+| doc.get_outline | 获取文档大纲结构（标题层级树） |
+| doc.get_text_property | 读取指定位置处生效的文本属性 |
+| doc.get_paragraph_property | 读取指定位置所在段落的属性 |
+| doc.get_comments | 获取文档中所有批注 |
+| doc.resolve_document_structure | 获取文档完整结构树 |
+| doc.set_table_properties | 修改表格属性（边框、对齐、宽度、单元格内边距、染色） |
+| doc.set_page_number | 设置页码（在页脚中插入 PAGE 字段） |
+| doc.set_table_layout | 设置表格行高/列宽（支持 auto/manual 两种模式） |
+| doc.copy_format | 格式刷：将源范围的格式复制到目标范围 |
+| doc.compare_documents | 对比两个文档的内容和格式差异 |
+| doc.create_with_markdown | 创建新 Word 文档并写入 Markdown 内容 |
+| doc.replace_bookmarks | 替换文档中书签标记范围的内容 |
 
 ---
 
@@ -85,7 +112,7 @@
 ## 1. doc.find
 
 ### 功能说明
-在 Word 文档中查找指定文本，返回所有匹配位置及其上下文。如果用户需要替换文本，建议先使用 `doc.find` 查找文本所在的各处位置，让用户确认要替换哪个位置后，再调用 `doc.replace_text` 进行精确替换。
+在 Word 文档中查找指定文本，返回所有匹配位置及其上下文。若用于替换文本，推荐优先通过 `doc.resolve_document_structure` 定位并确认目标范围；若根据 `text_preview` 无法可靠定位，再使用 `doc.find` 进行补充查找。
 
 ### 调用示例
 ```json
@@ -123,9 +150,9 @@
 - `read_result.trace_id` (string): 调用相关的可追踪链路id
 
 ### 推荐使用流程
-1. 调用 `doc.find` 查找目标文本，获取所有匹配位置
-2. 将匹配结果展示给用户，让用户选择要替换的位置
-3. 根据用户选择，调用 `doc.replace_text` 传入对应的 `range` 进行替换
+1. 优先调用 `doc.resolve_document_structure` 获取结构节点与 `text_preview`，定位目标文本所在范围
+2. 若通过 `text_preview` 无法可靠定位，再调用 `doc.find` 查找目标文本并补充定位
+3. 将候选位置展示给用户确认后，调用 `doc.replace_text` 传入对应的 `ranges` 进行精确替换
 
 ---
 
@@ -139,14 +166,15 @@
 {
   "file_id": "doc_1234567890",
   "text": "要插入的文本内容",
-  "index": 0
+  "idx": 0
 }
 ```
 
 ### 参数说明
-- `file_id` (string, 必填): 文档唯一标识符
+- `file_id` (string, 可选): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
 - `text` (string, 必填): 要插入的文本内容。注意：如果需要插入换行，应该使用插入段落操作，而不是在文本里插入 '\n' 符号
-- `index` (integer, 必填): 插入位置的索引，从 0 开始，请确认好索引后再操作
+- `idx` (integer, 必填): 插入位置的索引，从 0 开始，请确认好索引后再操作
 - `version_info` (object, 可选): 版本参数，详见《通用说明 > 版本参数》
 
 ### 返回值说明
@@ -210,7 +238,7 @@
 ## 4. doc.replace_text
 
 ### 功能说明
-替换 Word 文档中指定范围内的文本为新文本。建议先使用 `doc.find` 工具查找文本位置，让用户确认后再调用此工具进行精确替换。
+替换 Word 文档中指定范围内的文本为新文本。推荐优先使用 `doc.resolve_document_structure` 基于结构和 `text_preview` 定位文本范围；若无法可靠定位，再使用 `doc.find` 补充查找并让用户确认后进行精确替换。
 
 ### 调用示例
 ```json
@@ -313,7 +341,47 @@
 
 ---
 
-## 7. doc.insert_task
+## 7. doc.modify_paragraph
+
+### 功能说明
+修改 Word 文档中已有段落的属性，支持设置对齐方式、行间距、段前段后间距、段落样式。所有属性均为可选，只传入需要修改的字段即可，未传入的字段保持原样。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "ranges": [{"begin": 0, "end": 15}],
+  "jc": "center",
+  "line_spacing": 1.5,
+  "line_spacing_rule": 1
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `ranges` (array, 必填): 段落范围列表，每项包含 `begin` 和 `end`（字符位置索引）
+- `jc` (string, 可选): 段落对齐方式：`left`（左对齐）/ `center`（居中）/ `right`（右对齐）/ `both`（两端对齐）/ `distribute`（分散对齐）
+- `spacing_before` (number, 可选): 段前间距，单位磅(pt)
+- `spacing_after` (number, 可选): 段后间距，单位磅(pt)
+- `line_spacing` (number, 可选): 行间距数值。当 `line_spacing_rule=1`(auto) 时为倍数值（如 1.0=单倍、1.5=1.5倍、2.0=双倍），切勿自行乘以 240；当 `line_spacing_rule=2`(exact) 或 `3`(atLeast) 时为磅值
+- `line_spacing_rule` (number, 可选): 行间距规则：`1`=auto（多倍行距）/ `2`=exact（固定值）/ `3`=atLeast（最小值）
+- `p_style` (string, 可选): 段落样式名称，如 `Heading1`、`Normal` 等
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 8. doc.insert_task
 
 ### 功能说明
 在 Word 文档的指定位置插入一个或多个任务（待办事项）。每个任务支持设置任务状态（待办/已完成）和任务内容文本。
@@ -380,25 +448,45 @@
 ### doc.insert_image
 
 #### 功能说明
-在 Word 文档的指定位置插入图片。
+在 Word 文档的指定位置插入图片。使用前请先调用 `doc.resolve_document_structure` 获取文档结构，确定正确的插入位置索引。
+
+#### 图片来源选择优先级（按推荐顺序）
+
+**方式一（⭐首选）：本地脚本（`insert_image.py`）通过 HTTP 直接调用 MCP endpoint 插入图片。**
+无需把图片 base64 通过 MCP 通道透传，可避免大图触发上下文/传输限制，速度也更快。脚本不允许硬编码任何凭证：`--auth` 必须由调用方从用户的 `~/.codebuddy/mcp.json` 中 `doc-mcp.headers.Authorization` 字段读取后透传，`--image-path` 为本地图片绝对路径，`--tool-args` 为本工具其它入参的 JSON（`content` 字段由脚本自动 base64 注入，无需传）。
+
+调用示例：
+```bash
+python3 insert_image.py \
+    --auth "$MCP_TOKEN" \
+    --image-path /tmp/chart.png \
+    --tool-args '{"file_url":"https://docs.qq.com/doc/XXX","idx":283,"width":580,"height":360}'
+```
+
+完整脚本代码可向 `doc.insert_image` MCP 工具的 description 索取（已内嵌在工具描述中），落盘为 `insert_image.py` 后即可直接执行。
+
+**方式二（备选）：传 `image_id`** —— 当无法在本地执行脚本，但可以先通过 `upload_image` MCP 工具或腾讯文档开放平台 OpenAPI 把图片上传后获取 `image_id` 时使用。
+
+**方式三（兜底）：传 `content`（图片 base64 字符串）** —— 仅适合图片体积较小的场景；若 base64 超出 MCP 单次传输限制会失败，此时请回退到方式一脚本调用。
 
 #### 调用示例
 ```json
 {
   "file_id": "doc_1234567890",
   "content": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-  "index": 0,
+  "idx": 0,
   "width": 400,
   "height": 300
 }
 ```
 
 #### 参数说明
-- `file_id` (string, 必填): 文档唯一标识符
-- `content` (string, 可选): 图片的 base64 内容，与 `image_id` 二选一，**适合图片体积较小的场景，若图片过大导致 base64 内容超出传输限制，请改用 `image_id` 方式**
-- `image_id` (string, 可选): 图片的 image_id，本质是对图片信息加密后的字符串，与 `content` 二选一。**适合图片体积较大、base64 内容超出传输限制的场景**。获取方式：
-  - 通过 `upload_image` MCP 接口上传图片后获取
-  - 通过[腾讯文档开放平台 OpenAPI](https://docs.qq.com/open/developers/?nlc=1#/login) 图片上传接口获取（需先完成 OAuth 授权流程获取 `Access-Token`），示例命令：
+- `file_id` (string, 可选): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `content` (string, 可选): 图片的 base64 内容（兜底方式三，仅适合小图），与 `image_id` 二选一。**大图请优先使用方式一的本地脚本，或方式二先上传得到 `image_id` 后再传入**
+- `image_id` (string, 可选): 图片的 `image_id`（方式二备选），与 `content` 二选一。获取方式有两种：
+  1. 通过 `upload_image` MCP 接口上传图片后获取；
+  2. 通过[腾讯文档开放平台 OpenAPI](https://docs.qq.com/open/developers/?nlc=1#/login) 图片上传接口获取（适合图片体积较大的场景；需先完成 OAuth 授权流程获取 `Access-Token`、`Client-Id`、`Open-Id`），示例命令：
   ```bash
   curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images' \
     --header 'Access-Token: ACCESS_TOKEN' \
@@ -407,7 +495,7 @@
     --form 'image=@"/path/to/your/image.png"'
   ```
   上传成功后，取返回结果中的 `imageID` 字段值传入此参数
-- `index` (integer, 必填): 插入位置的索引，从 0 开始
+- `idx` (integer, 必填): 插入位置的索引，从 0 开始
 - `width` (integer, 可选): 图片宽度，单位为像素（px），例如 400 表示 400px；不传时使用图床上传返回的宽度
 - `height` (integer, 可选): 图片高度，单位为像素（px），例如 300 表示 300px；不传时使用图床上传返回的高度
 - `version_info` (object, 可选): 版本参数，详见《通用说明 > 版本参数》
@@ -433,13 +521,13 @@
 ```json
 {
   "file_id": "doc_1234567890",
-  "index": 10
+  "idx": 10
 }
 ```
 
 ### 参数说明
 - `file_id` (string, 必填): 文档唯一标识符
-- `index` (integer, 必填): 插入位置的索引，从 0 开始
+- `idx` (integer, 必填): 插入位置的索引，从 0 开始
 - `version_info` (object, 可选): 版本参数，详见《通用说明 > 版本参数》
 
 ### 返回值说明
@@ -463,7 +551,7 @@
 ```json
 {
   "file_id": "doc_1234567890",
-  "index": 0,
+  "idx": 0,
   "rows": 3,
   "cols": 4
 }
@@ -471,7 +559,7 @@
 
 ### 参数说明
 - `file_id` (string, 必填): 文档唯一标识符
-- `index` (integer, 必填): 插入位置的索引，从 0 开始
+- `idx` (integer, 必填): 插入位置的索引，从 0 开始
 - `rows` (integer, 必填): 表格行数
 - `cols` (integer, 必填): 表格列数
 - `version_info` (object, 可选): 版本参数，详见《通用说明 > 版本参数》
@@ -575,13 +663,34 @@
 替换 Word 文档中的图片。**必须同时提供三组参数**：
 1. `idx`（图片位置）
 2. `old_image_url` 或 `old_attachment_id`（定位旧图片）
-3. `image_id` 或 `content`（指定新图片）
+3. 新图片来源（按下方优先级三选一）
 
-缺少任何一组都会导致替换失败。建议先调用 `get_images` 获取图片信息，再用返回的 `pos` 和 `image_url`/`attachment_id` 填入对应参数。
+缺少任何一组都会导致替换失败。建议先调用 `doc.get_images` 获取图片信息，再用返回的 `pos` 和 `image_url`/`attachment_id` 填入对应参数。
 
 > ⚠️ **重要提示**：
 > - `old_image_url` 中**不要带查询参数**（如 `?w=300&h=281`），需去掉问号及之后的部分，否则 C++ 层做精确字符串匹配时会匹配失败
 > - `get_images` 返回的 `pos` 是 `int64` 类型，经 protobuf JSON 序列化后为字符串（如 `"12"`），传入 `idx` 时请转为整数
+
+#### 新图片来源选择优先级（按推荐顺序）
+
+**方式一（⭐首选）：本地脚本（`replace_image.py`）通过 HTTP 直接调用 MCP endpoint 完成替换。**
+无需把图片 base64 通过 MCP 通道透传，可避免大图触发上下文/传输限制，速度也更快。脚本不允许硬编码任何凭证：`--auth` 必须由调用方从用户的 `~/.codebuddy/mcp.json` 中 `doc-mcp.headers.Authorization` 字段读取后透传。脚本把替换语义专属参数（`idx` / `old_image_url` / `old_attachment_id` / `file_id` / `file_url`）显式作为 CLI 参数暴露，避免在 JSON 里拼装出错；新图 `content` 由 `--image-path` 自动 base64 注入，无需传。
+
+调用示例：
+```bash
+python3 replace_image.py \
+    --auth "$MCP_TOKEN" \
+    --image-path /tmp/new_chart.png \
+    --file-url "https://docs.qq.com/doc/XXX" \
+    --idx 283 \
+    --old-image-url "https://docs.qq.com/.../xxx.png"
+```
+
+完整脚本代码可向 `doc.replace_image` MCP 工具的 description 索取（已内嵌在工具描述中），落盘为 `replace_image.py` 后即可直接执行。
+
+**方式二（备选）：传 `image_id`** —— 当无法在本地执行脚本，但可以先通过 `upload_image` MCP 工具或腾讯文档开放平台 OpenAPI 把图片上传后获取 `image_id` 时使用。
+
+**方式三（兜底）：传 `content`（图片 base64 字符串）** —— 仅适合图片体积较小的场景；若 base64 超出 MCP 单次传输限制会失败，此时请回退到方式一脚本调用。
 
 ### 调用示例
 ```json
@@ -599,9 +708,9 @@
 - `idx` (integer, **必填**): 图片在文档中的位置索引，对应 `get_images` 返回的 `pos` 字段
 - `old_image_url` (string, 条件必填): 旧图片的 URL，与 `old_attachment_id` 二选一（**必须提供其一**），对应 `get_images` 返回的 `image_url` 字段。**注意：URL 中不要带查询参数（如 `?w=300&h=281`），需去掉问号及之后的部分**
 - `old_attachment_id` (string, 条件必填): 旧图片的附件 ID，与 `old_image_url` 二选一（**必须提供其一**），对应 `get_images` 返回的 `attachment_id` 字段
-- `image_id` (string, 条件必填): 新图片的 image_id，本质是对图片信息加密后的字符串，与 `content` 二选一（**必须提供其一**）。获取方式：
-  - 通过 `upload_image` MCP 接口上传图片后获取
-  - 通过[腾讯文档开放平台 OpenAPI](https://docs.qq.com/open/developers/?nlc=1#/login) 图片上传接口获取。**注意：调用开放平台接口前，需先完成 OAuth 授权流程获取 `Access-Token`（参考[开放平台登录授权文档](https://docs.qq.com/open/developers/?nlc=1#/login)）**，示例命令：
+- `image_id` (string, 条件必填): 新图片的 `image_id`（方式二备选），与 `content` 二选一（**必须提供其一**）。获取方式有两种：
+  1. 通过 `upload_image` MCP 接口上传图片后获取；
+  2. 通过[腾讯文档开放平台 OpenAPI](https://docs.qq.com/open/developers/?nlc=1#/login) 图片上传接口获取（适合图片体积较大、base64 内容超出传输限制的场景；需先完成 OAuth 授权流程获取 `Access-Token`、`Client-Id`、`Open-Id`），示例命令：
   ```bash
   curl --location --request POST 'https://docs.qq.com/openapi/resources/v2/images' \
     --header 'Access-Token: ACCESS_TOKEN' \
@@ -609,8 +718,8 @@
     --header 'Open-Id: OPEN_ID' \
     --form 'image=@"/path/to/your/image.png"'
   ```
-  上传成功后，取返回结果中的 `imageID` 字段值传入此参数。**注意：调用开放平台接口前，需先完成 OAuth 授权流程获取 `Access-Token`；此方式适合图片体积较大、base64 内容超出传输限制的场景**
-- `content` (string, 可选): 新图片的 base64 内容，与 `image_id` 二选一。**适合图片体积较小的场景；若图片过大导致 base64 内容超出限制，请改用 `image_id` 方式**
+  上传成功后，取返回结果中的 `imageID` 字段值传入此参数
+- `content` (string, 可选): 新图片的 base64 内容（兜底方式三），与 `image_id` 二选一。**仅适合图片体积较小的场景；若图片过大导致 base64 超出 MCP 单次传输限制，请优先使用方式一脚本，或方式二先上传得到 `image_id` 后再传入**
 - `version_info` (object, 可选): 版本参数，详见《通用说明 > 版本参数》
 
 ### 返回值说明
@@ -638,7 +747,7 @@
 ```json
 {
   "file_id": "doc_1234567890",
-  "index": 0,
+  "idx": 0,
   "base64_markdown": "IyDmoIfpopgKCui/meaYr+S4gOautSoq5Yqg57KXKirmlofmnKzjgIIKCi0g5YiX6KGo6aG5MQotIOWIl+ihqOmhuTIKCnwg5aeT5ZCNIHwg5bm06b6EIHwKfC0tLS0tLXwtLS0tLS18Cnwg5byg5LiJIHwgMjUgfA==",
   "version_info": {
     "base_version": 5,
@@ -651,14 +760,14 @@
 ```json
 {
   "file_id": "doc_1234567890",
-  "index": 0,
+  "idx": 0,
   "markdown": "# 标题\n\n这是一段**加粗**文本。\n\n- 列表项1\n- 列表项2\n\n| 姓名 | 年龄 |\n|------|------|\n| 张三 | 25 |"
 }
 ```
 
 ### 参数说明
 - `file_id` (string, 必填): 文档唯一标识符
-- `index` (integer, 必填): 插入位置的索引，从 0 开始
+- `idx` (integer, 必填): 插入位置的索引，从 0 开始
 - `base64_markdown` (string, ⭐ 首选): Markdown 内容的 base64 编码字符串。**推荐优先使用此参数**，agent 需要先将 Markdown 文本进行标准 base64 编码后传入。与 `markdown` 二选一，如果填写了 `base64_markdown` 则无需再填写 `markdown`
 - `markdown` (string, 备选): Markdown 格式的原始文本内容，与 `base64_markdown` 二选一。当未提供 `base64_markdown` 时使用此参数。支持以下语法：
   - 标题：`# H1`、`## H2`、`### H3` 等
@@ -732,7 +841,7 @@
 > - **在文档标题之前插入**：使用 `HEADING_LEVEL_TITLE` 节点的 `title_start`
 > - **在正文开头插入（标题之后）**：使用 `HEADING_LEVEL_TITLE` 节点的 `content_start`
 > 
-> 如果用户未明确说明，应主动询问确认。
+> 如果用户未明确说明，应主动询问用户确认具体插入位置。
 
 ### 调用示例
 ```json
@@ -953,6 +1062,902 @@
 
 ---
 
+## 17. doc.modify_paragraph
+
+### 功能说明
+修改 Word 文档中已有段落的属性，支持设置对齐方式、行间距、段前段后间距、段落样式。所有属性均为可选，只传入需要修改的字段即可，未传入的字段保持原样。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "ranges": [{"begin": 0, "end": 15}],
+  "jc": "center",
+  "line_spacing": 1.5,
+  "line_spacing_rule": 1
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `ranges` (array, 必填): 段落范围列表，每项包含 `begin` 和 `end`（字符位置索引）
+- `jc` (string, 可选): 段落对齐方式：`left`（左对齐）/ `center`（居中）/ `right`（右对齐）/ `both`（两端对齐）/ `distribute`（分散对齐）
+- `spacing_before` (number, 可选): 段前间距，单位磅(pt)
+- `spacing_after` (number, 可选): 段后间距，单位磅(pt)
+- `line_spacing` (number, 可选): 行间距数值。当 `line_spacing_rule=1`(auto) 时为倍数值（如 1.0=单倍、1.5=1.5倍、2.0=双倍），切勿自行乘以 240；当 `line_spacing_rule=2`(exact) 或 `3`(atLeast) 时为磅值
+- `line_spacing_rule` (number, 可选): 行间距规则：`1`=auto（多倍行距）/ `2`=exact（固定值）/ `3`=atLeast（最小值）
+- `p_style` (string, 可选): 段落样式名称，如 `Heading1`、`Normal` 等
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 18. doc.get_text_property
+
+### 功能说明
+读取 Word 文档指定位置处生效的文本属性（与 `update_text_property` 字段对称）：加粗/斜体/下划线/删除线/小型大写/颜色/背景色/字号(pt)/字体/上下标等。响应中「字段不存在」表示该属性未在 run 上显式设置，应认为「继承自段落/样式默认值」。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "idx": 10
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `idx` (integer, 必填): 要查询的字符位置（0-based），建议通过 `resolve_document_structure` 获取段落 `start_index`
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+返回指定位置处生效的文本属性对象，包含 bold、italic、underline、strikethrough、small_caps、color、background_color、font_size、font_name、vertical_align 等字段。
+
+---
+
+## 19. doc.get_paragraph_property
+
+### 功能说明
+读取 Word 文档指定位置所在段落的属性（与 `insert_paragraph` 字段对称）：段落样式名、大纲级别、heading_level、是否带编号及编号级别、对齐方式、缩进、段前/后间距与行距。字段不存在表示未显式设置（继承默认值）。主要用于在修改段落属性前先了解当前状态。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "idx": 10
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `idx` (integer, 必填): 要查询的字符位置（0-based），会返回该位置所在段落的属性
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+返回段落属性对象，包含 p_style、outline_level、heading_level、numbering_type、numbering_lvl、jc、indent、spacing_before、spacing_after、line_spacing、line_spacing_rule 等字段。
+
+---
+
+## 20. doc.get_comments
+
+### 功能说明
+获取 Word 文档中所有批注。返回按 `range_begin` 升序排列的批注数组。主要用于对 `insert_comment` 的结果做验证、以及在执行批注相关编辑前枚举现有批注。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890"
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "comments": [
+    {
+      "id": "comment_001",
+      "range_begin": 5,
+      "range_end": 15,
+      "text": "批注内容",
+      "ref_id": "",
+      "author": "张三",
+      "date": "2024-01-01T12:00:00Z",
+      "is_point_anchor": false
+    }
+  ],
+  "read_result": {
+    "version": 1,
+    "trace_id": "trace_1234567890"
+  }
+}
+```
+- `comments` (array): 批注列表
+  - `id` (string): 批注 ID
+  - `range_begin` / `range_end` (uint32): 批注锚定范围的字符索引
+  - `text` (string): 批注正文文本
+  - `ref_id` (string): 回复链父批注 ID（仅回复批注才有）
+  - `author` (string): 作者展示名
+  - `date` (string): ISO 时间字符串
+  - `is_point_anchor` (bool): begin == end 时为 true，表示零长度的「点锚」批注
+
+---
+
+## 21. doc.insert_normal_link
+
+### 功能说明
+在 Word 文档指定位置插入普通超链接，可指定链接 URL 和显示文本。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "idx": 10,
+  "link": "https://docs.qq.com",
+  "text": "腾讯文档"
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `idx` (integer, 必填): 插入位置索引
+- `link` (string, 必填): 链接地址
+- `text` (string, 可选): 显示文本
+- `file_name` (string, 可选): 文件名
+- `layout_type` (string, 可选): 布局类型
+- `independent_render` (bool, 可选): 是否独立渲染
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 22. doc.insert_header
+
+### 功能说明
+设置页眉文本内容。覆盖式写入：先清空已有页眉内容，再写入新文本。本工具一次只处理一个 section（由 `section_index` 指定）；如需对多个 section 都写入页眉，请按需多次调用。首次插入时会为目标 section 独立创建页眉页脚 substory，打破该 section 与前一节"链接到上一节"的关系。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "text": "公司机密文档",
+  "section_index": 0,
+  "header_type": "default"
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `text` (string, 必填): 要写入的页眉文本内容
+- `section_index` (integer, 可选): 节索引（0-based），默认为 0
+- `header_type` (string, 可选): 页眉类型：`default`（默认页眉，应用于所有页）、`first`（首页页眉）、`even`（偶数页页眉）
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 23. doc.insert_footer
+
+### 功能说明
+设置页脚文本内容。覆盖式写入：先清空已有页脚内容，再写入新文本。本工具一次只处理一个 section（由 `section_index` 指定）。
+
+> ⚠️ 本工具与 `doc.set_page_number` 互斥。调用本工具会清除已有的页码（PAGE 字段）。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "text": "第 X 页",
+  "section_index": 0,
+  "footer_type": "default"
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `text` (string, 必填): 要写入的页脚文本内容
+- `section_index` (integer, 可选): 节索引（0-based），默认为 0
+- `footer_type` (string, 可选): 页脚类型：`default`（默认页脚，应用于所有页）、`first`（首页页脚）、`even`（偶数页页脚）
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 24. doc.insert_code_block
+
+### 功能说明
+在指定位置直接插入一个代码块。代码块会以原生 textbox 形式呈现，支持语法高亮语言标签。自动格式化：会自动去除所有行的公共前导缩进（dedent），无需手动处理缩进对齐。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "idx": 10,
+  "code": "def hello():\n    print('Hello, World!')",
+  "language": "python"
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `idx` (integer, 必填): 插入位置的字符索引
+- `code` (string, 必填): 代码内容（纯文本，支持多行）
+- `language` (string, 可选): 代码语言标签（如 `python` / `javascript` / `cpp` / `java` / `go` / `mermaid` 等），用于语法高亮
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 25. doc.insert_footnote
+
+### 功能说明
+在指定位置插入脚注或尾注。脚注显示在页面底部，尾注显示在文档末尾。
+
+> ⚠️ `idx` 应该使用目标文本的最后一个字符位置（即段落的 `end_index - 1`，段落分隔符 ¶ 之前），这样脚注/尾注引用标记会出现在文本末尾而非中间。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "idx": 7,
+  "type": 0,
+  "content": "这是一条脚注说明"
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `idx` (integer, 必填): 插入脚注/尾注引用标记的位置索引。应使用目标文本最后一个字符的位置
+- `type` (integer, 可选): 类型：`0`=脚注（默认），`1`=尾注
+- `content` (string, 可选): 脚注/尾注的文本内容（不传则创建空标记）
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 26. doc.insert_paragraph_with_text
+
+### 功能说明
+一步插入「带文本的段落」。原子完成「在 idx 处插入 text → 在 idx+len(text) 处插入段落分隔符 → 应用 level/type/numbering_lvl/indent_count」。推荐首选此接口而非「insert_text + insert_paragraph」两步调用，避免两步之间的位置漂移。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "idx": 50,
+  "text": "这是新段落的内容",
+  "level": "1",
+  "type": "0"
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `idx` (integer, 必填): 目标段落的 `end_index`。新段落将插入到该段落之后
+- `text` (string, 可选): 要写入的段落文本（不包含换行）。允许为空字符串
+- `level` (string, 可选): 标题级别：`0`=普通段落（默认），`1`~`9`=Heading1~Heading9
+- `type` (string, 可选): 编号类别：`0`=无编号（默认），`1`=圆点项目符号，`2`=数字编号(1、)，`3`=待办事项，`4`=数字编号(1.)
+- `numbering_lvl` (string, 可选): 编号级别（1~9），默认为 1。仅在 type=1 或 2 时生效
+- `indent_count` (integer, 可选): 编号前缩进空格数，仅在 type=1/2 时生效
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 27. doc.insert_border
+
+### 功能说明
+在指定位置插入分隔符（水平分隔线）。通过设置段落底部边框来实现。
+
+> ⚠️ `idx` 必须是「分隔线上方那个段落」的 `end_index`（即该段落的段落分隔符 ¶ 的位置）。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "idx": 20,
+  "border_type": "single",
+  "color": "000000",
+  "sz": 8
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `idx` (integer, 必填): 分隔线上方段落的 `end_index`
+- `border_type` (string, 可选): 边框类型：`single`（单线，默认）、`thick`（粗线）、`dotted`（点线）、`dashed`（虚线）、`double`（双线）、`dotDash`（点划线）、`wave`（波浪线）等
+- `color` (string, 可选): 边框颜色（十六进制），如 `"000000"` 表示黑色。默认 auto
+- `sz` (integer, 可选): 边框粗细（1/8磅为单位），如 8 表示 1 磅。默认 8
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 28. doc.set_table_properties
+
+### 功能说明
+修改表格属性。通过表格内任意 cell 的 GCP 位置 `idx` 定位表格，可同时设置边框、对齐、宽度、单元格内边距，以及按 9 种 condition 染色单元格。全部字段可选，未提供的属性沿用原表格设置。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "idx": 25,
+  "alignment": "center",
+  "borders": {
+    "top": {"color": "000000", "sz": 8},
+    "bottom": {"color": "000000", "sz": 8}
+  }
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `idx` (integer, 必填): 表格内任意 cell 的 GCP 位置（字符索引）
+- `alignment` (string, 可选): 表格对齐方式
+- `borders` (object, 可选): 表格 6 个方向边框。key 为 `top`/`left`/`bottom`/`right`/`inside_h`/`inside_v`，每项包含 `color`(string: 6位十六进制无#)、`sz`(integer: 1/8磅)、`space`(integer)
+- `cell_margin` (object, 可选): 默认单元格内边距（dxa 单位）。含 `top`/`left`/`bottom`/`right`(integer)
+- `width` (object, 可选): 表格宽度。含 `type`(string) 和 `value`(integer)
+- `cell_fills` (array, 可选): 单元格填充列表。每项含 `condition`(string) 和 `color`(string)。condition 取值：`whole_table` / `first_row` / `last_row` / `first_col` / `last_col` / `band_row_odd` / `band_row_even` / `band_col_odd` / `band_col_even`
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 29. doc.insert_rows
+
+### 功能说明
+在指定表格中批量插入多行。通过 `idx` 定位目标表格（表格内任意单元格的 GCP 位置），`rows` 为要插入的多行描述列表，支持一次插入多行，所有插入相对于原表格行号生效（引擎会自动按降序依次应用，避免索引偏移）。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "idx": 25,
+  "rows": [
+    {"row": 2, "insert_below": true}
+  ]
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `idx` (integer, 必填): 表格内任意单元格的 GCP 位置
+- `rows` (array, 必填): 要插入的行列表，至少 1 项。每项包含：
+  - `row` (integer): 参考行号（0-based，相对于表格内部）
+  - `insert_below` (boolean): `true` 表示在参考行下方插入，`false` 表示在参考行上方插入
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 30. doc.insert_cols
+
+### 功能说明
+在指定表格中批量插入多列。通过 `idx` 定位目标表格（表格内任意单元格的 GCP 位置），`cols` 为要插入的多列描述列表，支持一次插入多列，所有插入相对于原表格列号生效（引擎会自动按降序依次应用，避免索引偏移）。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "idx": 25,
+  "cols": [
+    {"col": 1, "insert_right": true}
+  ]
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `idx` (integer, 必填): 表格内任意单元格的 GCP 位置
+- `cols` (array, 必填): 要插入的列列表，至少 1 项。每项包含：
+  - `col` (integer): 参考列号（0-based，相对于表格内部）
+  - `insert_right` (boolean): `true` 表示在参考列右侧插入，`false` 表示在参考列左侧插入
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 31. doc.copy_format
+
+### 功能说明
+格式刷：将源范围的段落属性和文本属性复制到目标范围。读取 `source_range` 起始位置处生效的段落格式和文本格式，然后应用到 `target_ranges` 指定的所有范围上。适用于快速统一多个段落/文本的格式。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "source_range": {"begin": 0, "end": 10},
+  "target_ranges": [{"begin": 20, "end": 30}, {"begin": 40, "end": 50}],
+  "copy_paragraph_format": true,
+  "copy_text_format": true
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `source_range` (object, 必填): 格式来源范围，包含 `begin` 和 `end`
+- `target_ranges` (array, 必填): 目标范围列表，每项包含 `begin` 和 `end`
+- `copy_paragraph_format` (bool, 可选): 是否复制段落格式（对齐、缩进、间距、样式等）。默认 true
+- `copy_text_format` (bool, 可选): 是否复制文本格式（加粗、斜体、字号、字体、颜色等）。默认 true
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 32. doc.compare_documents
+
+### 功能说明
+对比两个 DOC 文档的内容和格式差异。返回段落级别的差异列表，包括新增/删除/内容修改/格式修改。还支持对比页眉页脚、文本框、表格和批注的差异。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_source_123",
+  "other_file_id": "doc_target_456",
+  "compare_mode": "all"
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 基准文档的 file_id，与 `file_url` 二选一
+- `file_url` (string, 可选): 基准文档的文档链接，与 `file_id` 二选一
+- `other_file_id` (string, 必填): 要对比的另一个文档的 file_id，与 `other_file_url` 二选一
+- `other_file_url` (string, 可选): 要对比的另一个文档的文档链接，与 `other_file_id` 二选一
+- `compare_mode` (string, 可选): 对比模式：`content`（仅对比文本内容）、`format`（仅对比格式）、`all`（全部对比，默认值）
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+返回差异列表，包含：
+- `diffs` (array): 段落级别差异列表，每项包含 `diff_type`（added/deleted/modified_content/modified_format）、`source_paragraph`、`target_paragraph` 等
+- `header_footer_diffs` (array): 页眉页脚差异
+- `textbox_diffs` (array): 文本框差异
+- `table_diffs` (array): 表格差异
+- `comment_diffs` (array): 批注差异
+
+---
+
+## 33. doc.create_with_markdown
+
+### 功能说明
+创建新 Word 文档并写入 Markdown 内容。一步完成文档创建和内容写入。
+
+### 调用示例
+```json
+{
+  "title": "我的新文档",
+  "markdown": "# 标题\n\n这是正文内容",
+  "folder_id": "folder_123"
+}
+```
+
+### 参数说明
+- `title` (string, 必填): 文档标题
+- `markdown` (string, 可选): Markdown 格式的文本内容，与 `base64_markdown` 二选一
+- `base64_markdown` (string, 可选): Markdown 内容的 base64 编码字符串，与 `markdown` 二选一（推荐）
+- `folder_id` (string, 可选): 目标文件夹 ID，不传则创建在根目录
+
+### 返回值说明
+```json
+{
+  "file_id": "new_doc_file_id",
+  "url": "https://docs.qq.com/doc/new_doc_file_id",
+  "title": "我的新文档"
+}
+```
+
+---
+
+## 34. doc.pre_insert_attachment
+
+### 功能说明
+在 Word 文档中预插入附件，获取上传链接和 object_key。客户端需使用 HTTP PUT 方法将文件上传到返回的 `upload_url`，上传完成后再调用 `insert_attachment` 完成附件插入。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "file_name": "报告.pdf",
+  "size": 1048576,
+  "ext": "pdf"
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `file_name` (string, 必填): 附件文件名，如 "报告.pdf"
+- `size` (integer, 必填): 附件大小，单位字节
+- `ext` (string, 必填): 附件扩展名，如 "pdf"、"xlsx"，不含点号
+- `is_multi_part` (bool, 可选): 是否分片上传，上传 >=5GB 的文件时必须为 true（默认 false）
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "upload_url": "https://upload.example.com/...",
+  "object_key": "attachment_object_key_123"
+}
+```
+
+---
+
+## 35. doc.insert_attachment
+
+### 功能说明
+在 Word 文档指定位置插入附件。本接口是 `pre_insert_attachment` 的后续步骤：必须先调用 `pre_insert_attachment` 获取 `upload_url` 和 `object_key`，客户端使用 HTTP PUT 上传文件成功后，再调用本接口完成附件插入。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "idx": 10,
+  "object_key": "attachment_object_key_123",
+  "upload_success": true,
+  "file_name": "报告.pdf",
+  "layout_type": 2,
+  "classify": 3
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `idx` (integer, 必填): 插入位置索引
+- `object_key` (string, 必填): 文件标识 key，从 `pre_insert_attachment` 返回
+- `upload_success` (bool, 必填): 文件是否上传成功
+- `file_name` (string, 建议必填): 文件名，如 "报告.pdf"
+- `size` (integer, 可选): 文件大小，单位字节
+- `file_type` (string, 可选): 文件类型，如 "pdf"
+- `layout_type` (number, 必填): 附件展示布局类型：`0` 文本态、`1` 图标+文本、`2` 卡片态、`3` 预览态
+- `classify` (number, 必填): 附件分类：`0` 未知、`1` 视频、`2` 音频、`3` 文档、`4` 图片
+- `text` (string, 可选): 附件显示文本。不传时自动用 `file_name` 回填
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 36. doc.insert_html_content
+
+### 功能说明
+在 Word 文档指定位置插入 HTML 内容，引擎自动转换为富文本格式。
+
+> ⚠️ `idx` 必须是有效的段落起始位置，建议使用 `doc.resolve_document_structure` 获取普通段落的 `start_index`，确保 `idx` 落在真正的段落起始位置。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "idx": 10,
+  "html_text": "<h1>标题</h1><p>这是<b>加粗</b>文本</p>"
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `idx` (integer, 必填): 插入位置索引
+- `html_text` (string, 必填): HTML 内容
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 37. doc.insert_numbering
+
+### 功能说明
+在 Word 文档中插入项目列表（编号/项目符号），支持设置编号类别和级别。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "start_idx": 5,
+  "end_idx": 20,
+  "abstract_num_id": "1",
+  "type": "2",
+  "numbering_lvl": "1"
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `start_idx` (integer, 必填): 替换文本的开始位置
+- `end_idx` (integer, 必填): 替换文本的结束位置
+- `abstract_num_id` (string, 建议必填): 编号模板 ID，一般传 `"1"`
+- `p_idx` (integer, 可选): 当前段落的结束位置
+- `property` (object, 可选): 段落属性
+- `type` (string, 可选): 编号类别
+- `numbering_lvl` (string, 可选): 编号级别
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 38. doc.set_page_number
+
+### 功能说明
+设置页码（在页脚中插入 PAGE 字段）。默认参数组合：页面底部居中 + 1,2,3 格式 + 续前节 + 应用于整篇文档。调用前会自动切换为分页模式。
+
+> ⚠️ 本工具与 `doc.insert_footer` 互斥，调用后会清空页脚内容再写入页码字段。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "position": "center",
+  "format": "decimal",
+  "continue_from_prev": true,
+  "scope": "whole_doc"
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `position` (string, 可选): 页码位置：`center`（默认）/`left`/`right`/`inside`/`outside`
+- `format` (string, 可选): 页码格式：`decimal`（默认）/`romanLower`/`romanUpper`/`alphaLower`/`alphaUpper`
+- `continue_from_prev` (bool, 可选): 是否续前节，默认 `true`。若为 `false`，使用 `start` 作为起始编号
+- `start` (integer, 可选): 起始编号（`continue_from_prev=false` 时生效）
+- `scope` (string, 可选): 应用范围：`whole_doc`（默认）/`from_here`/`current_section`
+- `section_index` (integer, 可选): 节索引，仅在 `scope=current_section/from_here` 时生效
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 39. doc.set_table_layout
+
+### 功能说明
+设置表格的行高/列宽。通过表格内任意 cell 的 GCP 位置 `idx` 定位表格，支持两种模式：
+- `mode=auto`：列宽自动按页面可用宽度均分；忽略 `row_heights_dxa/col_widths_dxa`
+- `mode=manual`：按 `row_heights_dxa/col_widths_dxa` 逐项设置，值为 `0` 表示保持原值
+
+> ⚠️ `mode=manual` 前建议先调用 `doc.get_table_info` 获取行列数和当前宽高，避免数组长度或单位使用错误。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "idx": 25,
+  "mode": "manual",
+  "row_heights_dxa": [0, 360, 360],
+  "col_widths_dxa": [1800, 1800, 1800]
+}
+```
+
+### 参数说明
+- `file_id` (string, 可选): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `idx` (integer, 必填): 表格内任意 cell 的 GCP 位置（字符索引）
+- `mode` (string, 必填): `auto` 或 `manual`
+- `row_heights_dxa` (array, 可选): 每行行高数组（dxa）。仅 `manual` 生效，`0` 表示保持原值
+- `col_widths_dxa` (array, 可选): 每列列宽数组（dxa）。仅 `manual` 生效，`0` 表示保持原值
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
+## 40. doc.replace_bookmarks
+
+### 功能说明
+替换 Word 文档中书签标记范围的内容，支持文本和图片类型替换。
+
+### 调用示例
+```json
+{
+  "file_id": "doc_1234567890",
+  "samples": [
+    {
+      "bookmark_name": "company_name",
+      "type": "text",
+      "text": "腾讯科技"
+    },
+    {
+      "bookmark_name": "logo",
+      "type": "image",
+      "image_info": {
+        "content": "base64_encoded_image..."
+      }
+    }
+  ]
+}
+```
+
+### 参数说明
+- `file_id` (string, 必填): 文档唯一标识符，与 `file_url` 二选一
+- `file_url` (string, 可选): 腾讯文档的文档链接，与 `file_id` 二选一
+- `samples` (array, 必填): 书签替换样本列表，每个元素包含：
+  - `bookmark_name` (string): 书签名
+  - `type` (string): 替换类型：`text`（文本替换）、`image`（图片替换）、`document`（文档替换）
+  - `text` (string): 文本内容（type=text 时使用）
+  - `image_info` (object): 图片信息（type=image 时使用），包含 `content`(base64) 或 `image_id`
+- `version_info` (object, 可选): 版本参数
+
+### 返回值说明
+```json
+{
+  "base_version": 1,
+  "new_version": 2,
+  "trace_id": "trace_1234567890",
+  "err_msg": ""
+}
+```
+
+---
+
 ## 典型工作流示例
 
 ### 用 Markdown 创建 Word 文档（推荐）
@@ -967,7 +1972,7 @@
 3. 调用 manage.create_file 创建一个空 Word 文档（file_type=doc），获取返回的 file_id
 4. 调用 doc.get_last_operable_pos（传入 file_id），获取文档末尾可操作的 position 和当前 version
 5. 使用 read_file 工具读取步骤 2 生成的 encoded_<标题>.txt，拿到 base64 编码后的 Markdown 内容
-6. 调用 doc.insert_markdown，传入 file_id、index=position、base64_markdown（可选传 version_info.base_version=上一步的 version），将 Markdown 内容写入文档
+6. 调用 doc.insert_markdown，传入 file_id、idx=position、base64_markdown（可选传 version_info.base_version=上一步的 version），将 Markdown 内容写入文档
 7. 如需修改文档标题，调用 manage.rename_file_title
 ```
 
@@ -996,9 +2001,10 @@
 ### 查找并替换文本（精确替换）
 
 ```
-1. 调用 doc.find 查找目标文本，获取所有匹配位置
-2. 将匹配结果展示给用户，让用户选择要替换的位置
-3. 调用 doc.replace_text 传入对应的 range 进行精确替换
+1. 优先调用 doc.resolve_document_structure 获取结构树，并基于 text_preview 定位目标文本所在范围
+2. 若通过 text_preview 无法可靠定位，再调用 doc.find 查找目标文本补充定位
+3. 将候选位置展示给用户确认
+4. 调用 doc.replace_text 传入对应的 ranges 进行精确替换
 ```
 
 ### 查找并替换文本（全部替换）
@@ -1018,7 +2024,7 @@
 
 ```
 1. 调用 doc.get_last_operable_pos 获取文档末尾可操作位置
-2. 使用返回的 position 作为 index，调用 doc.insert_text / doc.insert_image / doc.insert_table 等工具追加内容
+2. 使用返回的 position 作为 idx，调用 doc.insert_text / doc.insert_image / doc.insert_table 等工具追加内容
 ```
 
 ### 在指定标题下插入内容
@@ -1047,7 +2053,7 @@
 1. 调用 doc.resolve_document_structure 获取文档完整结构树
 2. 在返回的 nodes 中找到目标 Table 节点
 3. 通过 table_rows[row-1].cells[col-1].end_index 获取目标单元格的末尾位置
-4. 调用 doc.insert_text，将 index 设为该 end_index，即可在指定单元格末尾插入文本
+4. 调用 doc.insert_text，将 idx 设为该 end_index，即可在指定单元格末尾插入文本
 ```
 
 ### 在文本框内部插入内容
@@ -1079,16 +2085,10 @@
 ## 注意事项
 
 - 仅支持 Word 文档类型（doc_type: word）
-- `index` / `idx` 参数表示插入位置，从 0 开始计数
+- `idx` 参数表示插入位置，从 0 开始计数
 - 操作前需确保拥有文档的写入权限
 - `replace_text` 的 `ranges` 参数中 `begin` 和 `end` 必须在文档有效范围内
-- 替换文本的推荐流程：先调用 `doc.find` 查找定位，让用户确认后再用 `doc.replace_text` 精确替换；如果需要全部替换可直接使用 `doc.find_and_replace`
-- **所有 `doc.*` 工具均使用 `file_id` 标识文档（必填）**；若用户提供的是文档链接（形如 `https://docs.qq.com/doc/<file_id>`），需先从链接末尾解析出 `file_id` 再传入
-- 所有 `doc.*` 工具都支持可选的 `version_info`（`base_version` / `is_latest`），连续多步编辑时建议将上一步查询返回的 `version` 传入下一步的 `version_info.base_version`，避免并发冲突
+- 替换文本的推荐流程：优先调用 `doc.resolve_document_structure` 基于 `text_preview` 定位；若无法可靠定位，再调用 `doc.find` 补充查找；确认后再用 `doc.replace_text` 精确替换。如果需要全部替换可直接使用 `doc.find_and_replace`
+- **所有 `doc.*` 工具均支持 `file_id` / `file_url` 二选一**；若用户提供的是文档链接（形如 `https://docs.qq.com/doc/<file_id>`），可直接传 `file_url`，也可先解析出 `file_id` 再传入
+- `version_info`（`base_version` / `is_latest`）并非所有工具都支持，连续多步编辑时若目标工具支持，建议将上一步查询返回的 `version` 传入下一步的 `version_info.base_version`，避免并发冲突
 - `doc.get_last_operable_pos` 返回的 `position` 即为文档末尾可安全插入内容的位置
-- `doc.get_outline` 返回树形大纲结构，每个节点的 `content_start`/`content_end` 表示该标题下正文区域的可操作范围，可直接用作 `doc.insert_text` 等工具的 `index` 参数
-- **「在文档开头插入」需明确位置**：用户要求在文档开头插入内容时，应先通过 `doc.get_outline` 获取大纲，区分「文档标题前」（`HEADING_LEVEL_TITLE` 的 `title_start`）和「正文开头」（`HEADING_LEVEL_TITLE` 的 `content_start`），并向用户确认具体插入位置
-- `doc.resolve_document_structure` 返回所有块级元素的完整结构树，`table_rows[row].cells[col].end_index` 即为对应单元格末尾可插入位置；TextBox/CodeBlock 的内部段落通过 `children` 字段获取；`logical_index` 表示节点在同级中的顺序（从 1 开始）
-- 快速用 Markdown 生成 Word 文档的推荐组合方式：1. `manage.create_file`（`file_type=doc`）创建空文档 → 2. `doc.get_last_operable_pos` 获取插入位置 → 3. `doc.insert_markdown` 写入内容
-- `doc.insert_comment` 的 `range` 必须在文档有效范围内，建议先用 `doc.find` 获取精确范围
-- `doc.replace_image` 需要通过 `old_image_url` 或 `old_attachment_id` 定位旧图片，新图片通过 `image_id` 或 `content`（base64）指定
