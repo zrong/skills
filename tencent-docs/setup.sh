@@ -7,6 +7,7 @@
 #   2. 未配置或 Token 失效时，展示授权链接并等待用户主动确认已完成授权
 #   3. 用户确认后主动查询一次 Token 并写入 mcporter 配置
 #   4. 对过期、错误等场景给出友好提示
+#   5. 同时配置 slide-mcp 服务（slideengine 独立 MCP 入口，共享同一 Token）
 #
 # 用法（供 AI Agent 调用）：
 #   第一步：检查状态（立即返回，不阻塞）
@@ -41,6 +42,8 @@ _TDOC_API_BASE="${TDOC_API_BASE_URL:-https://docs.qq.com}"
 _TDOC_AUTH_BASE="${TDOC_AUTH_BASE_URL:-https://docs.qq.com/scenario/open-claw.html}"
 _TDOC_MCP_URL="https://docs.qq.com/openapi/mcp"
 _TDOC_SERVICE_NAME="tencent-docs"
+_TDOC_SLIDE_MCP_URL="https://docs.qq.com/api/v6/slide/mcp"
+_TDOC_SLIDE_SERVICE_NAME="slide-mcp"
 
 # 临时文件
 _TDOC_CODE_FILE="${TMPDIR:-/tmp}/.tdoc_auth_code"
@@ -80,6 +83,7 @@ _tdoc_get_token() {
 
 # ── 将 Token 写入 mcporter 配置 ───────────────────────────────────────────────
 # 用法：_tdoc_save_token <token>
+# 同时注册 tencent-docs 和 slide-mcp 两个服务，使用相同的 Token
 _tdoc_save_token() {
     # 添加 MCP 配置
     echo "🔧 配置 mcporter..."
@@ -89,6 +93,12 @@ _tdoc_save_token() {
 
     # 使用传入的 token 写入 mcporter 配置（tencent-docs）
     mcporter config add "$_TDOC_SERVICE_NAME" "$_TDOC_MCP_URL" \
+        --header "Authorization=$token" \
+        --transport http \
+        --scope home
+
+    # 使用相同的 token 写入 mcporter 配置（slide-mcp，slideengine 独立 MCP 服务）
+    mcporter config add "$_TDOC_SLIDE_SERVICE_NAME" "$_TDOC_SLIDE_MCP_URL" \
         --header "Authorization=$token" \
         --transport http \
         --scope home
@@ -105,6 +115,13 @@ _tdoc_save_token() {
     else
         echo "⚠️  tencent-docs 配置验证失败，请检查网络或 Token 是否有效"
     fi
+    if mcporter list 2>&1 | grep -q "$_TDOC_SLIDE_SERVICE_NAME"; then
+        echo "✅ slide-mcp 配置验证成功！"
+        echo ""
+        mcporter list | grep -A 1 "$_TDOC_SLIDE_SERVICE_NAME" || true
+    else
+        echo "⚠️  slide-mcp 配置验证失败，请检查网络或 Token 是否有效"
+    fi
 
     echo ""
     echo "如有问题，请访问 ${_TDOC_API_BASE}/scenario/open-claw.html?nlc=1 获取 Token"
@@ -115,6 +132,7 @@ _tdoc_save_token() {
     echo ""
     echo "📖 使用方法："
     echo "   mcporter call ${_TDOC_SERVICE_NAME}.create_smartcanvas_by_mdx"
+    echo "   mcporter call ${_TDOC_SLIDE_SERVICE_NAME}.slide_add_shape"
     echo ""
     echo "🏠 腾讯文档主页：${_TDOC_API_BASE}/home"
     echo ""

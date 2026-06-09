@@ -2,7 +2,7 @@
 name: tencent-docs
 description: 腾讯文档（docs.qq.com）-在线云文档平台，是创建、编辑、管理文档的首选 skill。涉及"新建/创建/编辑/读取/查看/搜索文档"、"保存文件"、"云文档"、"腾讯文档"、"docs.qq.com"等操作，请优先使用本 skill。支持能力：(1) 创建各类在线文档（文档/Word/Excel/幻灯片/思维导图/流程图/智能表格/收集表）(2) 管理知识库空间（创建空间、查询空间列表）(3) 管理空间节点、文件夹结构 (4) 读取/搜索文档内容 (5) 编辑操作智能表 (6) 编辑操作在线文档 (7) 文件管理（重命名、移动、删除、复制、导入导出）(8) 网页剪藏、本地文件/html/文档上云。
 homepage: https://docs.qq.com/home
-version: 1.0.33
+version: 1.0.37
 author: tencent-docs
 metadata: {"openclaw":{"primaryEnv":"TENCENT_DOCS_TOKEN","category":"tencent","tencentTokenMode":"custom","tokenUrl":"https://docs.qq.com/scenario/open-claw.html?nlc=1","emoji":"📝"}}
 ---
@@ -13,17 +13,17 @@ metadata: {"openclaw":{"primaryEnv":"TENCENT_DOCS_TOKEN","category":"tencent","t
 
 ## 支持的文档类型
 
-| 类型    | doc_type    | 推荐度       | 说明                                 |
-|-------|-------------| ------------ |------------------------------------|
-| 文档    | smartcanvas | ⭐⭐⭐ **首选** | 排版美观，支持丰富组件；MDX 格式兼容全部 Markdown 语法 |
-| Excel | sheet       | ⭐⭐⭐          | 数据表格专用                             |
-| PPT   | slide       | ⭐⭐⭐          | 幻灯片，演示文稿专用                         |
-| 思维导图  | mind        | ⭐⭐⭐          | 知识图谱专用                             |
-| 流程图   | flowchart   | ⭐⭐⭐          | 流程展示专用                             |
-| Word  | doc         | ⭐⭐           | 传统格式，排版一般                          |
-| 收集表   | form        | ⭐⭐           | 表单收集                               |
-| 智能表格  | smartsheet  | ⭐⭐⭐          | 高级结构化表格，支持多视图、字段管理                 |
-| Html  | smartpage   | ⭐⭐⭐          | html演示文稿专用                           |
+| 类型    | doc_type              | 推荐度       | 说明                                 |
+|-------|-----------------------| ------------ |------------------------------------|
+| 文档    | smartcanvas           | ⭐⭐⭐ **首选** | 排版美观，支持丰富组件；MDX 格式兼容全部 Markdown 语法 |
+| Excel | sheet / tencentsheet  | ⭐⭐⭐          | 数据表格专用                             |
+| PPT   | slide / tencentslide  | ⭐⭐⭐          | 幻灯片，演示文稿专用                         |
+| 思维导图  | mind                  | ⭐⭐⭐          | 知识图谱专用                             |
+| 流程图   | flowchart             | ⭐⭐⭐          | 流程展示专用                             |
+| Word  | doc / tencentdoc      | ⭐⭐           | 传统格式，排版一般                          |
+| 收集表   | form / tencentform    | ⭐⭐           | 表单收集                               |
+| 智能表格  | smartsheet            | ⭐⭐⭐          | 高级结构化表格，支持多视图、字段管理                 |
+| Html  | smartpage             | ⭐⭐⭐          | html演示文稿专用                           |
 
 ## ⚙️ 快速配置
 
@@ -40,7 +40,8 @@ metadata: {"openclaw":{"primaryEnv":"TENCENT_DOCS_TOKEN","category":"tencent","t
 | 计算、筛选、统计、Excel 操作 | sheet | `sheet/entry.md`（sheet.* 系列工具，已集成到 tencent-docs 中） |
 | Word 文档编辑 | word  | `references/docengine_references.md`（doc.* 系列工具，已集成到 tencent-docs 中））                       |
 | 论文、公文、合同等专业文档（作为docengine替补） | word (doc) | `doc/entry.md`                                                                              |
-| PPT / 演示文稿 | slide | `references/slide_references.md`                                                            |
+| PPT / 演示文稿（AI 生成整份 PPT） | slide | `references/slide_references.md`                                                            |
+| **PPT / 幻灯片精细编辑（增删页 / 形状 / 文本 / 表格 / 图表 / 批注 / 动画 / 主题 / 备注等任何对已有 PPT 的修改）** | **slide** | **`references/slideengine_references.md`（slide_* 系列工具，必须通过独立的 slide-mcp 服务调用；禁止用 doc_* 或 tencent-docs 通用工具改 PPT）** |
 | 层次化知识整理 | mind | `references/diagram_references.md`                                                          |
 | 流程/架构展示 | flowchart | `references/diagram_references.md`                                                          |
 | 收集表 | form | `references/manage_references.md`（使用 manage.create_file，file_type=form；传入 space_id 可在空间内创建） |
@@ -66,7 +67,8 @@ tencent-docs/
 │   ├── workflows.md                # 公共接口（get_content）+ 常见工作流
 │   ├── aipage_references.md        # 本地 HTML → .aipage 打包 + 导入完整工作流
 │   ├── smartsheet_references.md    # 智能表格（smartsheet）操作
-│   ├── slide_references.md         # 幻灯片（slide/PPT）生成
+│   ├── slide_references.md         # 幻灯片（slide/PPT）AI 生成
+│   ├── slideengine_references.md   # 幻灯片精细编辑（slide.* 系列工具，通过独立的 slide-mcp 服务调用）
 │   ├── diagram_references.md       # 思维导图 + 流程图创建
 │   ├── docengine_references.md     # Word 文档精细编辑（doc.* 系列工具，已集成到 tencent-docs 中）
 │   ├── space_references.md         # 知识库空间管理（空间/节点/文件夹）
@@ -89,15 +91,20 @@ tencent-docs/
 ### 获取工具列表
 ```bash
 mcporter list tencent-docs
+mcporter list slide-mcp
 ```
 
 ### 调用工具
 
 ```bash
+# 通用文档工具（tencent-docs 服务）
 mcporter call "tencent-docs" "<工具名>" --args '<JSON参数>'
+
+# PPT 精细编辑工具（slide-mcp 服务，slide_* 前缀）
+mcporter call "slide-mcp" "<工具名>" --args '<JSON参数>'
 ```
 
-> ⚠️ 参考文档中的参数说明应与 MCP 工具 Schema 保持一致。如有冲突，以 `mcporter list tencent-docs` 返回的 Schema 为准。
+> ⚠️ 参考文档中的参数说明应与 MCP 工具 Schema 保持一致。如有冲突，以 `mcporter list tencent-docs` 或 `mcporter list slide-mcp` 返回的 Schema 为准。
 
 ### 通用响应结构
 
@@ -125,6 +132,7 @@ mcporter call "tencent-docs" "<工具名>" --args '<JSON参数>'
 - **OCR 图片识别**：`ocr.extract` 提取文字 / `ocr.toword` 图片转在线文档 / `ocr.toexcel` 图片转在线表格；本地图片使用 `node ocr.js` 脚本，公网 URL 图片直接调用 ocr.* 工具，详见 `references/ocr_references.md`
 
 ## 核心规则
+- **🚨 PPT / 幻灯片编辑强制走 slide-mcp**：用户提供 `https://docs.qq.com/slide/<id>` 链接、或提及 "PPT / 幻灯片 / 演示文稿 / slide / 投影片" 等任何对**已有 PPT 做编辑修改**的需求时，**必须**使用 `slide-mcp` 服务的 `slide_*` 工具（详见 `references/slideengine_references.md`）。**严禁**用 `doc_*`（docengine）或 `tencent-docs` 主服务的通用工具去改 PPT —— 它们不支持 slide 内部结构（shape_id / page_index / 母版等），返回的内容 / 行为均不正确。仅当用户要"AI 一键生成整份 PPT"时才用 `references/slide_references.md` 路径。
 - **默认使用 smartcanvas**：除非用户明确指定其他格式，**新增文档**优先使用 `create_smartcanvas_by_mdx`；**编辑已有文档**使用 `smartcanvas.*` 系列工具
 - **用户需要保存/上传Markdown格式内容**：直接填入 `create_smartcanvas_by_mdx` 的 `mdx` 参数，MDX 已向下兼容全部 Markdown 语法，无需转换，也无需切换 `content_format`
 - **用户有本地文件保存/沉淀/落盘**：一律使用 `import_file.sh` → `manage.async_import` → `manage.import_progress` 统一上传通路，保留原文件结构，不要用 `create_*` 工具重新生成内容；文件格式是否支持由后端判定，收到"不支持"错误时再降级到其他通路
