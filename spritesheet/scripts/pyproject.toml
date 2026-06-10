@@ -1,0 +1,10 @@
+[project]
+name = "spritesheet"
+version = "0.1.0"
+description = "Extract frames from video, remove background, generate spritesheet and player"
+requires-python = ">=3.13"
+dependencies = [
+    "opencv-python-headless>=4.8",
+    "numpy>=1.24",
+    "openai>=1.0",
+]

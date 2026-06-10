@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Spritesheet 动画播放器</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+    background: #111;
+    color: #ccc;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  h1 { font-size: 16px; font-weight: 400; margin-bottom: 4px; color: #666; letter-spacing: 0.5px; }
+  .video-name {
+    font-size: 13px;
+    color: #888;
+    margin-bottom: 20px;
+    font-family: "SF Mono", "Menlo", monospace;
+  }
+  #dropzone {
+    position: relative;
+    border: 2px dashed #333;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 20px;
+    transition: border-color 0.2s;
+  }
+  #dropzone.dragover { border-color: #999; }
+  #dropzone p {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #555;
+    font-size: 13px;
+    pointer-events: none;
+    display: none;
+  }
+  #canvas-wrap {
+    position: relative;
+    display: inline-block;
+  }
+  canvas {
+    display: block;
+    border-radius: 4px;
+    image-rendering: pixelated;
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  button {
+    background: #222;
+    color: #bbb;
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 7px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  button:hover { background: #2a2a2a; border-color: #444; }
+  button:active { background: #333; }
+  button.active { background: #333; border-color: #888; color: #fff; }
+  .slider-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .slider-group label { font-size: 12px; color: #666; }
+  .slider-group span { font-size: 12px; color: #aaa; min-width: 28px; }
+  input[type="range"] {
+    -webkit-appearance: none;
+    height: 3px;
+    background: #333;
+    border-radius: 2px;
+    outline: none;
+    width: 100px;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    background: #888;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .info {
+    margin-top: 12px;
+    font-size: 12px;
+    color: #555;
+    text-align: center;
+    line-height: 1.8;
+  }
+  .info strong { color: #999; font-weight: 500; }
+  .frame-bar {
+    display: flex;
+    gap: 4px;
+    margin-top: 12px;
+  }
+  .frame-bar .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #222;
+    border: 1px solid #333;
+    transition: background 0.1s, border-color 0.1s;
+  }
+  .frame-bar .dot.active { background: #888; border-color: #aaa; }
+</style>
+</head>
+<body>
+
+<h1>Spritesheet 动画播放器</h1>
+<p class="video-name">{{TITLE}}</p>
+
+<div id="dropzone">
+  <p>拖拽 spritesheet 到此处</p>
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+  </div>
+</div>
+
+<div class="controls">
+  <button id="btnPrev">⏮ 上一帧</button>
+  <button id="btnPlay" class="active">▶ 播放</button>
+  <button id="btnNext">下一帧 ⏭</button>
+  <div class="slider-group">
+    <label>速度</label>
+    <input type="range" id="fpsSlider" min="1" max="30" value="8">
+    <span id="fpsVal">8 帧/秒</span>
+  </div>
+  <div class="slider-group">
+    <label>缩放</label>
+    <input type="range" id="scaleSlider" min="1" max="4" value="1">
+    <span id="scaleVal">1×</span>
+  </div>
+</div>
+
+<div class="frame-bar" id="frameBar"></div>
+
+<div class="info" id="info">加载中…</div>
+
+<script>
+const COLS = {{COLS}}, ROWS = {{ROWS}}, TOTAL = {{TOTAL}};
+let frameW = {{FRAME_W}}, frameH = {{FRAME_H}};
+let playing = true, currentFrame = 0, fps = 8, scale = 1;
+let lastTime = 0;
+let img = new Image();
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const frameBar = document.getElementById('frameBar');
+
+// 创建帧指示点
+for (let i = 0; i < TOTAL; i++) {
+  const dot = document.createElement('div');
+  dot.className = 'dot';
+  frameBar.appendChild(dot);
+}
+
+// 绘制棋盘格背景
+function drawCheckerboard() {
+  const size = 16;
+  for (let y = 0; y < frameH; y += size) {
+    for (let x = 0; x < frameW; x += size) {
+      ctx.fillStyle = ((x / size + y / size) % 2 === 0) ? '#1a1a1a' : '#151515';
+      ctx.fillRect(x, y, size, size);
+    }
+  }
+}
+
+// 绘制当前帧
+function drawFrame() {
+  const col = currentFrame % COLS;
+  const row = Math.floor(currentFrame / COLS);
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawCheckerboard();
+  ctx.drawImage(img, col * frameW, row * frameH, frameW, frameH, 0, 0, frameW, frameH);
+
+  // 更新帧指示
+  const dots = frameBar.querySelectorAll('.dot');
+  dots.forEach((d, i) => d.classList.toggle('active', i === currentFrame));
+
+  const t = (currentFrame / fps).toFixed(2);
+  document.getElementById('info').innerHTML =
+    `当前 <strong>${currentFrame + 1}</strong> / ${TOTAL} 帧（第 ${t} 秒）<br>` +
+    `单帧 ${frameW}×${frameH}px · ${COLS}列 × ${ROWS}行`;
+}
+
+// 动画循环
+function animate(time) {
+  if (playing) {
+    const interval = 1000 / fps;
+    if (time - lastTime >= interval) {
+      currentFrame = (currentFrame + 1) % TOTAL;
+      drawFrame();
+      lastTime = time;
+    }
+  }
+  requestAnimationFrame(animate);
+}
+
+// 加载图片
+function loadImage(src) {
+  img = new Image();
+  img.onload = () => {
+    frameW = Math.floor(img.naturalWidth / COLS);
+    frameH = Math.floor(img.naturalHeight / ROWS);
+    canvas.width = frameW;
+    canvas.height = frameH;
+    applyScale();
+    drawFrame();
+  };
+  img.src = src;
+}
+
+function applyScale() {
+  canvas.style.width = frameW * scale + 'px';
+  canvas.style.height = frameH * scale + 'px';
+}
+
+// 控件
+document.getElementById('btnPlay').addEventListener('click', function() {
+  playing = !playing;
+  this.textContent = playing ? '⏸ 暂停' : '▶ 播放';
+  this.classList.toggle('active', playing);
+  if (playing) lastTime = performance.now();
+});
+
+document.getElementById('btnPrev').addEventListener('click', () => {
+  currentFrame = (currentFrame - 1 + TOTAL) % TOTAL;
+  drawFrame();
+});
+
+document.getElementById('btnNext').addEventListener('click', () => {
+  currentFrame = (currentFrame + 1) % TOTAL;
+  drawFrame();
+});
+
+document.getElementById('fpsSlider').addEventListener('input', function() {
+  fps = parseInt(this.value);
+  document.getElementById('fpsVal').textContent = fps + ' 帧/秒';
+});
+
+document.getElementById('scaleSlider').addEventListener('input', function() {
+  scale = parseInt(this.value);
+  document.getElementById('scaleVal').textContent = scale + '×';
+  applyScale();
+});
+
+// 拖拽支持
+const dropzone = document.getElementById('dropzone');
+dropzone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropzone.classList.add('dragover');
+  dropzone.querySelector('p').style.display = 'block';
+});
+dropzone.addEventListener('dragleave', () => {
+  dropzone.classList.remove('dragover');
+  dropzone.querySelector('p').style.display = 'none';
+});
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  dropzone.querySelector('p').style.display = 'none';
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) {
+    const url = URL.createObjectURL(file);
+    loadImage(url);
+  }
+});
+
+// 启动
+loadImage('spritesheet.png');
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
