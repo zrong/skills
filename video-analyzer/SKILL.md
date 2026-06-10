@@ -29,12 +29,32 @@ export OPENAI_API_KEY="your-api-key"
 
 ### 模型配置
 
-编辑 `scripts/models.json` 添加或修改模型配置。每个模型需要：
+编辑项目根目录的 `agent_config.toml`，在 `[video-analyzer]` 分区中配置模型：
+
+```toml
+[video-analyzer]
+default_model = "doubao-vision"
+
+[video-analyzer.models.doubao-vision]
+base_url = "https://ark.cn-beijing.volces.com/api/v3"
+api_key = "your-api-key"             # 直接填写（优先）
+api_key_env = "ARK_API_KEY"          # 或从环境变量读取（api_key 为空时生效）
+model = "doubao-seed-1-6-vision-250815"
+api_type = "responses"
+supports_video = false
+```
+
+每个模型需要：
 - `base_url` — API 地址
-- `api_key_env` — 读取 API Key 的环境变量名
+- `api_key` — API Key（直接填写，优先读取）
+- `api_key_env` — 环境变量名（api_key 为空时 fallback）
 - `model` — 模型 ID
 - `api_type` — `responses` 或 `chat_completions`
 - `supports_video` — 是否支持原生视频输入
+
+API Key 读取优先级：CLI `--api-key` > 配置文件 `api_key` > 环境变量 `api_key_env`
+
+配置文件查找优先级：CWD → Skill 目录 → Git 根目录。可参考 `agent_config.example.toml`。
 
 ## 工作流程
 

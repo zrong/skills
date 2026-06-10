@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 
 import cv2
@@ -26,17 +27,66 @@ import httpx
 from openai import OpenAI
 
 SCRIPT_DIR = Path(__file__).parent
+SKILL_DIR = SCRIPT_DIR.parent
 MODELS_FILE = SCRIPT_DIR / "models.json"
+CONFIG_SECTION = "video-analyzer"
 
 VIDEO_EXTENSIONS = {
     ".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".wmv", ".m4v", ".ts", ".mpg", ".mpeg",
 }
 
 
+def _find_config() -> Path | None:
+    """查找 agent_config.toml 配置文件（四位置发现策略）。
+
+    优先级（从高到低）：
+    1. 当前工作目录（CWD）/agent_config.toml
+    2. Skill 目录（SKILL_DIR）/agent_config.toml
+    3. 向上查找 .git 所在目录/agent_config.toml
+    4. ~/.agents/agent_config.toml
+
+    找不到时返回 None（fallback 到 models.json）。
+    """
+    candidates = [
+        Path.cwd() / "agent_config.toml",
+        SKILL_DIR / "agent_config.toml",
+    ]
+    for parent in Path.cwd().parents:
+        if (parent / ".git").exists():
+            candidates.append(parent / "agent_config.toml")
+            break
+    candidates.append(Path.home() / ".agents" / "agent_config.toml")
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def load_toml_config() -> dict | None:
+    """从 agent_config.toml 加载 [video-analyzer] 配置。找不到时返回 None。"""
+    config_path = _find_config()
+    if not config_path:
+        return None
+    with open(config_path, "rb") as f:
+        config = tomllib.load(f)
+    return config.get(CONFIG_SECTION, {})
+
+
 def load_models_config() -> dict:
-    """加载模型配置文件。"""
+    """加载模型配置。优先从 agent_config.toml 读取，fallback 到 models.json。"""
+    toml_cfg = load_toml_config()
+    if toml_cfg and "models" in toml_cfg:
+        return toml_cfg
+
+    # fallback: models.json
     if not MODELS_FILE.exists():
-        print(f"错误: 模型配置文件不存在: {MODELS_FILE}", file=sys.stderr)
+        print(
+            f"错误: 未找到 agent_config.toml 中的 [{CONFIG_SECTION}] 配置，"
+            f"且 models.json 不存在: {MODELS_FILE}\n"
+            f"请复制 {SKILL_DIR / 'agent_config.example.toml'} 为 agent_config.toml 并填入实际值",
+            file=sys.stderr,
+        )
         sys.exit(1)
     with open(MODELS_FILE) as f:
         return json.load(f)
@@ -236,15 +286,31 @@ def build_chat_video_input(video_b64: str, prompt: str, ext: str = "mp4") -> lis
     return [{"role": "user", "content": content}]
 
 
+def _resolve_api_key(model_cfg: dict, api_key_override: str | None = None) -> str:
+    """解析 API Key。优先级：CLI 参数 > 配置文件 api_key > 环境变量 api_key_env。"""
+    if api_key_override:
+        return api_key_override
+
+    # 优先读配置文件中的 api_key
+    api_key = model_cfg.get("api_key", "")
+    if api_key:
+        return api_key
+
+    # fallback: 从环境变量读取
+    env_var = model_cfg.get("api_key_env", "")
+    if env_var:
+        api_key = os.getenv(env_var, "")
+        if api_key:
+            return api_key
+        print(f"错误: 配置中无 api_key，且环境变量 {env_var} 未设置", file=sys.stderr)
+    else:
+        print("错误: 配置中无 api_key，且未指定 api_key_env", file=sys.stderr)
+    sys.exit(1)
+
+
 def call_api(model_cfg: dict, messages: list[dict], api_key_override: str | None = None) -> str:
     """调用 API 并返回模型的文本响应。"""
-    api_key = api_key_override
-    if not api_key:
-        env_var = model_cfg["api_key_env"]
-        api_key = os.getenv(env_var)
-        if not api_key:
-            print(f"错误: 环境变量 {env_var} 未设置", file=sys.stderr)
-            sys.exit(1)
+    api_key = _resolve_api_key(model_cfg, api_key_override)
 
     client = OpenAI(base_url=model_cfg["base_url"], api_key=api_key)
     api_type = model_cfg.get("api_type", "responses")
