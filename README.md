@@ -133,7 +133,21 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - 支持将指定周的已完成任务同步到 Joplin GTD 笔记本的 weekly 笔记
 - 自动去重，带 `[x]` 标记已完成任务
 
+### spritesheet
+
+从视频中提取帧生成 spritesheet 和独立透明 PNG。
+
+- 当用户说"制作 spritesheet"、"视频转精灵图"、"提取动画帧"、"sprite sheet"、"循环动画"时自动激活
+- 支持自动检测背景色（绿幕/蓝幕/白幕/黑幕）并抠图
+- 支持 AI 智能分析最佳循环区间（需配置视频分析模型）
+- 输出独立透明 PNG、合并 spritesheet 和可交互的动画播放器
+
 ## 更新记录
+
+### 2026-06-10
+- 新增 spritesheet skill：从视频中提取帧生成 spritesheet 和独立透明 PNG，支持自动抠图、AI 智能分析循环区间
+- 升级 video-analyzer skill：新增 `agent_config.toml` 多 skill 共用配置支持，支持直接填写 API Key，提供四位置配置文件发现策略
+- 更新 `.gitignore`：新增 `temp/` 目录忽略
 
 ### 2026-05-21
 - 升级 git-commit skill：
