@@ -250,6 +250,12 @@ def find_loop_point_smart(video_path: Path) -> tuple[int, int]:
         print(f"  未找到模型 '{model_name}'，回退到 CV 帧差法")
         return find_loop_point_cv(video_path)
 
+    # 获取视频信息（用于提示词）
+    cap_info = cv2.VideoCapture(str(video_path))
+    total = int(cap_info.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = cap_info.get(cv2.CAP_PROP_FPS)
+    cap_info.release()
+
     # 准备视频
     import base64, tempfile
 
@@ -282,9 +288,22 @@ def find_loop_point_smart(video_path: Path) -> tuple[int, int]:
         content.append({
             "type": "input_text",
             "text": (
-                "分析这个视频中的运动模式，找出最适合做无缝循环动画的帧范围。"
-                "请以 JSON 格式回答：{\"loop_start\": 帧序号, \"loop_end\": 帧序号, "
-                "\"recommended_frames\": 推荐帧数, \"reason\": 简短理由}。"
+                "你是一个 spritesheet 动画专家。我需要从这段视频中提取帧，制作流畅的循环动画。\n\n"
+                "请先完整观看所有帧，理解视频的整体运动模式，然后回答：\n\n"
+                "1. 视频的主体是什么？有哪些可见的运动或变化？\n"
+                "2. 这些运动的周期大约是多少帧？\n"
+                "3. 从全视频范围来看，哪段区间最适合做循环动画？\n\n"
+                "关键要求：\n"
+                "- 区间必须足够长，使得均匀抽取的帧之间有明显的视觉变化（否则动画会卡顿）\n"
+                "- 区间的首帧和尾帧应该视觉上相似，能自然衔接形成循环\n"
+                "- 优先选择运动最丰富、变化最明显的周期\n"
+                "- 不要只看视频开头，要扫描全视频找最佳区间\n\n"
+                f"视频总帧数: {total}，帧率: {fps:.0f}fps，时长: {total/fps:.1f}秒\n"
+                "请以 JSON 格式回答："
+                "{\"loop_start\": 起始帧序号, \"loop_end\": 结束帧序号, "
+                "\"recommended_frames\": 推荐帧数(≤12), "
+                "\"motion_description\": 运动描述, "
+                "\"reason\": 选择该区间的理由}。"
                 "只需输出 JSON，不要其他内容。"
             ),
         })

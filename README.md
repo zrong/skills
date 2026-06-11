@@ -144,6 +144,9 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 
 ## 更新记录
 
+### 2026-06-11
+- 优化 spritesheet skill：改进 AI 循环区间分析提示词，增加视频元数据（总帧数、帧率、时长），添加运动描述字段，提升动画质量
+
 ### 2026-06-10
 - 新增 spritesheet skill：从视频中提取帧生成 spritesheet 和独立透明 PNG，支持自动抠图、AI 智能分析循环区间
 - 升级 video-analyzer skill：新增 `agent_config.toml` 多 skill 共用配置支持，支持直接填写 API Key，提供四位置配置文件发现策略
