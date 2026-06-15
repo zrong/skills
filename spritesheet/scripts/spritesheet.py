@@ -229,7 +229,33 @@ def find_loop_point_cv(video_path: Path) -> tuple[int, int]:
 
 
 def find_loop_point_smart(video_path: Path) -> tuple[int, int]:
-    """视频模型分析：调用 video-analyzer 分析最佳循环区间。"""
+    """视频模型分析：调用火山方舟视觉大模型分析最佳循环区间。
+
+    根据配置的 API 端点自动选择传入方式：
+    - 标准端点 /api/v3: 使用 input_video 直接传入视频（base64），平台自动按 fps 抽帧
+    - Coding plan /api/coding/v3: 使用 input_image 手动抽帧后以图片方式传入
+
+    API 文档：
+    - 视频理解教程: https://www.volcengine.com/docs/82379/1895586
+    - Responses API: https://www.volcengine.com/docs/82379/1569618
+    - Chat API: https://www.volcengine.com/docs/82379/1494384
+    - 模型列表: https://www.volcengine.com/docs/82379/1330310
+
+    input_video 传入限制（标准端点）：
+    - base64 编码: 视频 ≤ 50MB，请求体 ≤ 64MB
+    - Files API 上传: 视频 ≤ 512MB（默认存储）或 ≤ 2GB（TOS 存储）
+    - 视频 URL: 视频 ≤ 50MB，需公网可访问
+    - fps 范围: [0.2, 5.0]，最高 5fps
+    - doubao-seed-2.0 最大抽帧数: 1280 帧（80k tokens ÷ 64 tokens/帧）
+
+    input_image 传入限制（coding plan 端点）：
+    - 手动用 OpenCV 按每秒 5 帧抽帧，以 base64 JPEG 图片传入
+    - 无硬性帧数限制，但受模型上下文窗口约束
+
+    支持两种 API 格式（通过 agent_config.toml 的 api_type 配置）：
+    - Responses API (api_type="responses")
+    - Chat API (api_type="chat")
+    """
     from openai import OpenAI
 
     # 加载配置
@@ -243,94 +269,136 @@ def find_loop_point_smart(video_path: Path) -> tuple[int, int]:
     sprite_cfg = config.get(CONFIG_SECTION, {})
     model_name = sprite_cfg.get("model", "")
 
-    # 读取 video-analyzer 的模型配置
+    # 读取模型配置（从 video-analyzer.models.{model_name} 获取）
     va_cfg = config.get("video-analyzer", {})
     model_cfg = va_cfg.get("models", {}).get(model_name)
     if not model_cfg:
         print(f"  未找到模型 '{model_name}'，回退到 CV 帧差法")
         return find_loop_point_cv(video_path)
 
-    # 获取视频信息（用于提示词）
+    # 获取视频元信息
     cap_info = cv2.VideoCapture(str(video_path))
     total = int(cap_info.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap_info.get(cv2.CAP_PROP_FPS)
+    video_fps = cap_info.get(cv2.CAP_PROP_FPS)
     cap_info.release()
+    duration = total / video_fps
 
-    # 准备视频
-    import base64, tempfile
+    # ─── 判断端点类型 ────────────────────────────────────────────────
+    # /api/coding/v3 不支持 input_video，需手动抽帧以 input_image 传入
+    # /api/v3 支持 input_video，直接传入视频由平台自动抽帧
+    base_url = model_cfg["base_url"]
+    use_native_video = "/api/coding/v3" not in base_url
 
-    with tempfile.TemporaryDirectory(prefix="spritesheet-") as tmp_dir:
-        dest = Path(tmp_dir) / "video.mp4"
-        import shutil
-        shutil.copy2(video_path, dest)
+    # ─── 提示词 ──────────────────────────────────────────────────────
+    prompt_text = (
+        "你是一个 spritesheet 动画专家。我需要从这段视频中提取帧，制作流畅的循环动画。\n\n"
+        "请先完整观看视频，理解整体运动模式，然后回答：\n\n"
+        "1. 视频的主体是什么？有哪些可见的运动或变化？\n"
+        "2. 这些运动的周期大约是多少秒？\n"
+        "3. 从全视频范围来看，哪段区间最适合做循环动画？\n\n"
+        "关键要求：\n"
+        "- 区间必须足够长，使得均匀抽取的帧之间有明显的视觉变化（否则动画会卡顿）\n"
+        "- 区间的首帧和尾帧应该视觉上相似，能自然衔接形成循环\n"
+        "- 优先选择运动最丰富、变化最明显的周期\n"
+        "- 不要只看视频开头，要扫描全视频找最佳区间\n\n"
+        f"视频帧率: {video_fps:.0f}fps，时长: {duration:.1f}秒\n"
+        "请以 JSON 格式回答："
+        "{\"loop_start\": 起始帧序号, \"loop_end\": 结束帧序号, "
+        "\"recommended_frames\": 推荐帧数(≤12), "
+        "\"motion_description\": 运动描述, "
+        "\"reason\": 选择该区间的理由}。"
+        "只需输出 JSON，不要其他内容。"
+    )
 
-        supports_video = model_cfg.get("supports_video", False)
-        if supports_video:
-            video_b64 = base64.b64encode(dest.read_bytes()).decode()
-            content = [
-                {"type": "input_video", "video_url": f"data:video/mp4;base64,{video_b64}"},
-            ]
-        else:
-            # 抽帧
-            cap = cv2.VideoCapture(str(dest))
-            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            indices = [int(i * total / 8) for i in range(8)]
-            content = []
-            for idx in indices:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-                ret, frame = cap.read()
-                if ret:
-                    _, buf = cv2.imencode(".jpg", frame)
-                    b64 = base64.b64encode(buf).decode()
-                    content.append({"type": "input_image", "image_url": f"data:image/jpeg;base64,{b64}"})
-            cap.release()
-
-        content.append({
-            "type": "input_text",
-            "text": (
-                "你是一个 spritesheet 动画专家。我需要从这段视频中提取帧，制作流畅的循环动画。\n\n"
-                "请先完整观看所有帧，理解视频的整体运动模式，然后回答：\n\n"
-                "1. 视频的主体是什么？有哪些可见的运动或变化？\n"
-                "2. 这些运动的周期大约是多少帧？\n"
-                "3. 从全视频范围来看，哪段区间最适合做循环动画？\n\n"
-                "关键要求：\n"
-                "- 区间必须足够长，使得均匀抽取的帧之间有明显的视觉变化（否则动画会卡顿）\n"
-                "- 区间的首帧和尾帧应该视觉上相似，能自然衔接形成循环\n"
-                "- 优先选择运动最丰富、变化最明显的周期\n"
-                "- 不要只看视频开头，要扫描全视频找最佳区间\n\n"
-                f"视频总帧数: {total}，帧率: {fps:.0f}fps，时长: {total/fps:.1f}秒\n"
-                "请以 JSON 格式回答："
-                "{\"loop_start\": 起始帧序号, \"loop_end\": 结束帧序号, "
-                "\"recommended_frames\": 推荐帧数(≤12), "
-                "\"motion_description\": 运动描述, "
-                "\"reason\": 选择该区间的理由}。"
-                "只需输出 JSON，不要其他内容。"
-            ),
-        })
-
-    # 调用 API
+    # ─── API 客户端初始化 ────────────────────────────────────────────
     api_key = model_cfg.get("api_key", "") or os.getenv(model_cfg.get("api_key_env", ""), "")
     if not api_key:
         print("  API Key 未配置，回退到 CV 帧差法")
         return find_loop_point_cv(video_path)
 
     import httpx
-    client = OpenAI(base_url=model_cfg["base_url"], api_key=api_key,
+    import base64
+
+    client = OpenAI(base_url=base_url, api_key=api_key,
                      timeout=httpx.Timeout(300.0, connect=60.0))
     api_type = model_cfg.get("api_type", "responses")
-    messages = [{"role": "user", "content": content}]
 
-    print(f"  正在调用视频模型分析循环区间: {model_cfg['model']}")
-    if api_type == "responses":
-        response = client.responses.create(model=model_cfg["model"], input=messages)
-        result = response.output_text if hasattr(response, "output_text") else str(response)
+    # ─── 构建请求内容 ────────────────────────────────────────────────
+    if use_native_video:
+        # ── 标准端点 /api/v3: 使用 input_video 直接传入视频 ──────────
+        # fps 范围 [0.2, 5.0]，取最大值 5 以获得最精细的运动分析
+        # 文档: https://www.volcengine.com/docs/82379/1895586#bf4d9224
+        file_size_mb = video_path.stat().st_size / (1024 * 1024)
+        if file_size_mb > 50:
+            print(f"  视频 {file_size_mb:.1f}MB 超过 base64 限制(50MB)，回退到 CV 帧差法")
+            return find_loop_point_cv(video_path)
+
+        with open(video_path, "rb") as f:
+            video_b64 = base64.b64encode(f.read()).decode()
+
+        suffix = video_path.suffix.lower()
+        mime_map = {".mp4": "video/mp4", ".avi": "video/avi", ".mov": "video/mov"}
+        mime_type = mime_map.get(suffix, "video/mp4")
+
+        smart_fps = 5
+        if api_type == "responses":
+            content = [
+                {"type": "input_video", "video_url": f"data:{mime_type};base64,{video_b64}", "fps": smart_fps},
+                {"type": "input_text", "text": prompt_text},
+            ]
+        else:
+            content = [
+                {"type": "video_url", "video_url": {"url": f"data:{mime_type};base64,{video_b64}", "fps": smart_fps}},
+                {"type": "text", "text": prompt_text},
+            ]
+        messages = [{"role": "user", "content": content}]
+        print(f"  正在调用视频模型分析循环区间: {model_cfg['model']} [input_video, fps={smart_fps}]")
+        print(f"  视频: {file_size_mb:.1f}MB, {duration:.1f}秒")
+
     else:
-        response = client.chat.completions.create(model=model_cfg["model"], messages=messages)
-        result = response.choices[0].message.content
+        # ── Coding plan /api/coding/v3: 手动抽帧以 input_image 传入 ──
+        # 每秒抽 5 帧（匹配 API 的 fps 上限），最少 6 帧
+        sample_fps = 5
+        sample_count = max(int(duration * sample_fps), 6)
+        indices = [int(i * total / sample_count) for i in range(sample_count)]
+
+        content = []
+        for idx in indices:
+            cap_info = cv2.VideoCapture(str(video_path))
+            cap_info.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ret, frame = cap_info.read()
+            cap_info.release()
+            if ret:
+                _, buf = cv2.imencode(".jpg", frame)
+                img_b64 = base64.b64encode(buf).decode()
+                if api_type == "responses":
+                    content.append({"type": "input_image", "image_url": f"data:image/jpeg;base64,{img_b64}"})
+                else:
+                    content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}})
+
+        if api_type == "responses":
+            content.append({"type": "input_text", "text": prompt_text})
+        else:
+            content.append({"type": "text", "text": prompt_text})
+
+        messages = [{"role": "user", "content": content}]
+        print(f"  正在调用视频模型分析循环区间: {model_cfg['model']} [input_image, {len(indices)}帧]")
+        print(f"  视频: {duration:.1f}秒, 抽帧fps={sample_fps}")
+
+    # ─── 调用 API ────────────────────────────────────────────────────
+    try:
+        if api_type == "responses":
+            response = client.responses.create(model=model_cfg["model"], input=messages)
+            result = response.output_text if hasattr(response, "output_text") else str(response)
+        else:
+            response = client.chat.completions.create(model=model_cfg["model"], messages=messages)
+            result = response.choices[0].message.content
+    except Exception as e:
+        print(f"  API 调用失败: {e}，回退到 CV 帧差法")
+        return find_loop_point_cv(video_path)
 
     # 解析结果
     try:
-        # 提取 JSON
         match = re.search(r"\{[^}]+\}", result)
         if match:
             data = json.loads(match.group())

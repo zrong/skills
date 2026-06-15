@@ -62,7 +62,13 @@ uv run spritesheet.py --video video.mp4 --output-dir ./my_output --canvas-size 2
 
 ## 注意事项
 
-- `--smart` 模式需要 `agent_config.toml` 中配置视频分析模型
+- `--smart` 模式需要 `agent_config.toml` 中配置视频分析模型（`video-analyzer.models.{name}`）
+- `--smart` 模式根据 API 端点自动选择传入方式：
+  - 标准端点 `/api/v3`: 使用 `input_video` 直接传入视频（base64），平台按 fps=5 自动抽帧
+  - Coding plan `/api/coding/v3`: 使用 `input_image` 手动抽帧（每秒 5 帧）以图片方式传入
+  - API 文档: https://www.volcengine.com/docs/82379/1895586
+  - fps 范围: [0.2, 5.0]，默认取最大值 5 以获得最精细的运动分析
+  - base64 方式支持 ≤ 50MB 视频；更大文件需改用 Files API
 - 背景色建议使用**绿幕**效果最佳（Chroma Key 色相分割精度最高）
 - 白幕和黑幕因与主体暗部/高光重叠，边缘可能不如绿幕干净
 

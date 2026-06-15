@@ -144,6 +144,12 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 
 ## 更新记录
 
+### 2026-06-13
+- 重构 spritesheet skill `--smart` 模式：根据 API 端点自动选择视频传入方式
+  - 标准端点 `/api/v3`: 使用 `input_video` 直接传入视频（base64），平台按 fps=5 自动抽帧
+  - Coding plan `/api/coding/v3`: 使用 `input_image` 手动抽帧以图片方式传入
+  - 添加完整 API 文档注释（火山方舟 Responses API / Chat API）
+
 ### 2026-06-11
 - 优化 spritesheet skill：改进 AI 循环区间分析提示词，增加视频元数据（总帧数、帧率、时长），添加运动描述字段，提升动画质量
 
