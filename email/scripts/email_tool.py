@@ -502,15 +502,13 @@ def cmd_list(args):
     criteria = _build_search_criteria(args)
 
     folder = args.folder or "INBOX"
-    imap = _imap_connect(cfg, folder)
-
     if folder != "INBOX":
-        imap2 = imaplib.IMAP4_SSL(cfg["host"], cfg["port"])
-        imap2.login(cfg["user"], cfg["password"])
-        resolved = _resolve_folder(imap2, folder)
-        imap2.logout()
-        imap.close()
-        imap.select(resolved)
+        # 非 INBOX 文件夹名可能是中文，需解析为 IMAP modified-UTF-7 名后再 select
+        probe = imaplib.IMAP4_SSL(cfg["host"], cfg["port"])
+        probe.login(cfg["user"], cfg["password"])
+        folder = _resolve_folder(probe, folder)
+        probe.logout()
+    imap = _imap_connect(cfg, folder)
 
     uid_list = _imap_search(imap, criteria, use_uid=True)
 
