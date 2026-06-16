@@ -14,6 +14,8 @@ description: 从视频中提取帧生成 spritesheet 和独立透明 PNG。当�
 - 用户需要制作循环动画并验证效果
 - 用户有绿幕/蓝幕/白幕视频，需要抠图提取主体
 
+> 详细抠图与裁剪流程（每步输入/输出、算子参数、设计意图）见 [references/pipeline.md](references/pipeline.md)。
+
 ## 工作流程
 
 1. **确认视频来源**：获取用户提供的视频路径。
@@ -31,10 +33,12 @@ cd scripts && uv run spritesheet.py --video <视频路径> [选项]
 | `--video` | (必填) | 视频文件路径 |
 | `--frames` | `8` | 提取帧数 |
 | `--cols` | `4` | spritesheet 列数 |
-| `--canvas-size` | `512` | 输出帧画布尺寸（正方形） |
-| `--bg-color` | `auto` | 背景色: `auto`/`green`/`blue`/`white`/`black` |
+| `--bg-color` | `auto` | 背景色: `auto` / `green` / `blue` / `white` / `black` |
 | `--smart` | 关闭 | 启用视频模型分析最佳循环区间 |
-| `--output-dir` | `./spritesheet_output` | 输出目录 |
+| `--loop-start` | `None` | 手动指定循环起始帧（覆盖自动检测） |
+| `--loop-end` | `None` | 手动指定循环结束帧（覆盖自动检测） |
+| `--output-dir` | 视频同目录 | 输出目录；未指定时自动在视频同目录下创建 `[视频名]-[w]x[h]-[N]f` |
+| `--canvas-size` | `512` | **已废弃**：旧实现的统一画布尺寸，新流程输出尺寸由主体决定。保留以避免破坏旧调用。 |
 
 ### 示例
 
@@ -56,8 +60,9 @@ uv run spritesheet.py --video video.mp4 --output-dir ./my_output --canvas-size 2
 
 ## 输出
 
-- `frame_01.png` ~ `frame_NN.png` — 独立透明 PNG（每帧）
+- `frames/frame_01.png` ~ `frames/frame_NN.png` — 裁切后的独立透明 PNG（每帧）
 - `spritesheet.png` — 合并的 spritesheet
+- `metadata.json` — 播放元数据（裁切框、循环区间、视频源）
 - `player.html` — 可交互的动画播放器（浏览器直接打开）
 
 ## 注意事项
