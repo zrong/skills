@@ -340,6 +340,20 @@ def call_api(model_cfg: dict, messages: list[dict], api_key_override: str | None
         return response.choices[0].message.content
 
 
+def extract_json(text: str) -> dict | None:
+    """从模型输出中提取 JSON 对象，兼容 ```json 代码块包裹。
+
+    贪婪匹配最大的 {...} 块后用 json.loads 解析，失败返回 None。
+    """
+    match = re.search(r"\{[\s\S]*\}", text)
+    if not match:
+        return None
+    try:
+        return json.loads(match.group())
+    except json.JSONDecodeError:
+        return None
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="使用视觉/视频大模型分析视频内容",
@@ -357,6 +371,8 @@ def main():
     parser.add_argument("--model", default=None, help="模型名称（对应 models.json 中的 key）")
     parser.add_argument("--frames", type=int, default=10, help="抽帧数量（默认 10）")
     parser.add_argument("--max-size", type=int, default=720, help="帧最大边长像素（默认 720）")
+    parser.add_argument("--json", action="store_true",
+                        help="要求模型返回 JSON 并解析输出（自动附加视频帧数/帧率/时长到 prompt，便于返回帧序号）")
 
     # 直接指定模型参数（不依赖 models.json）
     parser.add_argument("--base-url", default=None, help="API base URL（直接指定模式）")
@@ -387,15 +403,29 @@ def main():
         # 准备视频
         video_path = prepare_video(args.video, tmp_dir)
 
+        # 构建 prompt（--json 模式附加视频元数据 + JSON 输出要求）
+        prompt = args.prompt
+        if args.json:
+            cap = cv2.VideoCapture(str(video_path))
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            cap.release()
+            duration = total / fps if fps > 0 else 0
+            prompt = (
+                f"（视频共 {total} 帧，{fps:.1f} FPS，{duration:.1f} 秒）\n\n"
+                + args.prompt
+                + "\n\n请只返回一个合法 JSON 对象，不要任何其他文字或 markdown 代码块。"
+            )
+
         # 根据模型能力选择分析模式
         if model_cfg.get("supports_video"):
             print("模式: 直接视频分析")
             video_b64 = encode_video_b64(video_path)
             ext = video_path.suffix.lstrip(".") or "mp4"
             if model_cfg.get("api_type") == "chat_completions":
-                messages = build_chat_video_input(video_b64, args.prompt, ext)
+                messages = build_chat_video_input(video_b64, prompt, ext)
             else:
-                messages = build_responses_video_input(video_b64, args.prompt, ext)
+                messages = build_responses_video_input(video_b64, prompt, ext)
         else:
             print("模式: 抽帧分析")
             frames = extract_frames(video_path, args.frames, args.max_size)
@@ -403,16 +433,26 @@ def main():
                 print("错误: 未能提取到任何帧", file=sys.stderr)
                 sys.exit(1)
             if model_cfg.get("api_type") == "chat_completions":
-                messages = build_chat_input(frames, args.prompt)
+                messages = build_chat_input(frames, prompt)
             else:
-                messages = build_responses_input(frames, args.prompt)
+                messages = build_responses_input(frames, prompt)
 
         # 调用 API
         result = call_api(model_cfg, messages, api_key_override)
-        print("\n" + "=" * 60)
-        print("分析结果:")
-        print("=" * 60)
-        print(result)
+
+        # --json 模式：解析并输出 JSON；否则打印自然语言结果
+        if args.json:
+            parsed = extract_json(result)
+            if parsed is not None:
+                print(json.dumps(parsed, indent=2, ensure_ascii=False))
+            else:
+                print("⚠ 未解析到 JSON，原始输出如下：")
+                print(result)
+        else:
+            print("\n" + "=" * 60)
+            print("分析结果:")
+            print("=" * 60)
+            print(result)
 
 
 if __name__ == "__main__":

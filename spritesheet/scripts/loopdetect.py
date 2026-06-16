@@ -1,20 +1,16 @@
 #!/usr/bin/env python3
-"""循环检测：主体感知全局接缝检测（默认）+ 旧 CV 帧差法 + 视频模型法。
+"""循环检测：主体感知全局接缝检测（默认）+ 旧 CV 帧差法（from-frame-zero/回退）。
 
 detect_loop 按优先级调度：
-    manual（--loop-start/--loop-end）> smart（--smart）> from-frame-zero（--from-frame-zero）> global（默认）
+    manual（--loop-start/--loop-end）> from-frame-zero（--from-frame-zero）> global（默认）
 
-find_loop_point_global 是新默认，突破旧 find_loop_point_cv 两个缺陷：
+find_loop_point_global 是默认，突破旧 find_loop_point_cv 两个缺陷：
   1. 不假设循环从第 0 帧开始——全局扫描所有 (start,end) 对
   2. MSE 在主体 mask 内计算——排除背景稀释造成的"虚低"
 """
 
 from __future__ import annotations
 
-import json
-import os
-import re
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,9 +19,6 @@ import numpy as np
 
 from chroma import remove_bg_chroma, detect_bg_color
 from subject import subject_mask_grays, mask_mse_matrix, centroid_and_height
-
-SKILL_DIR = Path(__file__).parent.parent
-CONFIG_SECTION = "spritesheet"
 
 
 # ─── 全局接缝检测参数 ──────────────────────────────────────────────
@@ -337,179 +330,6 @@ def find_loop_point_cv(video_path: Path) -> tuple[int, int]:
     return best["start"], best["end"]
 
 
-# ─── 视频模型法（--smart）──────────────────────────────────────────
-
-def find_loop_point_smart(video_path: Path) -> tuple[int, int]:
-    """视频模型分析：调用火山方舟视觉大模型分析最佳循环区间。
-
-    根据配置的 API 端点自动选择传入方式：
-    - 标准端点 /api/v3: 使用 input_video 直接传入视频（base64），平台自动按 fps 抽帧
-    - Coding plan /api/coding/v3: 使用 input_image 手动抽帧后以图片方式传入
-
-    任何失败都回退到 find_loop_point_global（与默认一致）。
-    """
-    from openai import OpenAI
-
-    config_path = _find_config()
-    if not config_path:
-        print("  --smart 模式需要 agent_config.toml，回退到全局接缝检测")
-        return find_loop_point_global(video_path)
-
-    with open(config_path, "rb") as f:
-        config = tomllib.load(f)
-    sprite_cfg = config.get(CONFIG_SECTION, {})
-    model_name = sprite_cfg.get("model", "")
-
-    va_cfg = config.get("video-analyzer", {})
-    model_cfg = va_cfg.get("models", {}).get(model_name)
-    if not model_cfg:
-        print(f"  未找到模型 '{model_name}'，回退到全局接缝检测")
-        return find_loop_point_global(video_path)
-
-    cap_info = cv2.VideoCapture(str(video_path))
-    total = int(cap_info.get(cv2.CAP_PROP_FRAME_COUNT))
-    video_fps = cap_info.get(cv2.CAP_PROP_FPS)
-    cap_info.release()
-    duration = total / video_fps
-
-    base_url = model_cfg["base_url"]
-    use_native_video = "/api/coding/v3" not in base_url
-
-    prompt_text = (
-        "你是一个 spritesheet 动画专家。我需要从这段视频中提取帧，制作流畅的循环动画。\n\n"
-        "请先完整观看视频，理解整体运动模式，然后回答：\n\n"
-        "1. 视频的主体是什么？有哪些可见的运动或变化？\n"
-        "2. 这些运动的周期大约是多少秒？\n"
-        "3. 从全视频范围来看，哪段区间最适合做循环动画？\n\n"
-        "关键要求：\n"
-        "- 区间必须足够长，使得均匀抽取的帧之间有明显的视觉变化（否则动画会卡顿）\n"
-        "- 区间的首帧和尾帧应该视觉上相似，能自然衔接形成循环\n"
-        "- 优先选择运动最丰富、变化最明显的周期\n"
-        "- 不要只看视频开头，要扫描全视频找最佳区间\n\n"
-        f"视频帧率: {video_fps:.0f}fps，时长: {duration:.1f}秒\n"
-        "请以 JSON 格式回答："
-        "{\"loop_start\": 起始帧序号, \"loop_end\": 结束帧序号, "
-        "\"recommended_frames\": 推荐帧数(≤12), "
-        "\"motion_description\": 运动描述, "
-        "\"reason\": 选择该区间的理由}。"
-        "只需输出 JSON，不要其他内容。"
-    )
-
-    api_key = model_cfg.get("api_key", "") or os.getenv(model_cfg.get("api_key_env", ""), "")
-    if not api_key:
-        print("  API Key 未配置，回退到全局接缝检测")
-        return find_loop_point_global(video_path)
-
-    import base64
-    import httpx
-
-    client = OpenAI(base_url=base_url, api_key=api_key, timeout=httpx.Timeout(300.0, connect=60.0))
-    api_type = model_cfg.get("api_type", "responses")
-
-    if use_native_video:
-        file_size_mb = video_path.stat().st_size / (1024 * 1024)
-        if file_size_mb > 50:
-            print(f"  视频 {file_size_mb:.1f}MB 超过 base64 限制(50MB)，回退到全局接缝检测")
-            return find_loop_point_global(video_path)
-
-        with open(video_path, "rb") as f:
-            video_b64 = base64.b64encode(f.read()).decode()
-
-        suffix = video_path.suffix.lower()
-        mime_map = {".mp4": "video/mp4", ".avi": "video/avi", ".mov": "video/mov"}
-        mime_type = mime_map.get(suffix, "video/mp4")
-
-        smart_fps = 5
-        if api_type == "responses":
-            content = [
-                {"type": "input_video", "video_url": f"data:{mime_type};base64,{video_b64}", "fps": smart_fps},
-                {"type": "input_text", "text": prompt_text},
-            ]
-        else:
-            content = [
-                {"type": "video_url", "video_url": {"url": f"data:{mime_type};base64,{video_b64}", "fps": smart_fps}},
-                {"type": "text", "text": prompt_text},
-            ]
-        messages = [{"role": "user", "content": content}]
-        print(f"  正在调用视频模型分析循环区间: {model_cfg['model']} [input_video, fps={smart_fps}]")
-        print(f"  视频: {file_size_mb:.1f}MB, {duration:.1f}秒")
-
-    else:
-        sample_fps = 5
-        sample_count = max(int(duration * sample_fps), 6)
-        indices = [int(i * total / sample_count) for i in range(sample_count)]
-
-        content = []
-        for idx in indices:
-            cap_info = cv2.VideoCapture(str(video_path))
-            cap_info.set(cv2.CAP_PROP_POS_FRAMES, idx)
-            ret, frame = cap_info.read()
-            cap_info.release()
-            if ret:
-                _, buf = cv2.imencode(".jpg", frame)
-                img_b64 = base64.b64encode(buf).decode()
-                if api_type == "responses":
-                    content.append({"type": "input_image", "image_url": f"data:image/jpeg;base64,{img_b64}"})
-                else:
-                    content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}})
-
-        if api_type == "responses":
-            content.append({"type": "input_text", "text": prompt_text})
-        else:
-            content.append({"type": "text", "text": prompt_text})
-
-        messages = [{"role": "user", "content": content}]
-        print(f"  正在调用视频模型分析循环区间: {model_cfg['model']} [input_image, {len(indices)}帧]")
-        print(f"  视频: {duration:.1f}秒, 抽帧fps={sample_fps}")
-
-    try:
-        if api_type == "responses":
-            response = client.responses.create(model=model_cfg["model"], input=messages)
-            result = response.output_text if hasattr(response, "output_text") else str(response)
-        else:
-            response = client.chat.completions.create(model=model_cfg["model"], messages=messages)
-            result = response.choices[0].message.content
-    except Exception as e:
-        print(f"  API 调用失败: {e}，回退到全局接缝检测")
-        return find_loop_point_global(video_path)
-
-    try:
-        match = re.search(r"\{[^}]+\}", result)
-        if match:
-            data = json.loads(match.group())
-            loop_start = int(data.get("loop_start", 0))
-            loop_end = int(data.get("loop_end", 0))
-            rec_frames = int(data.get("recommended_frames", 8))
-            reason = data.get("reason", "")
-            print(f"  模型建议: 起点={loop_start}, 终点={loop_end}, 推荐帧数={rec_frames}")
-            if reason:
-                print(f"  理由: {reason}")
-            return loop_start, loop_end
-    except (json.JSONDecodeError, ValueError) as e:
-        print(f"  模型返回解析失败: {e}")
-
-    print("  回退到全局接缝检测")
-    return find_loop_point_global(video_path)
-
-
-def _find_config() -> Path | None:
-    """查找 agent_config.toml（四位置发现策略）。"""
-    candidates = [
-        Path.cwd() / "agent_config.toml",
-        SKILL_DIR / "agent_config.toml",
-    ]
-    for parent in Path.cwd().parents:
-        if (parent / ".git").exists():
-            candidates.append(parent / "agent_config.toml")
-            break
-    candidates.append(Path.home() / ".agents" / "agent_config.toml")
-
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return None
-
-
 # ─── 调度 ──────────────────────────────────────────────────────────
 
 def detect_loop(
@@ -521,16 +341,13 @@ def detect_loop(
 ) -> tuple[int, int, str]:
     """按优先级返回 (loop_start, loop_end, method)。
 
-    mode: 'manual' | 'smart' | 'from_frame_zero' | 'global'
+    mode: 'manual' | 'from_frame_zero' | 'global'
     manual: (start, end) 或 None（mode='manual' 时必填）
-    method 取值: manual | smart | cv_from_zero | global
+    method 取值: manual | cv_from_zero | global
     """
     if mode == "manual":
         assert manual is not None, "mode='manual' 需提供 manual=(start,end)"
         return manual[0], manual[1], "manual"
-    if mode == "smart":
-        ls, le = find_loop_point_smart(video_path)
-        return ls, le, "smart"
     if mode == "from_frame_zero":
         ls, le = find_loop_point_cv(video_path)
         return ls, le, "cv_from_zero"

@@ -3,7 +3,7 @@
 
 功能：
   - Chroma Key 抠图（HSV 色相分割），支持绿幕/蓝幕/白幕/黑幕自动检测
-  - 混合循环检测：CV 帧差法（默认）或视频模型语义分析（--smart）
+  - 循环检测：主体感知全局接缝检测（默认）或 CV 帧差法（--from-frame-zero）
   - 主体检测、居中对齐、色调归一化
   - 输出独立透明 PNG + spritesheet + player.html
 """
@@ -58,8 +58,7 @@ def extract_frames(video_path: Path, num_frames: int, loop_start: int = 0, loop_
     return frames
 
 
-# 循环检测（find_loop_point_global / find_loop_point_cv / find_loop_point_smart /
-# detect_loop / _find_config）已抽出到 loopdetect.py
+# 循环检测（find_loop_point_global / find_loop_point_cv / detect_loop）已抽出到 loopdetect.py
 
 
 # ─── 主体处理 ──────────────────────────────────────────────────────
@@ -202,7 +201,6 @@ def main():
     parser.add_argument("--bg-color", default="auto",
                         choices=["auto", "green", "blue", "white", "black"],
                         help="背景色（默认 auto 自动检测）")
-    parser.add_argument("--smart", action="store_true", help="使用视频模型分析最佳循环区间")
     parser.add_argument("--from-frame-zero", action="store_true",
                         help="强制循环包含第 0 帧（旧 CV 帧差法，用作回退）")
     parser.add_argument("--analyze", action="store_true",
@@ -240,8 +238,6 @@ def main():
         parser.error("需要 --video（除非使用 --repack-dir）")
 
     # 互斥校验
-    if args.smart and args.from_frame_zero:
-        parser.error("--smart 与 --from-frame-zero 互斥")
     if (args.loop_start is None) != (args.loop_end is None):
         parser.error("--loop-start 与 --loop-end 必须同时指定")
 
@@ -259,13 +255,11 @@ def main():
         run_analyze(video_path, txt=args.txt, bg_color=args.bg_color)
         return
 
-    # 步骤 1/9: 循环检测（优先级：manual > smart > from-frame-zero > global）
+    # 步骤 1/9: 循环检测（优先级：manual > from-frame-zero > global）
     print("\n=== 步骤 1/9: 循环检测 ===")
     if args.loop_start is not None and args.loop_end is not None:
         mode, manual = "manual", (args.loop_start, args.loop_end)
         print(f"  使用手动指定循环区间: {args.loop_start}-{args.loop_end}")
-    elif args.smart:
-        mode, manual = "smart", None
     elif args.from_frame_zero:
         mode, manual = "from_frame_zero", None
     else:

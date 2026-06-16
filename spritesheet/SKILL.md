@@ -36,7 +36,6 @@ cd scripts && uv run spritesheet.py --video <视频路径> [选项]
 | `--bg-color` | `auto` | 背景色: `auto` / `green` / `blue` / `white` / `black` |
 | `--loop-start` | `None` | 手动指定循环起始帧（最高优先级，需与 `--loop-end` 同时给） |
 | `--loop-end` | `None` | 手动指定循环结束帧 |
-| `--smart` | 关闭 | 视频模型分析循环区间（与 `--from-frame-zero` 互斥） |
 | `--from-frame-zero` | 关闭 | 强制循环包含第 0 帧（旧 CV 帧差法，回退用） |
 | `--output-dir` | 视频同目录 | 输出目录；未指定时自动创建 `[视频名]-[w]x[h]-[N]f` |
 | `--analyze` | 关闭 | 诊断模式：输出 `.analysis.json`，不生成 spritesheet |
@@ -45,7 +44,7 @@ cd scripts && uv run spritesheet.py --video <视频路径> [选项]
 | `--drop-frames` | `None` | 重打包删除帧（1-based，如 `15,16` 或 `15-16`） |
 | `--keep-frames` | `None` | 重打包保留帧（1-based，如 `1-14`；与 `--drop-frames` 互斥） |
 
-**循环检测优先级**（正常管线内）：`--loop-start/--loop-end`（手动）> `--smart` > `--from-frame-zero` > **主体感知全局接缝检测（默认）**。默认算法在主体 mask 内全局搜索最优循环接缝，突破旧法两个局限：① 不假设循环从第 0 帧开始（能处理行走等"首帧是静态空闲态"的动画）；② MSE 只在主体区域计算（避免背景稀释造成的误差）。自动结果不可靠时，用 `--analyze` 查看周期候选与质心/大小趋势，再手动指定 `--loop-start/--loop-end`。
+**循环检测优先级**（正常管线内）：`--loop-start/--loop-end`（手动）> `--from-frame-zero` > **主体感知全局接缝检测（默认）**。默认算法在主体 mask 内全局搜索最优循环接缝，突破旧法两个局限：① 不假设循环从第 0 帧开始（能处理行走等"首帧是静态空闲态"的动画）；② MSE 只在主体区域计算（避免背景稀释造成的误差）。自动结果不可靠时，用 `--analyze` 查看周期候选与质心/大小趋势，再手动指定 `--loop-start/--loop-end`。
 
 ### 示例
 
@@ -55,9 +54,6 @@ uv run spritesheet.py --video video.mp4
 
 # 指定绿幕背景，16 帧
 uv run spritesheet.py --video video.mp4 --bg-color green --frames 16
-
-# 使用 AI 分析最佳循环区间
-uv run spritesheet.py --video video.mp4 --smart
 
 # 自动检测不可靠时：先诊断，再手动指定区间
 uv run spritesheet.py --video video.mp4 --analyze --txt
@@ -79,13 +75,7 @@ uv run spritesheet.py --repack-dir ./xxx-420x420-16f --drop-frames 15,16
 
 ## 注意事项
 
-- `--smart` 模式需要 `agent_config.toml` 中配置视频分析模型（`video-analyzer.models.{name}`）
-- `--smart` 模式根据 API 端点自动选择传入方式：
-  - 标准端点 `/api/v3`: 使用 `input_video` 直接传入视频（base64），平台按 fps=5 自动抽帧
-  - Coding plan `/api/coding/v3`: 使用 `input_image` 手动抽帧（每秒 5 帧）以图片方式传入
-  - API 文档: https://www.volcengine.com/docs/82379/1895586
-  - fps 范围: [0.2, 5.0]，默认取最大值 5 以获得最精细的运动分析
-  - base64 方式支持 ≤ 50MB 视频；更大文件需改用 Files API
+- 需要大模型辅助判断循环区间时，使用 video-analyzer（见其 `references/loop-analysis.md`），再用 `--loop-start/--loop-end` 应用
 - 背景色建议使用**绿幕**效果最佳（Chroma Key 色相分割精度最高）
 - 白幕和黑幕因与主体暗部/高光重叠，边缘可能不如绿幕干净
 - 默认循环检测已从"CV 帧差法"升级为"主体感知全局接缝检测"（`metadata.loop.method` 由 `cv` 变为 `global`）；主体分离失败（mask 占比过低）时会自动回退全画面法并提示

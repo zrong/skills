@@ -1,7 +1,0 @@
-# Spritesheet 配置（仅 --smart 模式需要）
-# 复制到项目根目录为 agent_config.toml 并填入实际值
-
-[spritesheet]
-# --smart 模式使用视频理解模型分析最佳循环区间
-# model 引用 agent_config.toml 中 [video-analyzer.models] 下已有的模型名
-model = "doubao-vision"

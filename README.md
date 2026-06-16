@@ -139,7 +139,6 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 
 - 当用户说"制作 spritesheet"、"视频转精灵图"、"提取动画帧"、"sprite sheet"、"循环动画"时自动激活
 - 支持自动检测背景色（绿幕/蓝幕/白幕/黑幕）并抠图
-- 支持 AI 智能分析最佳循环区间（需配置视频分析模型）
 - 默认主体感知全局接缝检测（主体 mask 内全局搜索最优循环接缝），支持 `--analyze` 诊断与 `--repack-dir` 删帧重打包
 - 输出独立透明 PNG、合并 spritesheet 和可交互的动画播放器
 
@@ -151,6 +150,7 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - 集成循环分析能力：新增主体感知全局接缝检测 `find_loop_point_global` 作为默认循环检测，突破旧 CV 法"循环从第 0 帧开始"与"背景稀释 MSE"两个局限
 - 新增 `--analyze` 诊断模式（输出 MSE 曲线/周期候选/质心轨迹/主体大小趋势报告）与 `--repack-dir` 删帧重打包模式
 - 代码拆分为 5 个子模块（`chroma`/`subject`/`loopdetect`/`analyze`/`repack`），旧 CV 帧差法保留为 `--from-frame-zero`
+- 职责分离：spritesheet 移除 `--smart`（大模型循环分析），该能力迁至 video-analyzer——video-analyzer 新增 `--json` 结构化输出（自动附视频帧数/帧率/时长），循环分析 prompt 模板见 `video-analyzer/references/loop-analysis.md`
 
 ### 2026-06-13
 - 重构 spritesheet skill `--smart` 模式：根据 API 端点自动选择视频传入方式

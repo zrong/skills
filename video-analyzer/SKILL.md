@@ -69,6 +69,7 @@ API Key 读取优先级：CLI `--api-key` > 配置文件 `api_key` > 环境变�
    - `--model <名称>` — 指定模型（对应 models.json 中的 key）
    - `--frames <数量>` — 抽帧数量（默认 10）
    - `--max-size <像素>` — 帧最大边长（默认 720）
+   - `--json` — 要求模型返回 JSON 并解析（自动附加视频帧数/帧率/时长到 prompt，便于返回帧序号）；解析失败时降级打印原文
 5. **展示结果**：将模型返回的分析结果展示给用户。
 
 ## CLI 参考
@@ -85,6 +86,12 @@ uv run analyze.py --video https://www.youtube.com/watch?v=xxxxx --prompt "总结
 
 # 指定模型和抽帧数
 uv run analyze.py --video video.mp4 --model doubao-vision --frames 20 --prompt "分析"
+
+# 结构化输出（要求 JSON，自动附视频帧数/帧率/时长，便于返回帧序号）
+uv run analyze.py --video video.mp4 --prompt "用 JSON 描述视频的关键时刻" --json
+
+# 典型用例：为 spritesheet 分析循环动画区间（prompt 模板见 references/loop-analysis.md）
+uv run analyze.py --video animation.mp4 --prompt "<循环分析模板>" --json
 ```
 
 ## 注意事项

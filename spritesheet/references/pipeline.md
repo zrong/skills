@@ -156,7 +156,7 @@ flowchart TB
 | `crop.h` | int | `box[3]` | 裁切高 |
 | `loop.start` | int | `loop_start` | 循环起始帧（视频源） |
 | `loop.end` | int | `loop_end` | 循环结束帧 |
-| `loop.method` | str | `manual` \| `smart` \| `global` \| `cv_from_zero` \| `repacked` | 循环检测方式（旧 `cv` 仍可读） |
+| `loop.method` | str | `manual` \| `global` \| `cv_from_zero` \| `repacked` | 循环检测方式 |
 | `video` | str | `video_path` | 视频源绝对路径 |
 
 ### 4.4 与旧实现差异
@@ -183,11 +183,9 @@ flowchart TB
     M -- "--analyze" --> AN["analyze.run_analyze<br/>输出 .analysis.json<br/>（不产 spritesheet）"]
     M -- "正常管线" --> B{"循环检测方式"}
     B -- "手动 --loop-start/end" --> C0["loop_start/end = args"]
-    B -- "--smart" --> C1["find_loop_point_smart<br/>AI 视频分析"]
     B -- "--from-frame-zero" --> C2["find_loop_point_cv<br/>旧 CV 帧差法"]
     B -- "默认" --> C3["find_loop_point_global<br/>主体感知全局接缝"]
     C0 --> D
-    C1 --> D
     C2 --> D
     C3 --> D["extract_frames<br/>(VideoCapture 等距采样)"]
     D --> E["抠图 (list comp)<br/>remove_bg_chroma × N"]
@@ -266,7 +264,7 @@ flowchart LR
 |------|------|
 | `remove_bg_chroma` / `detect_bg_color` / `BG_HSV_RANGES` | `chroma.py` |
 | `detect_subject_info` / `detect_subject_bbox` / `subject_mask_grays` / `mask_mse_matrix` / `centroid_and_height` | `subject.py` |
-| `find_loop_point_global` / `find_loop_point_cv` / `find_loop_point_smart` / `detect_loop` / `GlobalLoopConfig` | `loopdetect.py` |
+| `find_loop_point_global` / `find_loop_point_cv` / `detect_loop` / `GlobalLoopConfig` | `loopdetect.py` |
 | `run_analyze` / `find_period` / `analyze_size_trend` | `analyze.py` |
 | `run_repack` / `parse_frame_spec` | `repack.py` |
 | `extract_frames` / `normalize_color` / `compute_crop_box` / `crop_frames` / `write_metadata` / `create_spritesheet` / `generate_player` / `main` | `spritesheet.py` |
