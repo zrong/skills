@@ -159,20 +159,29 @@ def remove_checkerboard_bg(
     Strategy:
       1. Detect the checkerboard corners (or use the provided ones).
       2. Build a convex-hull ROI covering the checkerboard region.
-      3. Inside the ROI, classify foreground vs checkerboard using local
-         variance (checkerboard has high variance, foreground is smooth).
+      3. Inside the ROI, classify foreground vs checkerboard using an
+         adaptive colour/brightness mask.
       4. Outside the ROI, mark pixels as background (0).
 
-    The returned ``mask`` is a foreground mask (255 = foreground, 0 = background).
+    Note: corner detection is unreliable on UI/text images. We only trust
+    detected corners when the confidence is >= 0.5; otherwise we fall back
+    to the adaptive mask directly (no ROI restriction).
     """
     h, w = image.shape[:2]
     if corners is None:
         corners, confidence = detect_checkerboard(image, pattern_size)
+    else:
+        confidence = 1.0  # caller-provided corners are trusted
 
-    if corners is None:
-        logger.warning(
-            "Checkerboard not detected; using adaptive colour/brightness mask"
-        )
+    use_corners = corners is not None and confidence >= 0.5
+
+    if not use_corners:
+        if corners is not None:
+            logger.warning(
+                "Checkerboard corners detected but confidence %.2f too low; "
+                "skipping ROI restriction",
+                confidence,
+            )
         mask = _adaptive_checkerboard_mask(image)
     else:
         # Build ROI from the convex hull
@@ -181,7 +190,6 @@ def remove_checkerboard_bg(
         roi_mask = np.zeros((h, w), dtype=np.uint8)
         cv2.fillConvexPoly(roi_mask, hull, 255)
 
-        # Inside ROI: detect foreground via adaptive colour+brightness
         sat_fg = _adaptive_checkerboard_mask(image)
         mask = cv2.bitwise_and(sat_fg, roi_mask)
 
