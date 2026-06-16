@@ -142,6 +142,15 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - 默认主体感知全局接缝检测（主体 mask 内全局搜索最优循环接缝），支持 `--analyze` 诊断与 `--repack-dir` 删帧重打包
 - 输出独立透明 PNG、合并 spritesheet 和可交互的动画播放器
 
+### ui-extractor
+
+从静态图片中提取前景元素并分离 UI 组件。
+
+- 当用户说"提取 UI 元素"、"分离组件"、"去除背景"、"棋盘格背景"、"绿幕抠图"、"checkerboard 抠图"时自动激活
+- 支持棋盘格背景去除（自动检测 + 透视校正）和关键色抠图（绿/蓝/白/黑）
+- chroma 算法直接复用 spritesheet skill 的核心（保持一致性）
+- 输出透明背景 PNG、分离的 UI 元素 PNG、元数据 JSON
+
 ## 更新记录
 
 ### 2026-06-16
@@ -150,6 +159,7 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - 集成循环分析能力：新增主体感知全局接缝检测 `find_loop_point_global` 作为默认循环检测，突破旧 CV 法"循环从第 0 帧开始"与"背景稀释 MSE"两个局限
 - 新增 `--analyze` 诊断模式（输出 MSE 曲线/周期候选/质心轨迹/主体大小趋势报告）与 `--repack-dir` 删帧重打包模式
 - 代码拆分为 5 个子模块（`chroma`/`subject`/`loopdetect`/`analyze`/`repack`），旧 CV 帧差法保留为 `--from-frame-zero`
+- 新增 ui-extractor skill：从静态图片中提取 UI 元素，支持棋盘格 + chroma 两种背景去除，可选透视校正，复制 spritesheet 的 chroma 算法保持一致
 - 职责分离：spritesheet 移除 `--smart`（大模型循环分析），该能力迁至 video-analyzer——video-analyzer 新增 `--json` 结构化输出（自动附视频帧数/帧率/时长），循环分析 prompt 模板见 `video-analyzer/references/loop-analysis.md`
 
 ### 2026-06-13
