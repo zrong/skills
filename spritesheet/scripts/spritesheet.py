@@ -102,18 +102,42 @@ def remove_bg_chroma(frame: np.ndarray, bg_color: str = "auto") -> np.ndarray:
         partial = cv2.inRange(hsv, lower, upper)
         mask = cv2.bitwise_or(mask, partial)
 
+    # ── 边缘清理：先用大核把碎片/噪点抹掉，再小核细化 ──
+    big_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, big_kernel, iterations=1)
+    small_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, small_kernel, iterations=2)
+
     # 反转：背景=0（透明），前景=255
     mask = cv2.bitwise_not(mask)
 
-    # 形态学清理
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
-
-    # 边缘羽化（消除锯齿和白边）
+    # 边缘羽化（消除锯齿和绿边）
     mask = cv2.GaussianBlur(mask, (3, 3), 0)
 
     bgra = cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA)
+
+    # ── 绿幕 despill：覆盖所有 alpha>0 像素，压制残留绿色 ──
+    # 策略：
+    #   - 主体内部（mask >= 240）：衣领/裆部等暗褶皱里 G 可能比 R 高 5-30
+    #     → 用 (g_i > b_i + 5) & (g_i > r_i + 5) 双向条件，仅压制真正偏绿像素
+    #   - 主体边缘（mask < 240）：过渡区 G 普遍偏高
+    #     → 放宽到 (g_i > b_i + 1) | (g_i > r_i + 1)
+    # 目标 G = max(B,R) 与 (B+R)/2 中较大者，避免压出死黑
+    if bg_color == "green":
+        b, g, r = cv2.split(bgra[:, :, :3])
+        g_i = g.astype(int)
+        b_i = b.astype(int)
+        r_i = r.astype(int)
+        # 主体内部（核心 240-255）：严格双向条件
+        spill_core = (g_i > b_i + 5) & (g_i > r_i + 5) & (mask >= 240)
+        # 主体边缘（过渡 0-239）：宽松单向条件
+        spill_edge = ((g_i > b_i + 1) | (g_i > r_i + 1)) & (mask > 0) & (mask < 240)
+        spill = spill_core | spill_edge
+        if spill.any():
+            target_g = np.maximum(np.maximum(b_i, r_i), (b_i + r_i) // 2)
+            new_g = np.where(spill, target_g, g_i).astype(np.uint8)
+            bgra[:, :, 1] = new_g
+
     bgra[:, :, 3] = mask
     return bgra
 
@@ -445,23 +469,59 @@ def detect_subject_bbox(alpha_channel: np.ndarray) -> tuple[int, int, int, int]:
     return cv2.boundingRect(coords)
 
 
-def align_and_normalize(frame: np.ndarray, target_size: int) -> np.ndarray:
-    """将主体居中并对齐到统一尺寸。"""
-    x, y, w, h = detect_subject_bbox(frame[:, :, 3])
-    subject = frame[y:y + h, x:x + w]
+def compute_crop_box(frames: list[np.ndarray]) -> tuple[int, int, int, int]:
+    """计算能完整显示所有帧主体 bbox 的最小并集框（无 padding）。
 
-    # 缩放（留 10% 边距）
-    max_dim = max(w, h)
-    scale = (target_size * 0.9) / max_dim
-    new_w, new_h = int(w * scale), int(h * scale)
-    subject_resized = cv2.resize(subject, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+    返回 (x, y, w, h)：
+      - (x, y) 是裁切框左上角（取所有帧 bbox xmin/ymin 的最小值）
+      - (w, h) 是裁切框宽高（取所有帧 bbox xmax/ymax 的最大值后减去 x/y）
+    """
+    if not frames:
+        return 0, 0, 0, 0
 
-    # 居中放置
-    canvas = np.zeros((target_size, target_size, 4), dtype=np.uint8)
-    x_off = (target_size - new_w) // 2
-    y_off = (target_size - new_h) // 2
-    canvas[y_off:y_off + new_h, x_off:x_off + new_w] = subject_resized
-    return canvas
+    x_min = y_min = float("inf")
+    x_max = y_max = float("-inf")
+    for frame in frames:
+        bx, by, bw, bh = detect_subject_bbox(frame[:, :, 3])
+        x_min = min(x_min, bx)
+        y_min = min(y_min, by)
+        x_max = max(x_max, bx + bw)
+        y_max = max(y_max, by + bh)
+
+    return int(x_min), int(y_min), int(x_max - x_min), int(y_max - y_min)
+
+
+def crop_frames(frames: list[np.ndarray], box: tuple[int, int, int, int]) -> list[np.ndarray]:
+    """用同一个 box 裁切所有帧（np 切片，零像素插值、零开销）。"""
+    x, y, w, h = box
+    return [frame[y:y + h, x:x + w].copy() for frame in frames]
+
+
+def write_metadata(
+    output_dir: Path,
+    box: tuple[int, int, int, int],
+    cropped: list[np.ndarray],
+    cols: int,
+    video_path: Path,
+    loop_start: int,
+    loop_end: int,
+    method: str,
+) -> None:
+    """写入 metadata.json（仅播放所需信息）。"""
+    fh, fw = cropped[0].shape[:2]
+    meta = {
+        "frames": len(cropped),
+        "cols": cols,
+        "rows": (len(cropped) + cols - 1) // cols,
+        "frame_w": fw,
+        "frame_h": fh,
+        "crop": {"x": box[0], "y": box[1], "w": box[2], "h": box[3]},
+        "loop": {"start": loop_start, "end": loop_end, "method": method},
+        "video": str(video_path),
+    }
+    meta_path = output_dir / "metadata.json"
+    meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"  保存: {meta_path}")
 
 
 def normalize_color(frames: list[np.ndarray]) -> list[np.ndarray]:
@@ -546,59 +606,79 @@ def main():
                         choices=["auto", "green", "blue", "white", "black"],
                         help="背景色（默认 auto 自动检测）")
     parser.add_argument("--smart", action="store_true", help="使用视频模型分析最佳循环区间")
-    parser.add_argument("--output-dir", default="./spritesheet_output", help="输出目录")
+    parser.add_argument("--loop-start", type=int, default=None,
+                        help="手动指定循环起始帧（覆盖自动检测）")
+    parser.add_argument("--loop-end", type=int, default=None,
+                        help="手动指定循环结束帧（覆盖自动检测）")
+    parser.add_argument("--output-dir", default=None, help="输出目录（默认：视频同目录下）")
 
     args = parser.parse_args()
     video_path = Path(args.video).expanduser().resolve()
-    output_dir = Path(args.output_dir)
 
     if not video_path.exists():
         print(f"错误: 视频文件不存在: {video_path}", file=sys.stderr)
         sys.exit(1)
 
-    output_dir.mkdir(parents=True, exist_ok=True)
     print(f"视频: {video_path}")
-    print(f"输出: {output_dir}")
 
     # 步骤 1: 循环检测
     print("\n=== 步骤 1/5: 循环检测 ===")
-    if args.smart:
+    if args.loop_start is not None and args.loop_end is not None:
+        loop_start, loop_end = args.loop_start, args.loop_end
+        print(f"  使用手动指定循环区间: {loop_start}-{loop_end}")
+    elif args.smart:
         loop_start, loop_end = find_loop_point_smart(video_path)
     else:
         loop_start, loop_end = find_loop_point_cv(video_path)
 
-    # 步骤 2: 提取帧
-    print(f"\n=== 步骤 2/5: 提取 {args.frames} 帧 ===")
+    # ───── Step 1: 抽帧 + 抠图 + 色调归一化（在内存中处理，不落盘） ─────
+    print("\n=== Step 1/2: 抽帧 + 抠图 + 色调归一化 ===")
     raw_frames = extract_frames(video_path, args.frames, loop_start, loop_end)
-
-    # 步骤 3: 去背景
-    print(f"\n=== 步骤 3/5: 去除背景 (模式: {args.bg_color}) ===")
     transparent = [remove_bg_chroma(f, args.bg_color) for f in raw_frames]
-
-    # 步骤 4: 色调归一化 + 对齐
-    print("\n=== 步骤 4/5: 色调归一化 + 对齐 ===")
     color_normalized = normalize_color(transparent)
-    aligned = [align_and_normalize(f, args.canvas_size) for f in color_normalized]
+    print(f"  处理 {len(color_normalized)} 帧（{color_normalized[0].shape[1]} × {color_normalized[0].shape[0]}）")
 
-    # 步骤 5: 输出
-    print("\n=== 步骤 5/5: 输出文件 ===")
-    for i, frame in enumerate(aligned):
-        path = output_dir / f"frame_{i + 1:02d}.png"
+    # ───── Step 2: 算裁切框 → 裁切 → 输出碎图 + 拼 spritesheet + metadata ─────
+    print("\n=== Step 2/2: 统一裁切 → 输出碎图 + spritesheet + metadata ===")
+    box = compute_crop_box(color_normalized)
+    print(f"  统一裁切框: x={box[0]}, y={box[1]}, w={box[2]}, h={box[3]}")
+    cropped = crop_frames(color_normalized, box)
+    frame_w, frame_h = cropped[0].shape[1], cropped[0].shape[0]
+    print(f"  裁切后每帧尺寸: {frame_w} × {frame_h}")
+
+    # 生成输出目录名：[视频名]-[width]x[height]-[帧数]f
+    if args.output_dir is None:
+        dir_name = f"{video_path.stem}-{frame_w}x{frame_h}-{len(cropped)}f"
+        output_dir = video_path.parent / dir_name
+    else:
+        output_dir = Path(args.output_dir)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"  输出: {output_dir}")
+
+    # 碎图（裁切后版本）→ frames/
+    frames_dir = output_dir / "frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    for i, frame in enumerate(cropped):
+        path = frames_dir / f"frame_{i + 1:02d}.png"
         cv2.imwrite(str(path), frame)
-        print(f"  保存: {path}")
+    print(f"  保存: {frames_dir}/frame_01.png ~ frame_{len(cropped):02d}.png")
 
-    rows = (len(aligned) + args.cols - 1) // args.cols
-    sheet = create_spritesheet(aligned, cols=args.cols)
+    rows = (len(cropped) + args.cols - 1) // args.cols
+    sheet = create_spritesheet(cropped, cols=args.cols)
     sheet_path = output_dir / "spritesheet.png"
     cv2.imwrite(str(sheet_path), sheet)
-    print(f"  保存: {sheet_path}")
+    print(f"  保存: {sheet_path} ({sheet.shape[1]} × {sheet.shape[0]})")
 
-    generate_player(output_dir, video_path, args.cols, rows, len(aligned),
-                    args.canvas_size, args.canvas_size)
+    method = "smart" if args.smart else "cv"
+    write_metadata(output_dir, box, cropped, args.cols, video_path, loop_start, loop_end, method)
 
-    print(f"\n完成！共 {len(aligned)} 帧")
-    print(f"  → {output_dir}/frame_01.png ~ frame_{len(aligned):02d}.png")
-    print(f"  → {sheet_path}")
+    generate_player(output_dir, video_path, args.cols, rows, len(cropped), frame_w, frame_h)
+
+    print(f"\n完成！共 {len(cropped)} 帧")
+    print(f"  → {frames_dir}/frame_01.png ~ frame_{len(cropped):02d}.png（裁切后碎图）")
+    print(f"  → {sheet_path}（整图）")
+    print(f"  → {output_dir}/metadata.json")
     print(f"  → {output_dir}/player.html")
 
 
