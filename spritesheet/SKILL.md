@@ -38,7 +38,6 @@ cd scripts && uv run spritesheet.py --video <视频路径> [选项]
 | `--loop-start` | `None` | 手动指定循环起始帧（覆盖自动检测） |
 | `--loop-end` | `None` | 手动指定循环结束帧（覆盖自动检测） |
 | `--output-dir` | 视频同目录 | 输出目录；未指定时自动在视频同目录下创建 `[视频名]-[w]x[h]-[N]f` |
-| `--canvas-size` | `512` | **已废弃**：旧实现的统一画布尺寸，新流程输出尺寸由主体决定。保留以避免破坏旧调用。 |
 
 ### 示例
 
@@ -51,9 +50,6 @@ uv run spritesheet.py --video video.mp4 --bg-color green --frames 16
 
 # 使用 AI 分析最佳循环区间
 uv run spritesheet.py --video video.mp4 --smart
-
-# 指定输出目录和画布尺寸
-uv run spritesheet.py --video video.mp4 --output-dir ./my_output --canvas-size 256
 ```
 
 4. **展示结果**：告知用户输出目录，并建议打开 `player.html` 验证动画效果。

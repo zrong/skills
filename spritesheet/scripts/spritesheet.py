@@ -601,7 +601,6 @@ def main():
     parser.add_argument("--video", required=True, help="视频文件路径")
     parser.add_argument("--frames", type=int, default=8, help="提取帧数（默认 8）")
     parser.add_argument("--cols", type=int, default=4, help="spritesheet 列数（默认 4）")
-    parser.add_argument("--canvas-size", type=int, default=512, help="输出帧画布尺寸（默认 512）")
     parser.add_argument("--bg-color", default="auto",
                         choices=["auto", "green", "blue", "white", "black"],
                         help="背景色（默认 auto 自动检测）")
@@ -621,8 +620,8 @@ def main():
 
     print(f"视频: {video_path}")
 
-    # 步骤 1: 循环检测
-    print("\n=== 步骤 1/5: 循环检测 ===")
+    # 步骤 1/9: 循环检测
+    print("\n=== 步骤 1/9: 循环检测 ===")
     if args.loop_start is not None and args.loop_end is not None:
         loop_start, loop_end = args.loop_start, args.loop_end
         print(f"  使用手动指定循环区间: {loop_start}-{loop_end}")
@@ -631,17 +630,26 @@ def main():
     else:
         loop_start, loop_end = find_loop_point_cv(video_path)
 
-    # ───── Step 1: 抽帧 + 抠图 + 色调归一化（在内存中处理，不落盘） ─────
-    print("\n=== Step 1/2: 抽帧 + 抠图 + 色调归一化 ===")
+    # 步骤 2/9: 抽帧
+    print("\n=== 步骤 2/9: 抽帧 ===")
     raw_frames = extract_frames(video_path, args.frames, loop_start, loop_end)
+
+    # 步骤 3/9: 抠图
+    print("\n=== 步骤 3/9: 抠图 ===")
     transparent = [remove_bg_chroma(f, args.bg_color) for f in raw_frames]
+
+    # 步骤 4/9: 色调归一化
+    print("\n=== 步骤 4/9: 色调归一化 ===")
     color_normalized = normalize_color(transparent)
     print(f"  处理 {len(color_normalized)} 帧（{color_normalized[0].shape[1]} × {color_normalized[0].shape[0]}）")
 
-    # ───── Step 2: 算裁切框 → 裁切 → 输出碎图 + 拼 spritesheet + metadata ─────
-    print("\n=== Step 2/2: 统一裁切 → 输出碎图 + spritesheet + metadata ===")
+    # 步骤 5/9: 算裁切框
+    print("\n=== 步骤 5/9: 算裁切框 ===")
     box = compute_crop_box(color_normalized)
     print(f"  统一裁切框: x={box[0]}, y={box[1]}, w={box[2]}, h={box[3]}")
+
+    # 步骤 6/9: 裁切
+    print("\n=== 步骤 6/9: 裁切 ===")
     cropped = crop_frames(color_normalized, box)
     frame_w, frame_h = cropped[0].shape[1], cropped[0].shape[0]
     print(f"  裁切后每帧尺寸: {frame_w} × {frame_h}")
@@ -656,7 +664,8 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"  输出: {output_dir}")
 
-    # 碎图（裁切后版本）→ frames/
+    # 步骤 7/9: 输出碎图
+    print("\n=== 步骤 7/9: 输出碎图 ===")
     frames_dir = output_dir / "frames"
     frames_dir.mkdir(parents=True, exist_ok=True)
     for i, frame in enumerate(cropped):
@@ -664,16 +673,21 @@ def main():
         cv2.imwrite(str(path), frame)
     print(f"  保存: {frames_dir}/frame_01.png ~ frame_{len(cropped):02d}.png")
 
+    # 步骤 8/9: 输出 spritesheet
+    print("\n=== 步骤 8/9: 输出 spritesheet ===")
     rows = (len(cropped) + args.cols - 1) // args.cols
     sheet = create_spritesheet(cropped, cols=args.cols)
     sheet_path = output_dir / "spritesheet.png"
     cv2.imwrite(str(sheet_path), sheet)
     print(f"  保存: {sheet_path} ({sheet.shape[1]} × {sheet.shape[0]})")
 
+    # 步骤 9/9: 输出 metadata + player
+    print("\n=== 步骤 9/9: 输出 metadata + player ===")
     method = "smart" if args.smart else "cv"
     write_metadata(output_dir, box, cropped, args.cols, video_path, loop_start, loop_end, method)
-
     generate_player(output_dir, video_path, args.cols, rows, len(cropped), frame_w, frame_h)
+    print(f"  保存: {output_dir}/metadata.json")
+    print(f"  保存: {output_dir}/player.html")
 
     print(f"\n完成！共 {len(cropped)} 帧")
     print(f"  → {frames_dir}/frame_01.png ~ frame_{len(cropped):02d}.png（裁切后碎图）")

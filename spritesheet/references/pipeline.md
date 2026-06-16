@@ -195,21 +195,19 @@ flowchart TB
     H --> I4["player.html<br/>generate_player"]
 ```
 
-**关键路径编号**（与脚本内 `print` 一致）：
+**关键路径编号**（与脚本内 `print("=== 步骤 N/9 ===")` 一一对应）：
 
-| 编号 | 步骤 | 在内存？ | 落盘？ |
-|------|------|---------|--------|
-| 1 | 循环检测 | ✓ | ✗ |
-| 2 | 抽帧 `extract_frames` | ✓ | ✗ |
-| 3 | 抠图 `remove_bg_chroma` | ✓ | ✗ |
-| 4 | 色调归一化 `normalize_color` | ✓ | ✗ |
-| 5 | 算裁切框 `compute_crop_box` | ✓ | ✗ |
-| 6 | 裁切 `crop_frames` | ✓ | ✗ |
-| 7 | 写 `frames/*.png` | — | ✓ |
-| 8 | 写 `spritesheet.png` | — | ✓ |
-| 9 | 写 `metadata.json` + `player.html` | — | ✓ |
-
-> 脚本内 `print` 编号目前是 `1/5`（循环检测）→ `1/2`（抽帧+抠图+归一化）→ `2/2`（裁切+输出），**编号不统一**。上述表格是逻辑上的步骤编号，与 print 编号解耦。
+| 编号 | print 标题 | 步骤 | 在内存？ | 落盘？ |
+|------|-----------|------|---------|--------|
+| 1 | 步骤 1/9: 循环检测 | `find_loop_point_*` | ✓ | ✗ |
+| 2 | 步骤 2/9: 抽帧 | `extract_frames` | ✓ | ✗ |
+| 3 | 步骤 3/9: 抠图 | `remove_bg_chroma` (list comp) | ✓ | ✗ |
+| 4 | 步骤 4/9: 色调归一化 | `normalize_color` | ✓ | ✗ |
+| 5 | 步骤 5/9: 算裁切框 | `compute_crop_box` | ✓ | ✗ |
+| 6 | 步骤 6/9: 裁切 | `crop_frames` | ✓ | ✗ |
+| 7 | 步骤 7/9: 输出碎图 | `cv2.imwrite` × N | — | ✓ |
+| 8 | 步骤 8/9: 输出 spritesheet | `create_spritesheet` + `imwrite` | — | ✓ |
+| 9 | 步骤 9/9: 输出 metadata + player | `write_metadata` + `generate_player` | — | ✓ |
 
 ---
 
