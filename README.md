@@ -144,6 +144,10 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 
 ## 更新记录
 
+### 2026-06-16
+- 重构 spritesheet skill 抠图与裁剪流程：统一步骤编号，删除已废弃的 `--canvas-size` 参数
+- 新增抠图与裁剪流程参考文档 `references/pipeline.md`，详细记录 9 步流水线和抠图算法实现
+
 ### 2026-06-13
 - 重构 spritesheet skill `--smart` 模式：根据 API 端点自动选择视频传入方式
   - 标准端点 `/api/v3`: 使用 `input_video` 直接传入视频（base64），平台按 fps=5 自动抽帧
