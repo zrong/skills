@@ -293,16 +293,20 @@ def _clean_foreground_mask(mask: np.ndarray) -> np.ndarray:
 def detect_bg_type(image: np.ndarray) -> str:
     """Return ``"chroma"``, ``"checkerboard"`` or ``"unknown"``.
 
-    Heuristic:
-    1. Sample four corners. If the variance of corner pixels is high, the
-       background is likely a checkerboard pattern.
-    2. Otherwise, fall back to chroma auto-detection. If a uniform colour
-       (green/blue/white/black) is identified, return ``"chroma"``.
+    Decision order (most-reliable signal first):
+      1. **Chroma check first**: if the four corners all have a high
+         saturation and a single dominant hue, the background is a chroma
+         key (green/blue). This is the most reliable signal because a
+         solid-colour background is unambiguous.
+      2. **Checkerboard check**: if the corners are NOT chroma but show
+         visible texture (corner BGR std > 15), the background is most
+         likely a checkerboard.
+      3. **Low-sat chroma fallback**: white or black backgrounds have low
+         saturation but ``detect_bg_color`` catches them.
     """
     h, w = image.shape[:2]
     margin = int(min(h, w) * 0.05)
 
-    # Corner sampling
     corner_pixels = np.vstack(
         [
             image[0:margin, 0:margin].reshape(-1, 3),
@@ -311,23 +315,30 @@ def detect_bg_type(image: np.ndarray) -> str:
             image[h - margin:h, w - margin:w].reshape(-1, 3),
         ]
     ).astype(np.float32)
-
     corner_std = corner_pixels.std(axis=0).mean()
-    # High std in corner regions usually indicates checkerboard
-    if corner_std > 8:
+
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    corner_hsv = np.vstack(
+        [
+            hsv[0:margin, 0:margin].reshape(-1, 3),
+            hsv[0:margin, w - margin:w].reshape(-1, 3),
+            hsv[h - margin:h, 0:margin].reshape(-1, 3),
+            hsv[h - margin:h, w - margin:w].reshape(-1, 3),
+        ]
+    )
+    corner_sat_mean = corner_hsv[:, 1].mean()
+    corner_sat_std = corner_hsv[:, 1].std()
+    corner_hue_std = corner_hsv[:, 0].std()
+
+    # Step 1: solid colour chroma (high saturation, low std across corners)
+    if corner_sat_mean > 100 and corner_sat_std < 40 and corner_hue_std < 25:
+        return "chroma"
+
+    # Step 2: high corner BGR std = visible texture = likely checkerboard
+    if corner_std > 15:
         return "checkerboard"
 
-    # Try checkerboard detection via the dedicated detector — soft-gradient
-    # backgrounds may have uniform corners but still be checkerboards.
-    try:
-        from detect_checkerboard import detect_checkerboard as _detect
-        corners, _conf = _detect(image)
-        if corners is not None:
-            return "checkerboard"
-    except Exception:  # pragma: no cover - defensive
-        pass
-
-    # Low std and no corners: try chroma auto-detection
+    # Step 3: low-saturation chroma (white or black backgrounds)
     bg = detect_bg_color(image)
     if bg in ("green", "blue", "white", "black"):
         return "chroma"

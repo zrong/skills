@@ -74,6 +74,16 @@ def test_auto_bg_type_picks_checkerboard() -> None:
     assert detect_bg_type(img) == "checkerboard"
 
 
+def test_auto_bg_type_picks_chroma_for_blue() -> None:
+    img = _load("sample_chroma_blue.png")
+    assert detect_bg_type(img) == "chroma"
+
+
+def test_auto_bg_type_picks_chroma_for_white() -> None:
+    img = _load("sample_chroma_white.png")
+    assert detect_bg_type(img) == "chroma"
+
+
 def test_unified_remove_bg_chroma_path() -> None:
     img = _load("sample_chroma_green.png")
     bgra, mask, used = remove_bg(img, bg_type="chroma", bg_color="green")
