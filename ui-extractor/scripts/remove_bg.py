@@ -171,9 +171,9 @@ def remove_checkerboard_bg(
 
     if corners is None:
         logger.warning(
-            "Checkerboard not detected; falling back to local-variance mask"
+            "Checkerboard not detected; using adaptive colour/brightness mask"
         )
-        mask = _variance_fallback_mask(image)
+        mask = _adaptive_checkerboard_mask(image)
     else:
         # Build ROI from the convex hull
         pts = corners.reshape(-1, 2).astype(np.int32)
@@ -181,9 +181,8 @@ def remove_checkerboard_bg(
         roi_mask = np.zeros((h, w), dtype=np.uint8)
         cv2.fillConvexPoly(roi_mask, hull, 255)
 
-        # Inside ROI: detect foreground via HSV saturation
-        # (checkerboard is grey/white, UI elements usually have colour)
-        sat_fg = _saturation_fallback_mask(image)
+        # Inside ROI: detect foreground via adaptive colour+brightness
+        sat_fg = _adaptive_checkerboard_mask(image)
         mask = cv2.bitwise_and(sat_fg, roi_mask)
 
     # Clean up the mask
@@ -235,6 +234,45 @@ def _saturation_fallback_mask(image: np.ndarray) -> np.ndarray:
     s = hsv[:, :, 1]
     # Threshold saturation: anything > 25 is foreground
     _, mask = cv2.threshold(s, 25, 255, cv2.THRESH_BINARY)
+    return mask
+
+
+def _adaptive_checkerboard_mask(image: np.ndarray) -> np.ndarray:
+    """Foreground mask combining colour and brightness heuristics.
+
+    Designed for the common case of a light-grey checkerboard containing
+    a mix of coloured AND grey UI elements (buttons, text bars, icons).
+
+    A pixel is considered foreground when ANY of these hold:
+      - High HSV saturation (coloured element)
+      - Much darker than the background grey (black/dark UI element)
+      - Visibly different from the dominant background grey level
+
+    The algorithm samples the four corners to estimate the background
+    grey level, then classifies everything that deviates significantly
+    from that grey as foreground.
+    """
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    h, w = image.shape[:2]
+    margin = int(min(h, w) * 0.02)
+
+    corner_samples = np.concatenate(
+        [
+            gray[0:margin, 0:margin].flatten(),
+            gray[0:margin, w - margin:w].flatten(),
+            gray[h - margin:h, 0:margin].flatten(),
+            gray[h - margin:h, w - margin:w].flatten(),
+        ]
+    )
+    bg_gray = float(np.median(corner_samples))
+
+    sat = hsv[:, :, 1]
+    coloured = sat > 25
+    dark = gray < (bg_gray - 40)
+    deviant = np.abs(gray.astype(int) - int(bg_gray)) > 35
+
+    mask = (coloured | dark | deviant).astype(np.uint8) * 255
     return mask
 
 
