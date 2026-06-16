@@ -30,14 +30,22 @@ cd scripts && uv run spritesheet.py --video <视频路径> [选项]
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `--video` | (必填) | 视频文件路径 |
+| `--video` | (必填*) | 视频文件路径（*`--repack-dir` 模式可不填） |
 | `--frames` | `8` | 提取帧数 |
 | `--cols` | `4` | spritesheet 列数 |
 | `--bg-color` | `auto` | 背景色: `auto` / `green` / `blue` / `white` / `black` |
-| `--smart` | 关闭 | 启用视频模型分析最佳循环区间 |
-| `--loop-start` | `None` | 手动指定循环起始帧（覆盖自动检测） |
-| `--loop-end` | `None` | 手动指定循环结束帧（覆盖自动检测） |
-| `--output-dir` | 视频同目录 | 输出目录；未指定时自动在视频同目录下创建 `[视频名]-[w]x[h]-[N]f` |
+| `--loop-start` | `None` | 手动指定循环起始帧（最高优先级，需与 `--loop-end` 同时给） |
+| `--loop-end` | `None` | 手动指定循环结束帧 |
+| `--smart` | 关闭 | 视频模型分析循环区间（与 `--from-frame-zero` 互斥） |
+| `--from-frame-zero` | 关闭 | 强制循环包含第 0 帧（旧 CV 帧差法，回退用） |
+| `--output-dir` | 视频同目录 | 输出目录；未指定时自动创建 `[视频名]-[w]x[h]-[N]f` |
+| `--analyze` | 关闭 | 诊断模式：输出 `.analysis.json`，不生成 spritesheet |
+| `--txt` | 关闭 | 配合 `--analyze` 打印 ASCII 摘要 |
+| `--repack-dir` | `None` | 重打包模式：指定已有输出目录重新组合帧（与视频管线互斥） |
+| `--drop-frames` | `None` | 重打包删除帧（1-based，如 `15,16` 或 `15-16`） |
+| `--keep-frames` | `None` | 重打包保留帧（1-based，如 `1-14`；与 `--drop-frames` 互斥） |
+
+**循环检测优先级**（正常管线内）：`--loop-start/--loop-end`（手动）> `--smart` > `--from-frame-zero` > **主体感知全局接缝检测（默认）**。默认算法在主体 mask 内全局搜索最优循环接缝，突破旧法两个局限：① 不假设循环从第 0 帧开始（能处理行走等"首帧是静态空闲态"的动画）；② MSE 只在主体区域计算（避免背景稀释造成的误差）。自动结果不可靠时，用 `--analyze` 查看周期候选与质心/大小趋势，再手动指定 `--loop-start/--loop-end`。
 
 ### 示例
 
@@ -50,6 +58,13 @@ uv run spritesheet.py --video video.mp4 --bg-color green --frames 16
 
 # 使用 AI 分析最佳循环区间
 uv run spritesheet.py --video video.mp4 --smart
+
+# 自动检测不可靠时：先诊断，再手动指定区间
+uv run spritesheet.py --video video.mp4 --analyze --txt
+uv run spritesheet.py --video video.mp4 --loop-start 0 --loop-end 30
+
+# 基于已生成的帧删帧重拼（不重跑抠图）
+uv run spritesheet.py --repack-dir ./xxx-420x420-16f --drop-frames 15,16
 ```
 
 4. **展示结果**：告知用户输出目录，并建议打开 `player.html` 验证动画效果。
@@ -60,6 +75,7 @@ uv run spritesheet.py --video video.mp4 --smart
 - `spritesheet.png` — 合并的 spritesheet
 - `metadata.json` — 播放元数据（裁切框、循环区间、视频源）
 - `player.html` — 可交互的动画播放器（浏览器直接打开）
+- `<视频名>.analysis.json` — 仅 `--analyze` 模式生成，循环分析报告（MSE 曲线、周期候选、质心轨迹、主体大小趋势）
 
 ## 注意事项
 
@@ -72,6 +88,7 @@ uv run spritesheet.py --video video.mp4 --smart
   - base64 方式支持 ≤ 50MB 视频；更大文件需改用 Files API
 - 背景色建议使用**绿幕**效果最佳（Chroma Key 色相分割精度最高）
 - 白幕和黑幕因与主体暗部/高光重叠，边缘可能不如绿幕干净
+- 默认循环检测已从"CV 帧差法"升级为"主体感知全局接缝检测"（`metadata.loop.method` 由 `cv` 变为 `global`）；主体分离失败（mask 占比过低）时会自动回退全画面法并提示
 
 ## 视频生成建议
 

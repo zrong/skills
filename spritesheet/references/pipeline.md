@@ -1,8 +1,8 @@
 # 抠图与裁剪流程参考
 
 > 本文档详细描述 spritesheet 处理流水线的内部步骤、每步的输入/输出、算子参数与设计意图。
-> 适用代码：`spritesheet/scripts/spritesheet.py`
-> 涉及函数：`extract_frames` / `remove_bg_chroma` / `normalize_color` / `compute_crop_box` / `crop_frames` / `write_metadata`
+> 适用代码：`spritesheet/scripts/`（主入口 `spritesheet.py` + `chroma.py` / `subject.py` / `loopdetect.py` / `analyze.py` / `repack.py`）
+> 涉及函数：`extract_frames` / `remove_bg_chroma`(chroma) / `detect_subject_info`(subject) / `find_loop_point_global`(loopdetect) / `normalize_color` / `compute_crop_box` / `crop_frames` / `write_metadata`
 
 ## 1. 流水线总览
 
@@ -156,7 +156,7 @@ flowchart TB
 | `crop.h` | int | `box[3]` | 裁切高 |
 | `loop.start` | int | `loop_start` | 循环起始帧（视频源） |
 | `loop.end` | int | `loop_end` | 循环结束帧 |
-| `loop.method` | str | `"smart"` \| `"cv"` | 循环检测方式 |
+| `loop.method` | str | `manual` \| `smart` \| `global` \| `cv_from_zero` \| `repacked` | 循环检测方式（旧 `cv` 仍可读） |
 | `video` | str | `video_path` | 视频源绝对路径 |
 
 ### 4.4 与旧实现差异
@@ -178,13 +178,18 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    A["CLI 解析 args<br/>--video, --frames, --bg-color,<br/>--loop-start/end, --smart, ..."] --> B{"循环检测方式"}
-    B -- "手动指定" --> C0["loop_start/end = args 值"]
+    A["CLI 解析 args"] --> M{"模式"}
+    M -- "--repack-dir" --> RP["repack.run_repack<br/>基于成品帧重组<br/>（不走视频管线）"]
+    M -- "--analyze" --> AN["analyze.run_analyze<br/>输出 .analysis.json<br/>（不产 spritesheet）"]
+    M -- "正常管线" --> B{"循环检测方式"}
+    B -- "手动 --loop-start/end" --> C0["loop_start/end = args"]
     B -- "--smart" --> C1["find_loop_point_smart<br/>AI 视频分析"]
-    B -- "默认" --> C2["find_loop_point_cv<br/>帧差法"]
+    B -- "--from-frame-zero" --> C2["find_loop_point_cv<br/>旧 CV 帧差法"]
+    B -- "默认" --> C3["find_loop_point_global<br/>主体感知全局接缝"]
     C0 --> D
     C1 --> D
-    C2 --> D["extract_frames<br/>(VideoCapture 等距采样)"]
+    C2 --> D
+    C3 --> D["extract_frames<br/>(VideoCapture 等距采样)"]
     D --> E["抠图 (list comp)<br/>remove_bg_chroma × N"]
     E --> F["normalize_color<br/>色调归一化"]
     F --> G["compute_crop_box<br/>算全局 crop"]
@@ -199,7 +204,7 @@ flowchart TB
 
 | 编号 | print 标题 | 步骤 | 在内存？ | 落盘？ |
 |------|-----------|------|---------|--------|
-| 1 | 步骤 1/9: 循环检测 | `find_loop_point_*` | ✓ | ✗ |
+| 1 | 步骤 1/9: 循环检测 | `detect_loop` → `find_loop_point_global`（默认） | ✓ | ✗ |
 | 2 | 步骤 2/9: 抽帧 | `extract_frames` | ✓ | ✗ |
 | 3 | 步骤 3/9: 抠图 | `remove_bg_chroma` (list comp) | ✓ | ✗ |
 | 4 | 步骤 4/9: 色调归一化 | `normalize_color` | ✓ | ✗ |
@@ -211,15 +216,57 @@ flowchart TB
 
 ---
 
-## 附录 A：相关函数文件位置
+## 6. 循环检测 `find_loop_point_global`（默认）— loopdetect.py
 
-| 函数 | 文件 | 行号 |
-|------|------|------|
-| `remove_bg_chroma` | `spritesheet/scripts/spritesheet.py` | L88-142 |
-| `extract_frames` | `spritesheet/scripts/spritesheet.py` | L147- |
-| `detect_subject_bbox` | `spritesheet/scripts/spritesheet.py` | L464-469 |
-| `compute_crop_box` | `spritesheet/scripts/spritesheet.py` | L472-491 |
-| `crop_frames` | `spritesheet/scripts/spritesheet.py` | L494-497 |
-| `write_metadata` | `spritesheet/scripts/spritesheet.py` | L500-524 |
-| `normalize_color` | `spritesheet/scripts/spritesheet.py` | L527-555 |
-| `main` | `spritesheet/scripts/spritesheet.py` | L596-682 |
+> 默认循环检测算法，替代旧 `find_loop_point_cv`。**自包含**：内部自己抽密集帧 + chroma key，
+> 因为检测发生在主管线抠图（步骤 3）之前，拿不到 alpha。
+
+### 6.1 为什么需要它
+
+旧 `find_loop_point_cv` 两个缺陷：
+
+| 缺陷 | 表现 | `find_loop_point_global` 的解法 |
+|------|------|--------------------------------|
+| 硬编码 `start=0` | 行走类动画首帧是静态空闲态，真实周期在视频中段，旧法从首帧找→误判 | **全局扫描所有 (start,end) 对**，不假设起点 |
+| MSE 全画面灰度 | 背景像素稀释真实差异，产生"虚低"（怪2行走 idx0-8 的 MSE 被假报为 2.3） | **MSE 只在主体 mask 内计算**（背景置 0 不参与） |
+
+### 6.2 流程
+
+```mermaid
+flowchart LR
+    g0["抽密集帧<br/>自适应 stride<br/>M ≤ 180（控 N²）"] --> g1["chroma key × M<br/>remove_bg_chroma"]
+    g1 --> g2["mask 内灰度<br/>背景置 0"]
+    g2 --> g3["全局 MSE 矩阵<br/>G@G.T 向量化<br/>(M×M)"]
+    g3 --> g4["候选剪枝<br/>端点 MSE 30 分位"]
+    g4 --> g5["三因子评分<br/>端点相似+丰富度+质心"]
+    g5 --> g6["首尾衔接验证<br/>MSE>0.015 警告"]
+    g6 --> g7["回映原始帧索引"]
+```
+
+### 6.3 关键算子
+
+| 步骤 | 算子 | 设计意图 |
+|------|------|---------|
+| mask 内全局 MSE | `D = sq[:,None]+sq[None,:]-2*G@G.T`，背景置 0 后只统计主体像素差 | 一次 BLAS 算全矩阵，比双层循环快 ~100×；排除背景虚低 |
+| 质心 | `cv2.moments(mask)` | 判断原地行走（质心稳）vs 平移（质心线性漂移，给 bonus 抵消稳定性扣分） |
+| 三因子评分 | `w_endpoint·sim + w_richness·richness + w_centroid·stability + w_translation·bonus` | 端点相似度主导（保证循环平滑），丰富度/质心辅助 |
+| 回退 | mask 占比 < 5% 或最优端点相似度 < 0.5 → `find_loop_point_cv` | 主体分离失败时降级到全画面法 |
+
+### 6.4 与诊断模式 `--analyze` 的关系
+
+`find_loop_point_global(return_report=True)` 附带诊断 dict（MSE 矩阵摘要、质心轨迹、候选评分），`analyze.run_analyze` 复用之并补充帧差自相关（周期检测）与主体大小趋势（U 型波动 vs 持续放大），输出 `.analysis.json`。自动检测不可靠时据此手动指定 `--loop-start/--loop-end`。
+
+---
+
+## 附录 A：相关函数所在模块
+
+> 函数已按职责拆分到多个模块（`spritesheet.py` 主入口 + 5 个子模块）。具体行号随重构变化，按模块定位。
+
+| 函数 | 模块 |
+|------|------|
+| `remove_bg_chroma` / `detect_bg_color` / `BG_HSV_RANGES` | `chroma.py` |
+| `detect_subject_info` / `detect_subject_bbox` / `subject_mask_grays` / `mask_mse_matrix` / `centroid_and_height` | `subject.py` |
+| `find_loop_point_global` / `find_loop_point_cv` / `find_loop_point_smart` / `detect_loop` / `GlobalLoopConfig` | `loopdetect.py` |
+| `run_analyze` / `find_period` / `analyze_size_trend` | `analyze.py` |
+| `run_repack` / `parse_frame_spec` | `repack.py` |
+| `extract_frames` / `normalize_color` / `compute_crop_box` / `crop_frames` / `write_metadata` / `create_spritesheet` / `generate_player` / `main` | `spritesheet.py` |
