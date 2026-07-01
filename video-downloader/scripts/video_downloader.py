@@ -112,7 +112,7 @@ def runtime_python_bin(venv_dir: Path) -> Path:
 
 
 def runtime_douyin_home(runtime_dir: Path) -> Path:
-    return runtime_dir / "douyin-downloader"
+    return SKILL_DIR / ".runtime" / "douyin-downloader"
 
 
 def detect_yt_dlp(settings: dict, runtime_dir: Path) -> Path | None:
@@ -132,13 +132,10 @@ def detect_yt_dlp(settings: dict, runtime_dir: Path) -> Path | None:
 
 
 def detect_douyin_home(settings: dict, runtime_dir: Path) -> Path | None:
-    configured = expand_path(settings.get("douyin_downloader_home"))
-    candidates = [configured, runtime_douyin_home(runtime_dir)]
-    for candidate in candidates:
-        if not candidate:
-            continue
-        if (candidate / "run.py").exists() and (candidate / "pyproject.toml").exists():
-            return candidate
+    # 使用集成在 .runtime/douyin-downloader 的版本
+    candidate = runtime_douyin_home(runtime_dir)
+    if candidate and (candidate / "run.py").exists() and (candidate / "pyproject.toml").exists():
+        return candidate
     return None
 
 

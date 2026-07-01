@@ -16,7 +16,7 @@ description: |
 
 统一封装两类下载能力：
 
-- `douyin-downloader`：优先用于抖音，支持封面、音乐、JSON、评论等附加资源。
+- `douyin-downloader`：优先用于抖音，支持封面、音乐、JSON、评论等附加资源（已集成到 `.runtime/douyin-downloader`）。
 - `yt-dlp`：用于 yt-dlp 支持的网站视频下载。
 
 ## 配置来源
@@ -104,7 +104,7 @@ python3 scripts/video_downloader.py download "URL" --backend auto
 
 只有在用户明确同意后再运行。
 
-安装或更新 `douyin-downloader`：
+安装或更新 `douyin-downloader`（已集成到 `.runtime/douyin-downloader`，首次使用时自动安装依赖）：
 
 ```bash
 python3 scripts/video_downloader.py install-douyin
@@ -115,6 +115,19 @@ python3 scripts/video_downloader.py install-douyin
 ```bash
 python3 scripts/video_downloader.py install-yt-dlp
 ```
+
+## 更新 douyin-downloader
+
+douyin-downloader 已集成到 `.runtime/douyin-downloader`，更新方法：
+
+```bash
+cd ~/storage/ai_agent/skills/video-downloader/.runtime/douyin-downloader
+git pull origin main
+rm -rf .venv
+uv sync --extra browser --extra dev
+```
+
+当前版本：`184155f` (2026-07-01)
 
 ## 刷新 Cookie
 
@@ -168,21 +181,21 @@ python3 scripts/video_downloader.py search "美食" --max 50 --output-dir ~/Down
 [video-downloader]
 default_backend = "auto"
 default_output_dir = "~/Downloads/video-downloads"
-runtime_dir = ""
 
 yt_dlp_path = ""
 yt_dlp_output_template = "%(title)s [%(id)s].%(ext)s"
 
-douyin_downloader_home = ""
 douyin_config_path = ""
+hot_board_output_dir = ""
+search_output_dir = ""
 ```
 
 说明：
 
 - `yt_dlp_path`：显式指定 `yt-dlp` 可执行文件路径。
-- `douyin_downloader_home`：显式指定 `douyin-downloader` 项目目录，目录内应包含 `run.py` 与 `pyproject.toml`。
-- `douyin_config_path`：显式指定 `douyin-downloader` 使用的原生 `config.yml` 路径。
-- `runtime_dir`：未显式指定工具路径时，本 skill 的默认安装目录。默认是 `video-downloader/.runtime/`。
+- `douyin_config_path`：显式指定 `douyin-downloader` 使用的原生 `config.yml` 路径。为空时使用 `.runtime/douyin-downloader/config.yml`。
+- `hot_board_output_dir`：热搜榜输出目录。为空时使用 `default_output_dir/hot_board/`。
+- `search_output_dir`：搜索结果输出目录。为空时使用 `default_output_dir/search/`。
 
 ## douyin 配置处理
 
@@ -203,12 +216,15 @@ douyin_config_path = ""
 
 抖音下载若提示 Cookie 缺失或无效，不要自行假设登录状态正常。
 
-使用 `douyin-downloader` 时：
+Cookie 保存在 `.runtime/douyin-downloader/config/cookies.json`。
 
-- 如果用户已配置自己的 `douyin_downloader_home`，则要求用户确认该路径下的 Cookie 是否可用。
-- 如果是本 skill 安装的运行时目录，则说明需要用户登录一次抖音并刷新 Cookie。
+需要登录时，运行：
 
-本脚本不负责交互式登录。需要登录时，明确告诉用户下一步需要处理 Cookie。
+```bash
+python3 scripts/video_downloader.py refresh-cookies
+```
+
+这会打开浏览器窗口，用户完成抖音登录后，Cookie 会自动保存。
 
 ## 输出要求
 
