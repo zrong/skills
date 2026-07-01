@@ -51,15 +51,6 @@ MCP 服务器自动部署工具。
 - 支持独立使用（通过环境变量配置）
 - 提供 CLI 工具和 Node.js SDK
 
-### tencent-docs
-
-腾讯文档 MCP，提供完整的腾讯文档操作能力。参考：[腾讯文档 MCP 使用指南](https://docs.qq.com/aio/p/scg9of08ycfdc59?p=SIBSMoo4XuO9dymUo2GEDBm)
-
-- 当用户需要操作腾讯文档时自动激活
-- 支持创建各类在线文档（智能文档、Word、Excel、幻灯片、思维导图、流程图）
-- 支持查询、搜索文档空间与文件
-- 支持读取和编辑智能文档、智能表格
-
 ### media-use
 
 媒体处理工具集，基于 ffmpeg 提供视频转码等功能。
@@ -152,6 +143,9 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - 输出透明背景 PNG、分离的 UI 元素 PNG、元数据 JSON
 
 ## 更新记录
+
+### 2026-07-01
+- 移除 tencent-docs skill（不再维护）
 
 ### 2026-06-16
 - 重构 spritesheet skill 抠图与裁剪流程：统一步骤编号，删除已废弃的 `--canvas-size` 参数

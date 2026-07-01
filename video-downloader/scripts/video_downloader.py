@@ -436,6 +436,112 @@ def command_download(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_refresh_cookies(args: argparse.Namespace) -> int:
+    """刷新抖音 Cookie"""
+    config_path = resolve_config_path(args.config)
+    settings, _ = load_settings(config_path)
+    runtime_dir = runtime_dir_from_settings(settings)
+
+    douyin_home = detect_douyin_home(settings, runtime_dir)
+    if not douyin_home:
+        die(
+            "douyin backend is unavailable. Ask the user whether to install douyin-downloader, "
+            "or set [video-downloader].douyin_downloader_home in agent_config.toml."
+        )
+    if not shutil.which("uv"):
+        die("uv is required to run douyin-downloader")
+
+    configured_base = expand_path(settings.get("douyin_config_path"))
+    if configured_base and not configured_base.exists():
+        die(
+            f"douyin_config_path does not exist: {configured_base}\n"
+            "Fix the path in agent_config.toml, or install/configure douyin-downloader first."
+        )
+    base_config_path = configured_base or (douyin_home / "config.yml")
+    if not base_config_path.exists():
+        default_output_dir = expand_path(settings.get("default_output_dir")) or (Path.home() / "Downloads" / "video-downloads")
+        write_default_douyin_config(base_config_path, default_output_dir)
+
+    info("Launching browser for Douyin login...")
+    run(
+        ["uv", "run", "python", "-m", "tools.cookie_fetcher", "--config", str(base_config_path)],
+        cwd=douyin_home,
+    )
+    return 0
+
+
+def command_hot_board(args: argparse.Namespace) -> int:
+    """获取抖音热搜榜"""
+    config_path = resolve_config_path(args.config)
+    settings, _ = load_settings(config_path)
+    runtime_dir = runtime_dir_from_settings(settings)
+
+    douyin_home = detect_douyin_home(settings, runtime_dir)
+    if not douyin_home:
+        die(
+            "douyin backend is unavailable. Ask the user whether to install douyin-downloader, "
+            "or set [video-downloader].douyin_downloader_home in agent_config.toml."
+        )
+    if not shutil.which("uv"):
+        die("uv is required to run douyin-downloader")
+
+    configured_base = expand_path(settings.get("douyin_config_path"))
+    if configured_base and not configured_base.exists():
+        die(
+            f"douyin_config_path does not exist: {configured_base}\n"
+            "Fix the path in agent_config.toml, or install/configure douyin-downloader first."
+        )
+    base_config_path = configured_base or (douyin_home / "config.yml")
+    if not base_config_path.exists():
+        default_output_dir = expand_path(settings.get("default_output_dir")) or (Path.home() / "Downloads" / "video-downloads")
+        write_default_douyin_config(base_config_path, default_output_dir)
+
+    output_dir = expand_path(args.output_dir)
+    if not output_dir:
+        output_dir = expand_path(settings.get("hot_board_output_dir")) or (Path.home() / "Downloads" / "video-downloads")
+
+    cmd = ["uv", "run", "python", "run.py", "-c", str(base_config_path), "--hot-board", str(args.limit)]
+    info(f"Fetching hot board with limit={args.limit}...")
+    run(cmd, cwd=douyin_home)
+    return 0
+
+
+def command_search(args: argparse.Namespace) -> int:
+    """搜索抖音作品"""
+    config_path = resolve_config_path(args.config)
+    settings, _ = load_settings(config_path)
+    runtime_dir = runtime_dir_from_settings(settings)
+
+    douyin_home = detect_douyin_home(settings, runtime_dir)
+    if not douyin_home:
+        die(
+            "douyin backend is unavailable. Ask the user whether to install douyin-downloader, "
+            "or set [video-downloader].douyin_downloader_home in agent_config.toml."
+        )
+    if not shutil.which("uv"):
+        die("uv is required to run douyin-downloader")
+
+    configured_base = expand_path(settings.get("douyin_config_path"))
+    if configured_base and not configured_base.exists():
+        die(
+            f"douyin_config_path does not exist: {configured_base}\n"
+            "Fix the path in agent_config.toml, or install/configure douyin-downloader first."
+        )
+    base_config_path = configured_base or (douyin_home / "config.yml")
+    if not base_config_path.exists():
+        default_output_dir = expand_path(settings.get("default_output_dir")) or (Path.home() / "Downloads" / "video-downloads")
+        write_default_douyin_config(base_config_path, default_output_dir)
+
+    output_dir = expand_path(args.output_dir)
+    if not output_dir:
+        output_dir = expand_path(settings.get("search_output_dir")) or (Path.home() / "Downloads" / "video-downloads")
+
+    cmd = ["uv", "run", "python", "run.py", "-c", str(base_config_path), "--search", args.keyword, "--search-max", str(args.max)]
+    info(f"Searching for '{args.keyword}' with max={args.max}...")
+    run(cmd, cwd=douyin_home)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Unified helper for Douyin and yt-dlp downloads.")
     parser.add_argument("--config", help="Explicit agent_config.toml path")
@@ -467,6 +573,20 @@ def build_parser() -> argparse.ArgumentParser:
     download.add_argument("--include-replies", action="store_true", help="For douyin comments: include second-level replies")
     download.add_argument("--max-comments", type=int, help="For douyin comments: 0 means unlimited")
     download.set_defaults(func=command_download)
+
+    refresh_cookies = subparsers.add_parser("refresh-cookies", help="刷新抖音 Cookie（启动浏览器登录）")
+    refresh_cookies.set_defaults(func=command_refresh_cookies)
+
+    hot_board = subparsers.add_parser("hot-board", help="获取抖音热搜榜")
+    hot_board.add_argument("--limit", type=int, default=30, help="限制条数（默认 30，0 表示全部）")
+    hot_board.add_argument("--output-dir", help="输出目录")
+    hot_board.set_defaults(func=command_hot_board)
+
+    search = subparsers.add_parser("search", help="搜索抖音作品")
+    search.add_argument("keyword", help="搜索关键词")
+    search.add_argument("--max", type=int, default=50, help="最大条数（默认 50）")
+    search.add_argument("--output-dir", help="输出目录")
+    search.set_defaults(func=command_search)
 
     return parser
 

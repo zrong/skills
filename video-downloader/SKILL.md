@@ -4,10 +4,12 @@ description: |
   下载视频工具。处理抖音短链、抖音作品页，以及 yt-dlp 支持的网站视频下载。
 
   触发场景：
-  - 用户发来视频链接并要求“下载这个视频”
+  - 用户发来视频链接并要求”下载这个视频”
   - 用户要求下载抖音视频、图文、封面、音乐、JSON、评论
   - 用户要求下载 YouTube、Bilibili、X、TikTok 等 yt-dlp 支持站点的视频
-  - 用户提到“yt-dlp”“douyin-downloader”“视频下载”“抖音短链”
+  - 用户提到”yt-dlp””douyin-downloader””视频下载””抖音短链”
+  - 用户要求获取抖音热搜榜或搜索抖音作品
+  - 用户要求刷新抖音 Cookie
 ---
 
 # Video Downloader Skill
@@ -113,6 +115,50 @@ python3 scripts/video_downloader.py install-douyin
 ```bash
 python3 scripts/video_downloader.py install-yt-dlp
 ```
+
+## 刷新 Cookie
+
+当抖音下载提示 Cookie 缺失或无效时，使用此命令启动浏览器登录：
+
+```bash
+python3 scripts/video_downloader.py refresh-cookies
+```
+
+这会打开浏览器窗口，用户完成抖音登录后，Cookie 会自动保存。
+
+## 热搜榜
+
+获取抖音热搜榜并保存为 JSONL 文件：
+
+```bash
+# 获取前 30 条热搜
+python3 scripts/video_downloader.py hot-board --limit 30
+
+# 获取全部热搜
+python3 scripts/video_downloader.py hot-board --limit 0
+
+# 指定输出目录
+python3 scripts/video_downloader.py hot-board --limit 30 --output-dir ~/Downloads/hot-board
+```
+
+输出文件保存在 `hot_board/` 子目录，文件名格式为 `{timestamp}.jsonl`。
+
+## 搜索作品
+
+搜索抖音作品并保存为 JSONL 文件：
+
+```bash
+# 搜索关键词，默认最多 50 条
+python3 scripts/video_downloader.py search "美食"
+
+# 指定最大条数
+python3 scripts/video_downloader.py search "美食" --max 100
+
+# 指定输出目录
+python3 scripts/video_downloader.py search "美食" --max 50 --output-dir ~/Downloads/search
+```
+
+输出文件保存在 `search/` 子目录，文件名格式为 `{keyword}_{timestamp}.jsonl`。
 
 ## 配置字段
 

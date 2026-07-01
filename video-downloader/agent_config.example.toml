@@ -22,3 +22,11 @@ yt_dlp_output_template = "%(title)s [%(id)s].%(ext)s"
 # 仍保存在它自己的 config.yml 中。
 douyin_downloader_home = ""
 douyin_config_path = ""
+
+# 可选：热搜榜输出目录
+# 为空时使用 default_output_dir/hot_board/
+hot_board_output_dir = ""
+
+# 可选：搜索结果输出目录
+# 为空时使用 default_output_dir/search/
+search_output_dir = ""
