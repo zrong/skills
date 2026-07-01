@@ -63,12 +63,12 @@ MCP 服务器自动部署工具。
 
 ### video-downloader
 
-统一视频下载工具，封装 `douyin-downloader` 与 `yt-dlp` 两种 backend。
+统一视频下载工具，整合 `douyin-downloader` 与 `yt-dlp` 两种 backend。
 
 - 当用户发来视频链接并要求下载，或提到 `yt-dlp` / `douyin-downloader` / 抖音短链时自动激活
 - 支持抖音视频下载，以及 yt-dlp 支持的网站视频下载
-- 统一从 `agent_config.toml` 读取高层配置，并保留 `douyin-downloader` 原生 `config.yml` 作为底层配置
-- 在 backend 缺失时，要求先安装或在配置中指定调用路径
+- 支持抖音热搜榜、搜索作品、刷新 Cookie
+- `douyin-downloader` 已集成到 `.runtime/douyin-downloader`，无需外部安装
 
 ### video-analyzer
 
@@ -145,6 +145,7 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 ## 更新记录
 
 ### 2026-07-01
+- 升级 video-downloader skill：整合 douyin-downloader 到内部（`.runtime/douyin-downloader`），新增 refresh-cookies、hot-board、search 命令
 - 移除 tencent-docs skill（不再维护）
 
 ### 2026-06-16
