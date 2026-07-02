@@ -55,6 +55,7 @@ Thumbs.db
 *.swo
 video-downloader/.runtime/
 .antigravitycli/
+.serena/
 
 # Project
 temp/
