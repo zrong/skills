@@ -11,6 +11,9 @@ dependencies = [
 
 [project.scripts]
 ffmpeg_batch = "media_use.convert:app"
+ffmpeg_cut = "media_use.cut:app"
+ffmpeg_merge = "media_use.merge:app"
+ffmpeg_fix = "media_use.fix:app"
 
 [build-system]
 requires = ["hatchling"]
