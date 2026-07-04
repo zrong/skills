@@ -146,6 +146,9 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 ## 更新记录
 
 ### 2026-07-04
+- 升级 media-use `ffmpeg_cut`：`-s/--start` 与 `-e/--end` 改为可选（二者至少传一个），省略 `-s` 表示从开头开始，省略 `-e` 表示裁剪到末尾，支持单端裁剪场景
+
+### 2026-07-04
 - 维护：从 git 索引移除 `.serena/`（`.gitignore` 早已有 `.serena/` 规则，但因 `.serena/.gitignore`、`.serena/project.yml` 仍被跟踪而失效），本地文件保留，后续 `.serena/` 修改不再进入版本控制
 - 修复 media-use `common.py`：ffmpeg 调用显式传入 `-y`，并新增对「Not overwriting / Error opening output file」的防御性检查，规避 ffmpeg 8.x 在非交互 stdin 下退出码为 0 却未写出文件的隐患
 

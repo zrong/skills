@@ -39,14 +39,16 @@ uv run ffmpeg_batch --list-codecs
 
 ### ffmpeg_cut —— 无损视频裁剪
 
-给定起止时间，用 `-c copy` 裁剪片段（不重新编码）。
+用 `-c copy` 裁剪片段（不重新编码）。`-s/--start` 与 `-e/--end` 至少指定其一：
+省略 `-s` 表示从开头开始，省略 `-e` 表示裁剪到末尾。
 
 ```bash
-uv run ffmpeg_cut input.mp4 -s 00:01:30 -e 00:03:15 -o clip.mp4
-uv run ffmpeg_cut input.mp4 -s 10 -e 25
+uv run ffmpeg_cut input.mp4 -s 00:01:30 -e 00:03:15 -o clip.mp4   # 指定起止
+uv run ffmpeg_cut input.mp4 -s 10                                   # 从 10s 裁到末尾
+uv run ffmpeg_cut input.mp4 -e 25                                   # 从开头裁到 25s
 ```
 
-参数：`-s/--start`、`-e/--end`（支持 `HH:MM:SS.ms` / `MM:SS` / 秒数）、
+参数：`-s/--start`、`-e/--end`（均支持 `HH:MM:SS.ms` / `MM:SS` / 秒数，二者至少传一个）、
 `-o/--output`（默认 `<stem>_cut.<ext>`）、`--dry-run`。
 
 > 注意：流复制裁剪的起点会对齐到最近的关键帧，开头可能偏差几秒；
