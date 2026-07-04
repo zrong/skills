@@ -53,13 +53,14 @@ MCP 服务器自动部署工具。
 
 ### media-use
 
-媒体处理工具集，基于 ffmpeg 提供视频转码等功能。
+媒体处理工具集，基于 ffmpeg 提供视频转码、裁剪、合并、修复等功能。
 
-- 当用户需要进行视频转码、格式转换、音频处理等媒体操作时自动激活
-- 包含 ffmpeg_batch 批量视频转码工具
-- 支持多种视频编码（H.264、H.265/HEVC、AV1、VP9）
-- 支持多种音频编码（AAC、MP3、Opus、FLAC、AC3）
-- 支持 GPU 硬件加速（NVIDIA NVENC、Intel QSV、VAAPI）
+- 当用户需要进行视频转码、格式转换、音频处理、视频裁剪/剪辑、视频合并、修复 m3u 下载的损坏视频时自动激活
+- ffmpeg_batch：批量视频转码（H.264、H.265/HEVC、AV1、VP9，支持 GPU 硬件加速）
+- ffmpeg_cut：按起止时间无损裁剪视频片段（-c copy，支持 HH:MM:SS.ms / 秒数）
+- ffmpeg_merge：合并编码一致的视频文件（concat demuxer + -c copy，自动一致性校验）
+- ffmpeg_fix：修复 m3u 下载的 mp4（faststart，moov atom 前置，支持文件 / 文件夹批量）
+- 支持 AAC、MP3、Opus、FLAC、AC3 等音频编码
 
 ### video-downloader
 
@@ -143,6 +144,14 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - 输出透明背景 PNG、分离的 UI 元素 PNG、元数据 JSON
 
 ## 更新记录
+
+### 2026-07-04
+- 升级 media-use skill：重构为统一 `media_use` 包结构，新增 3 个 ffmpeg 工具
+  - 新增 `ffmpeg_cut`：按起止时间无损裁剪视频片段（-c copy，支持 HH:MM:SS.ms / MM:SS / 秒数）
+  - 新增 `ffmpeg_merge`：合并编码一致的视频文件（concat demuxer + -c copy，ffprobe 自动一致性校验）
+  - 新增 `ffmpeg_fix`：修复 m3u 下载的 mp4（-c copy -movflags +faststart，支持文件 / 文件夹批量）
+  - `ffmpeg_batch` 迁移至 `media_use/convert.py`，命令行接口与行为完全不变
+  - 公共逻辑下沉到 `media_use/common.py`（ffprobe 探测、ffmpeg 封装、时间解析、目录安全检查）
 
 ### 2026-07-01
 - 升级 video-downloader skill：整合 douyin-downloader 到内部（`.runtime/douyin-downloader`），新增 refresh-cookies、hot-board、search 命令
