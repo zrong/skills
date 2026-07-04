@@ -146,6 +146,10 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 ## 更新记录
 
 ### 2026-07-04
+- 维护：从 git 索引移除 `.serena/`（`.gitignore` 早已有 `.serena/` 规则，但因 `.serena/.gitignore`、`.serena/project.yml` 仍被跟踪而失效），本地文件保留，后续 `.serena/` 修改不再进入版本控制
+- 修复 media-use `common.py`：ffmpeg 调用显式传入 `-y`，并新增对「Not overwriting / Error opening output file」的防御性检查，规避 ffmpeg 8.x 在非交互 stdin 下退出码为 0 却未写出文件的隐患
+
+### 2026-07-04
 - 升级 media-use skill：重构为统一 `media_use` 包结构，新增 3 个 ffmpeg 工具
   - 新增 `ffmpeg_cut`：按起止时间无损裁剪视频片段（-c copy，支持 HH:MM:SS.ms / MM:SS / 秒数）
   - 新增 `ffmpeg_merge`：合并编码一致的视频文件（concat demuxer + -c copy，ffprobe 自动一致性校验）

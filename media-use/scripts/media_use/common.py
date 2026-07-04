@@ -92,7 +92,9 @@ def run_ffmpeg(args: list[str], *, dry_run: bool = False) -> bool:
         console.print(f"[yellow][dry-run][/yellow] {shlex.join(['ffmpeg', *args])}")
         return True
     try:
-        result = subprocess.run(["ffmpeg", *args], capture_output=True, text=True)
+        # -y：自动覆盖已存在的输出。ffmpeg 8.x 在非交互 stdin 下遇到「文件已存在」
+        # 会回复 N 并以退出码 0 退出（不写入但看似成功），故必须显式 -y 才能可靠覆盖。
+        result = subprocess.run(["ffmpeg", "-y", *args], capture_output=True, text=True)
     except FileNotFoundError:
         ensure_ffmpeg()
         return False
@@ -101,6 +103,12 @@ def run_ffmpeg(args: list[str], *, dry_run: bool = False) -> bool:
         err = (result.stderr or "").strip()
         if err:
             console.print(f"[dim]{err[-800:]}[/dim]")
+        return False
+    # 防御：ffmpeg 个别情况下返回 0 但实际未写出（如输出已存在且未 -y）。
+    if "Not overwriting" in (result.stderr or "") or "Error opening output file" in (
+        result.stderr or ""
+    ):
+        console.print("[red]ffmpeg 未写出输出文件（可能未覆盖已存在文件）[/red]")
         return False
     return True
 
