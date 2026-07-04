@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-"""使用 ffmpeg 批量转码视频工具。"""
+"""ffmpeg_batch: 使用 ffmpeg 批量转码视频工具。"""
 
 import subprocess
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from threading import Lock
 
 import typer
-from rich.console import Console
-from rich.table import Table
 from rich.progress import (
     BarColumn,
     Progress,
@@ -18,9 +15,11 @@ from rich.progress import (
     TextColumn,
     TimeElapsedColumn,
 )
+from rich.table import Table
+
+from .common import console, ensure_ffmpeg, prepare_target_dir, run_ffmpeg
 
 app = typer.Typer(help="批量转码视频工具")
-console = Console()
 print_lock = Lock()  # 用于多线程打印同步
 
 # 常用视频编码器配置
@@ -75,24 +74,6 @@ HWACCEL_DECODE_MAP = {
 }
 
 
-def get_video_info(video_path: Path) -> dict | None:
-    """使用 ffprobe 获取视频分辨率。"""
-    cmd = [
-        "ffprobe",
-        "-v", "error",
-        "-select_streams", "v:0",
-        "-show_entries", "stream=width,height",
-        "-of", "csv=p=0",
-        str(video_path),
-    ]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        width, height = result.stdout.strip().split(",")
-        return {"width": int(width), "height": int(height)}
-    except (subprocess.CalledProcessError, ValueError):
-        return None
-
-
 def check_codec_available(codec_name: str) -> bool:
     """检查编码器是否可用。"""
     try:
@@ -135,70 +116,58 @@ def convert_video(
     """转换单个视频文件。"""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 构建 ffmpeg 命令
-    cmd = [
-        "ffmpeg",
-        "-y",  # 覆盖输出文件
-    ]
+    # 构建 ffmpeg 参数（开头的 ffmpeg 由 run_ffmpeg 补齐）
+    args: list[str] = ["-y"]  # 覆盖输出文件
 
     # 使用硬件加速解码
     if hwaccel_decode and video_codec in HWACCEL_DECODE_MAP:
         accel = HWACCEL_DECODE_MAP[video_codec]
         if accel == "cuda":
-            cmd.extend(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
+            args.extend(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
         elif accel == "qsv":
-            cmd.extend(["-hwaccel", "qsv"])
+            args.extend(["-hwaccel", "qsv"])
         elif accel == "vaapi":
-            cmd.extend(["-hwaccel", "vaapi", "-vaapi_device", "/dev/dri/renderD128"])
+            args.extend(["-hwaccel", "vaapi", "-vaapi_device", "/dev/dri/renderD128"])
 
-    cmd.extend(["-i", str(input_path)])
+    args.extend(["-i", str(input_path)])
 
     # 视频编码
-    cmd.extend(["-c:v", video_codec])
+    args.extend(["-c:v", video_codec])
     if video_bitrate:
-        cmd.extend(["-b:v", video_bitrate])
+        args.extend(["-b:v", video_bitrate])
 
     # 音频编码
     if audio_codec == "copy":
-        cmd.extend(["-c:a", "copy"])
+        args.extend(["-c:a", "copy"])
     else:
-        cmd.extend(["-c:a", audio_codec])
+        args.extend(["-c:a", audio_codec])
         if audio_bitrate:
-            cmd.extend(["-b:a", audio_bitrate])
+            args.extend(["-b:a", audio_bitrate])
 
     # GPU 编码预设
     if "_nvenc" in video_codec:
-        cmd.extend(["-preset", "p4"])
+        args.extend(["-preset", "p4"])
     elif video_codec.startswith("lib"):
-        cmd.extend(["-preset", "medium"])
+        args.extend(["-preset", "medium"])
 
-    cmd.append(str(output_path))
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        return result.returncode == 0
-    except subprocess.CalledProcessError:
-        return False
+    args.append(str(output_path))
+    return run_ffmpeg(args)
 
 
 def list_codecs():
     """列出所有支持的编码器。"""
     available = get_available_codecs()
 
-    # 视频编码器表格
     video_table = Table(title="视频编码器")
     video_table.add_column("编码", style="cyan")
     video_table.add_column("描述", style="green")
     video_table.add_column("类型", style="yellow")
-
     for key, config in available["video"].items():
         video_table.add_row(key, config["desc"], config["type"].upper())
 
-    # 音频编码器表格
     audio_table = Table(title="音频编码器")
     audio_table.add_column("编码", style="cyan")
     audio_table.add_column("描述", style="green")
-
     for key, config in available["audio"].items():
         audio_table.add_row(key, config["desc"])
 
@@ -295,6 +264,8 @@ def main(
         # 查看支持的编码器列表
         ffmpeg_batch --list-codecs
     """
+    ensure_ffmpeg()
+
     # 列出编码器
     if list_codecs_flag:
         list_codecs()
@@ -308,12 +279,10 @@ def main(
 
     # 验证编码器
     available = get_available_codecs()
-
     if video_codec not in available["video"]:
         console.print(f"[red]错误：未知的视频编码器 '{video_codec}'[/red]")
         console.print("使用 --list-codecs 查看可用编码器")
         raise typer.Exit(1)
-
     if audio_codec not in available["audio"]:
         console.print(f"[red]错误：未知的音频编码器 '{audio_codec}'[/red]")
         console.print("使用 --list-codecs 查看可用编码器")
@@ -369,18 +338,9 @@ def main(
         raise typer.Exit(0)
 
     # 目标目录安全检查
-    if target.exists():
-        # 检查目标目录是否为空
-        if any(target.iterdir()):
-            console.print(f"[red]错误：目标文件夹不为空：{target}[/red]")
-            console.print("请清空目标文件夹或指定一个新的文件夹")
-            raise typer.Exit(1)
-    else:
-        # 目标目录不存在，自动创建
-        target.mkdir(parents=True, exist_ok=True)
-        console.print(f"[green]已创建目标文件夹：{target}[/green]")
+    prepare_target_dir(target)
 
-    # 带进度条转码文件
+    # 转码文件
     success_count = 0
     fail_count = 0
 
@@ -415,7 +375,7 @@ def main(
                         fail_count += 1
                         console.print(f"[red]✗[/red] {filename}")
     else:
-        # 串行处理（原有逻辑）
+        # 串行处理
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -427,7 +387,6 @@ def main(
             task = progress.add_task("[cyan]转码中...", total=len(video_files))
 
             for video_file in video_files:
-                # 构建输出路径
                 if recursive:
                     relative_path = video_file.relative_to(source)
                     output_path = target / relative_path.parent / f"{video_file.stem}{suffix}.{ext}"
