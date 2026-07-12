@@ -1,4 +1,4 @@
-# 复制到项目根目录 ~/storage/ai_agent/skills/agent_config.toml
+# 复制到项目根目录的 agent_config.toml，或 ~/.agents/agent_config.toml
 # 若项目根目录没有该文件，则脚本会回退到 ~/.agents/agent_config.toml
 
 [video-downloader]
@@ -17,6 +17,9 @@ yt_dlp_output_template = "%(title)s [%(id)s].%(ext)s"
 # 注意：这里不要存放 cookies。本 skill 只在这里保存路径和默认行为；
 # douyin-downloader 的 cookies、browser_fallback、thread 等底层配置
 # 仍保存在它自己的 config.yml 中。
+# 路径支持 ~、环境变量；相对路径以本 skill 目录为基准。
+# 留空时分别使用 .runtime/douyin-downloader 和其中的 config.yml。
+douyin_downloader_home = ""
 douyin_config_path = ""
 
 # 可选：热搜榜输出目录

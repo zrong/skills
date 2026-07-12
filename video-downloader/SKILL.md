@@ -1,5 +1,6 @@
 ---
 name: video-downloader
+version: 26.28.33
 description: |
   下载视频工具。处理抖音短链、抖音作品页，以及 yt-dlp 支持的网站视频下载。
 
@@ -23,7 +24,7 @@ description: |
 
 配置文件固定按以下顺序查找：
 
-1. 项目根目录：`~/storage/ai_agent/skills/agent_config.toml`
+1. 项目级：skill 上一级目录的 `agent_config.toml`
 2. 全局目录：`~/.agents/agent_config.toml`
 
 不要使用其他目录猜测策略。
@@ -121,11 +122,13 @@ python3 scripts/video_downloader.py install-yt-dlp
 douyin-downloader 已集成到 `.runtime/douyin-downloader`，更新方法：
 
 ```bash
-cd ~/storage/ai_agent/skills/video-downloader/.runtime/douyin-downloader
+cd .runtime/douyin-downloader
 git pull origin main
 rm -rf .venv
 uv sync --extra browser --extra dev
 ```
+
+以上命令从 skill 目录执行。也可以直接运行 `python3 scripts/video_downloader.py install-douyin` 完成安装或更新。
 
 当前版本：`184155f` (2026-07-01)
 
@@ -185,6 +188,7 @@ default_output_dir = "~/Downloads/video-downloads"
 yt_dlp_path = ""
 yt_dlp_output_template = "%(title)s [%(id)s].%(ext)s"
 
+douyin_downloader_home = ""
 douyin_config_path = ""
 hot_board_output_dir = ""
 search_output_dir = ""
@@ -193,9 +197,12 @@ search_output_dir = ""
 说明：
 
 - `yt_dlp_path`：显式指定 `yt-dlp` 可执行文件路径。
+- `douyin_downloader_home`：显式指定 `douyin-downloader` 仓库目录。为空时使用 skill 目录下的 `.runtime/douyin-downloader`。
 - `douyin_config_path`：显式指定 `douyin-downloader` 使用的原生 `config.yml` 路径。为空时使用 `.runtime/douyin-downloader/config.yml`。
 - `hot_board_output_dir`：热搜榜输出目录。为空时使用 `default_output_dir/hot_board/`。
 - `search_output_dir`：搜索结果输出目录。为空时使用 `default_output_dir/search/`。
+
+所有路径字段都支持 `~` 和环境变量。相对路径统一以 skill 目录为基准，配置和说明中无需写入特定机器的绝对路径。
 
 ## douyin 配置处理
 

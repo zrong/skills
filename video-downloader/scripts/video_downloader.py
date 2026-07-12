@@ -37,10 +37,13 @@ def info(message: str) -> None:
     print(f"INFO: {message}", file=sys.stderr)
 
 
-def expand_path(value: str | None) -> Path | None:
+def expand_path(value: str | None, base_dir: Path = SKILL_DIR) -> Path | None:
     if not value:
         return None
-    return Path(value).expanduser()
+    path = Path(os.path.expandvars(value)).expanduser()
+    if not path.is_absolute():
+        path = base_dir / path
+    return path
 
 
 def runtime_dir_from_settings(settings: dict) -> Path:
@@ -112,7 +115,7 @@ def runtime_python_bin(venv_dir: Path) -> Path:
 
 
 def runtime_douyin_home(runtime_dir: Path) -> Path:
-    return SKILL_DIR / ".runtime" / "douyin-downloader"
+    return runtime_dir / "douyin-downloader"
 
 
 def detect_yt_dlp(settings: dict, runtime_dir: Path) -> Path | None:
@@ -132,8 +135,9 @@ def detect_yt_dlp(settings: dict, runtime_dir: Path) -> Path | None:
 
 
 def detect_douyin_home(settings: dict, runtime_dir: Path) -> Path | None:
-    # 使用集成在 .runtime/douyin-downloader 的版本
-    candidate = runtime_douyin_home(runtime_dir)
+    candidate = expand_path(settings.get("douyin_downloader_home"))
+    if not candidate:
+        candidate = runtime_douyin_home(runtime_dir)
     if candidate and (candidate / "run.py").exists() and (candidate / "pyproject.toml").exists():
         return candidate
     return None
@@ -311,7 +315,11 @@ def command_doctor(args: argparse.Namespace) -> int:
 def command_install_douyin(args: argparse.Namespace) -> int:
     settings, _ = load_settings(resolve_config_path(args.config))
     runtime_dir = runtime_dir_from_settings(settings)
-    repo_dir = expand_path(args.repo_dir) or runtime_douyin_home(runtime_dir)
+    repo_dir = (
+        expand_path(args.repo_dir)
+        or expand_path(settings.get("douyin_downloader_home"))
+        or runtime_douyin_home(runtime_dir)
+    )
     default_output_dir = expand_path(settings.get("default_output_dir")) or (Path.home() / "Downloads" / "video-downloads")
     repo_dir.parent.mkdir(parents=True, exist_ok=True)
 
