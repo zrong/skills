@@ -10,6 +10,8 @@ x-api-key: your-api-key
 
 ## Base URL
 
+配置中的 `base_url` 不包含 `/api`，客户端会自动添加：
+
 ```
 {base_url}/api
 ```

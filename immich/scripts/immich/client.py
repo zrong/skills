@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO
 
-from immich.config import get_base_url, get_api_key
+from immich.config import get_api_key, get_base_url, normalize_base_url
 
 
 class ImmichClient:
@@ -27,7 +27,7 @@ class ImmichClient:
         except Exception:
             immich_cfg = {}
 
-        self.base_url = (base_url or get_base_url()).rstrip("/")
+        self.base_url = normalize_base_url(base_url or get_base_url())
         self.api_key = api_key or get_api_key()
 
         # Check config for ssl_verify setting

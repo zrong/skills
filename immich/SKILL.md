@@ -1,5 +1,6 @@
 ---
 name: immich
+version: 26.28.34
 description: 将图像和视频上传到 Immich 服务器。支持本地文件上传、远程URL下载上传、管理Album。当用户提到"上传到 Immich"、"上传图片"、"备份照片"、"上传视频"、"下载视频并上传"时使用此技能。
 argument-hint: "[file-path 或 url] [--album album-name]"
 allowed-tools: Bash(uv run *), Read, Glob, Edit
@@ -18,11 +19,13 @@ allowed-tools: Bash(uv run *), Read, Glob, Edit
 
 ### 1. 配置文件
 
-在项目根目录或 skill 目录下创建 `agent_config.toml`，添加：
+在当前工作目录、skill 目录、Git 项目根目录或 `~/.agents/agent_config.toml` 中配置。查找优先级依次为：当前工作目录、skill 目录、Git 项目根目录、全局配置。
+
+添加：
 
 ```toml
 [immich]
-base_url = "https://your-immich-server.com/api"
+base_url = "https://your-immich-server.com"
 api_key = "your-api-key"
 default_album = "My Photos"  # 可选
 ```
@@ -77,7 +80,7 @@ uv run immich init
 
 | 配置项 | 必需 | 说明 |
 |--------|------|------|
-| `base_url` | 是 | Immich 服务器地址，需包含 `/api` 后缀 |
+| `base_url` | 是 | Immich 服务器地址，不要包含 `/api` 后缀；客户端会自动添加 |
 | `api_key` | 是 | Immich API 密钥 |
 | `default_album` | 否 | 默认上传的 Album 名称 |
 
