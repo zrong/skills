@@ -88,6 +88,10 @@ class ImmichClient:
         """Upload an asset (image/video) to Immich."""
         if isinstance(file, Path):
             filename = filename or file.name
+            # Sanitize filename for Immich API (non-ASCII causes 400 errors)
+            import re
+            safe_name = re.sub(r'[^\x00-\x7F]', '_', filename)
+            filename = safe_name
             mime_type = mime_type or _guess_mime(file)
             stat = file.stat()
             file_size = stat.st_size
