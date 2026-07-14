@@ -1,23 +1,26 @@
 ---
 name: video-downloader
-version: 26.29.36
+version: 26.29.37
 description: |
-  下载视频工具。处理抖音短链、抖音作品页，以及 yt-dlp 支持的网站视频下载。
+  下载视频工具。处理抖音短链、抖音作品页、微信视频号 SPH 分享链接，以及 yt-dlp 支持的网站视频下载。
 
   触发场景：
   - 用户发来视频链接并要求”下载这个视频”
   - 用户要求下载抖音视频、图文、封面、音乐、JSON、评论
   - 用户要求下载 YouTube、Bilibili、X、TikTok 等 yt-dlp 支持站点的视频
+  - 用户要求下载 weixin.qq.com/sph/ 格式的微信视频号分享链接
   - 用户提到”yt-dlp””douyin-downloader””视频下载””抖音短链”
   - 用户要求获取抖音热搜榜或搜索抖音作品
   - 用户要求刷新抖音 Cookie
+  - 用户要求刷新微信视频号或腾讯元宝 Cookie
 ---
 
 # Video Downloader Skill
 
-统一封装两类下载能力：
+统一封装三类下载能力：
 
 - `douyin-downloader`：优先用于抖音，支持封面、音乐、JSON、评论等附加资源（已集成到 `.runtime/douyin-downloader`）。
+- `wx_channels_download`：用于微信视频号 `weixin.qq.com/sph/` 分享链接，通过本地 API 解析并下载，不操作微信客户端。
 - `yt-dlp`：用于 yt-dlp 支持的网站视频下载。
 
 ## 配置来源
@@ -58,7 +61,8 @@ python3 scripts/video_downloader.py doctor --json
 判断规则：
 
 - 抖音 URL：优先使用 `douyin` backend。
-- 非抖音 URL：优先使用 `yt-dlp` backend。
+- 微信视频号 SPH 分享 URL：使用 `wx-channels` backend。
+- 其他 URL：优先使用 `yt-dlp` backend。
 
 如果目标 backend 不可用：
 
@@ -93,6 +97,54 @@ python3 scripts/video_downloader.py download "https://v.douyin.com/xxxx/" --back
 
 ```bash
 python3 scripts/video_downloader.py download "https://example.com/video" --backend yt-dlp
+```
+
+### 微信视频号 SPH 分享链接
+
+首次使用先安装 skill 依赖及专用 Chromium：
+
+```bash
+uv sync --project scripts
+uv run --project scripts python scripts/video_downloader.py install-wx-channels-browser
+```
+
+确认本地 `wx_channels_download` API 已启动并下载：
+
+```bash
+uv run --project scripts python scripts/video_downloader.py doctor --json
+uv run --project scripts python scripts/video_downloader.py start-wx-channels
+uv run --project scripts python scripts/video_downloader.py download \
+  "https://weixin.qq.com/sph/xxxx" --backend wx-channels
+```
+
+此流程调用 `/api/channels/parse_sph`，不安装代理证书、不登录或控制微信客户端。认证缺失或失效时，下载命令自动打开 skill 专用 Chromium 并进入腾讯元宝；用户只完成登录、验证码或扫码，skill 随后自动执行：
+
+1. 仅读取 `hy_source`、`hy_user`、`hy_token`。
+2. 原子更新上游 `config.yaml` 中的 `cloudflare.sphCookie`。
+3. 将配置文件权限设为 `600`（POSIX）。
+4. 重启本地 API 并重试原下载一次。
+
+下载目录按视频号昵称分组：
+
+```text
+{default_output_dir}/{视频号名称}/{标题} [{sph_id}].mp4
+```
+
+这与 `douyin-downloader` 默认按作者昵称建立目录的规则一致，但视频号目录内不再增加 `post` 或单作品目录。旧版本已经直接保存在下载根目录的同名视频，会在再次处理时自动迁移到对应视频号目录。
+
+需要主动刷新时运行：
+
+```bash
+uv run --project scripts python scripts/video_downloader.py refresh-wx-channels-cookie
+```
+
+专用浏览器 profile 默认保存在 skill 的 `.runtime/` 中并持久化登录状态。不要把它指向日常 Chrome、Edge 等浏览器的 profile，不要展示或记录 Cookie，也不要回退到微信客户端代理模式。
+
+非交互任务必须把 `--non-interactive` 放在子命令前；认证缺失时直接失败，不打开浏览器：
+
+```bash
+uv run --project scripts python scripts/video_downloader.py --non-interactive \
+  download "https://weixin.qq.com/sph/xxxx" --backend wx-channels
 ```
 
 ### 自动选择 backend
@@ -190,6 +242,12 @@ yt_dlp_output_template = "%(title)s [%(id)s].%(ext)s"
 
 douyin_downloader_home = ""
 douyin_config_path = ""
+wx_channels_api_url = "http://127.0.0.1:2022"
+wx_channels_timeout_seconds = 30
+wx_channels_login_timeout_seconds = 300
+wx_channels_binary_path = ""
+wx_channels_config_path = ""
+wx_channels_browser_profile_dir = ""
 hot_board_output_dir = ""
 search_output_dir = ""
 ```
@@ -199,6 +257,12 @@ search_output_dir = ""
 - `yt_dlp_path`：显式指定 `yt-dlp` 可执行文件路径。
 - `douyin_downloader_home`：显式指定 `douyin-downloader` 仓库目录。为空时使用 skill 目录下的 `.runtime/douyin-downloader`。
 - `douyin_config_path`：显式指定 `douyin-downloader` 使用的原生 `config.yml` 路径。为空时使用 `.runtime/douyin-downloader/config.yml`。
+- `wx_channels_api_url`：`wx_channels_download` API 服务根地址，默认 `http://127.0.0.1:2022`；配置末尾的 `/api` 会自动清理。
+- `wx_channels_binary_path`：可选的 `wx_video_download` 可执行文件路径。为空时从 `PATH` 查找。
+- `wx_channels_config_path`：可选的上游 `config.yaml` 路径，只用于启动服务；为空时检查可执行文件同目录的 `config.yaml`。敏感 Cookie 保存在该文件中，不放入 `agent_config.toml`。
+- `wx_channels_timeout_seconds`：解析请求和媒体下载的超时时间。
+- `wx_channels_login_timeout_seconds`：等待用户完成腾讯元宝登录的最长时间，默认 300 秒。
+- `wx_channels_browser_profile_dir`：skill 专用浏览器 profile 路径；为空时使用 `.runtime/wx-channels-browser-profile`。
 - `hot_board_output_dir`：热搜榜输出目录。为空时使用 `default_output_dir/hot_board/`。
 - `search_output_dir`：搜索结果输出目录。为空时使用 `default_output_dir/search/`。
 

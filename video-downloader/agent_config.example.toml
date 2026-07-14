@@ -2,7 +2,7 @@
 # 若项目根目录没有该文件，则脚本会回退到 ~/.agents/agent_config.toml
 
 [video-downloader]
-# auto | douyin | yt-dlp
+# auto | douyin | wx-channels | yt-dlp
 default_backend = "auto"
 
 # 通用下载输出目录（主要给 yt-dlp 使用）
@@ -21,6 +21,21 @@ yt_dlp_output_template = "%(title)s [%(id)s].%(ext)s"
 # 留空时分别使用 .runtime/douyin-downloader 和其中的 config.yml。
 douyin_downloader_home = ""
 douyin_config_path = ""
+
+# 微信视频号 SPH 分享链接解析服务。
+# 填服务根地址即可；末尾的 /api 会被自动清理，避免产生 /api/api。
+wx_channels_api_url = "http://127.0.0.1:2022"
+wx_channels_timeout_seconds = 30
+wx_channels_login_timeout_seconds = 300
+
+# 可选：用于启动本地 wx_channels_download 服务。
+# Cookie 不放在本配置中，而是放在 wx_channels_download 自己的 config.yaml。
+wx_channels_binary_path = ""
+wx_channels_config_path = ""
+
+# 可选：skill 专用的元宝登录浏览器 profile。
+# 不要指向日常 Chrome、Edge 或其他浏览器的用户数据目录。
+wx_channels_browser_profile_dir = ""
 
 # 可选：热搜榜输出目录
 # 为空时使用 default_output_dir/hot_board/

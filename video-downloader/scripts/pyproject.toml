@@ -3,7 +3,10 @@ name = "video-downloader-skill"
 version = "0.1.0"
 description = "Helper CLI for the video-downloader skill"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "playwright>=1.55,<2",
+    "ruamel-yaml>=0.18,<0.19",
+]
 
 [project.scripts]
 video-downloader = "video_downloader:main"

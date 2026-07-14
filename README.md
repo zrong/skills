@@ -64,11 +64,12 @@ MCP 服务器自动部署工具。
 
 ### video-downloader
 
-统一视频下载工具，整合 `douyin-downloader` 与 `yt-dlp` 两种 backend。
+统一视频下载工具，整合 `douyin-downloader`、`wx_channels_download` 与 `yt-dlp` 三种 backend。
 
-- 当用户发来视频链接并要求下载，或提到 `yt-dlp` / `douyin-downloader` / 抖音短链时自动激活
-- 支持抖音视频下载，以及 yt-dlp 支持的网站视频下载
+- 当用户发来视频链接并要求下载，或提到 `yt-dlp` / `douyin-downloader` / 微信视频号 / 抖音短链时自动激活
+- 支持抖音、微信视频号 SPH 分享链接，以及 yt-dlp 支持的网站视频下载
 - 支持抖音热搜榜、搜索作品、刷新 Cookie
+- 视频号认证失效时使用专用浏览器自动刷新腾讯元宝 Cookie，下载结果按视频号昵称归档
 - `douyin-downloader` 已集成到 `.runtime/douyin-downloader`，无需外部安装
 
 ### video-analyzer
@@ -146,6 +147,7 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 ## 更新记录
 
 ### 2026-07-14
+- 升级 video-downloader skill：新增微信视频号 SPH 分享链接下载，通过本地 `wx_channels_download` API 解析；认证缺失或过期时使用专用 Playwright 浏览器自动刷新腾讯元宝 Cookie、重启服务并重试，下载文件按视频号昵称建立目录，兼容迁移旧根目录文件
 - 拆分下载与上传职责：immich 移除 `upload-url`、`yt-dlp` 和未使用的 `aiohttp` 依赖，只处理本地资源；网络下载统一由 video-downloader 完成并通过本地文件路径衔接
 - 升级 immich skill：为默认公开相册增加 `public_album_url` 配置，资源成功加入相册后返回并显示可匿名访问的资源链接；覆盖本地、批量和重复资源上传场景
 
