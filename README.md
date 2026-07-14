@@ -145,6 +145,9 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 
 ## 更新记录
 
+### 2026-07-14
+- 升级 immich skill：为默认公开相册增加 `public_album_url` 配置，资源成功加入相册后返回并显示可匿名访问的资源链接；覆盖本地、远程 URL、批量和重复资源上传场景
+
 ### 2026-07-12
 - 修复 immich skill：配置查找新增 `~/.agents/agent_config.toml` 最终兜底；统一约定 `base_url` 不含 `/api` 并由客户端自动追加，兼容旧配置且避免生成 `/api/api/assets`
 - 修复 video-downloader 的 `douyin_downloader_home` 配置，使检测、安装和运行统一使用该目录；路径支持 `~`、环境变量及相对 skill 目录的写法，并移除代码和说明中的机器相关绝对路径

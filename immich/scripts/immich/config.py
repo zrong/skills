@@ -75,3 +75,9 @@ def get_default_album(config: dict | None = None) -> str | None:
     """Get default album name from config."""
     immich_cfg = get_immich_config(config)
     return immich_cfg.get("default_album") or None
+
+
+def get_public_album_url(config: dict | None = None) -> str | None:
+    """Get the public share URL associated with the default album."""
+    immich_cfg = get_immich_config(config)
+    return immich_cfg.get("public_album_url", "").rstrip("/") or None

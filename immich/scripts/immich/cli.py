@@ -10,6 +10,12 @@ from immich.client import ImmichClient
 from immich.uploader import ImmichUploader
 
 
+def print_public_url(result: dict) -> None:
+    """Print a public asset URL when the uploader returned one."""
+    if public_url := result.get("public_url"):
+        print(f"Public URL: {public_url}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Upload to Immich")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -85,9 +91,11 @@ async def upload_files(paths: list[Path], album_name: str | None):
                     print(f"FAIL {path}: {result}")
                 else:
                     print(f"OK   {path}: {result.get('id')}")
+                    print_public_url(result)
         else:
             result = await uploader.upload_file(paths[0], album_name)
             print(f"Uploaded: {result.get('id')}")
+            print_public_url(result)
 
 
 async def upload_single_url(url: str, album_name: str | None):
@@ -100,6 +108,7 @@ async def upload_single_url(url: str, album_name: str | None):
         print(f"Downloading {url} via yt-dlp...")
         result = await uploader.upload_url(url, album_name)
         print(f"Uploaded: {result.get('id')}")
+        print_public_url(result)
 
 
 async def batch_upload_files(directory: Path, extensions: list[str], album_name: str | None, no_delete: bool, recursive: bool):
@@ -147,6 +156,7 @@ async def batch_upload_files(directory: Path, extensions: list[str], album_name:
             else:
                 success.append((path, result))
                 print(f"OK: {path.name} -> {result.get('id')}")
+                print_public_url(result)
 
         print(f"\nSummary: {len(success)} succeeded, {len(failed)} failed")
 

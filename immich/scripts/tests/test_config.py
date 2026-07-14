@@ -49,6 +49,15 @@ class ConfigLookupTests(unittest.TestCase):
             "https://immich.example",
         )
 
+    def test_public_album_url_removes_trailing_slash(self):
+        self.assertEqual(
+            config.get_public_album_url(
+                {"immich": {"public_album_url": "https://immich.example/s/public/"}}
+            ),
+            "https://immich.example/s/public",
+        )
+        self.assertIsNone(config.get_public_album_url({"immich": {}}))
+
 
 if __name__ == "__main__":
     unittest.main()

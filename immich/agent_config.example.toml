@@ -11,3 +11,7 @@ api_key = "your-api-key-here"
 # 默认上传的 Album 名称（可选）
 # 如果不设置，上传时需要通过 --album 参数指定
 default_album = "My Photos"
+
+# 默认相册的公开分享地址（可选）
+# 上传并成功加入 default_album 后，返回 {public_album_url}/photos/{asset_id}
+public_album_url = "https://your-immich-server.com/s/shared-album-key"

@@ -7,13 +7,23 @@ from pathlib import Path
 import yt_dlp
 
 from immich.client import ImmichClient
+from immich.config import get_default_album, get_public_album_url
 
 
 class ImmichUploader:
     """High-level uploader with yt-dlp support for remote URLs."""
 
-    def __init__(self, client: ImmichClient):
+    def __init__(
+        self,
+        client: ImmichClient,
+        default_album: str | None = None,
+        public_album_url: str | None = None,
+    ):
         self.client = client
+        self.default_album = default_album or get_default_album()
+        self.public_album_url = (
+            public_album_url or get_public_album_url() or ""
+        ).rstrip("/")
 
     async def upload_file(
         self,
@@ -28,6 +38,10 @@ class ImmichUploader:
             asset_id = result.get("id")
             if asset_id:
                 await self.client.add_assets_to_album(album["id"], [asset_id])
+                if album_name == self.default_album and self.public_album_url:
+                    result["public_url"] = (
+                        f"{self.public_album_url}/photos/{asset_id}"
+                    )
 
         return result
 

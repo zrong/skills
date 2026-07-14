@@ -1,6 +1,6 @@
 ---
 name: immich
-version: 26.28.34
+version: 26.29.35
 description: 将图像和视频上传到 Immich 服务器。支持本地文件上传、远程URL下载上传、管理Album。当用户提到"上传到 Immich"、"上传图片"、"备份照片"、"上传视频"、"下载视频并上传"时使用此技能。
 argument-hint: "[file-path 或 url] [--album album-name]"
 allowed-tools: Bash(uv run *), Read, Glob, Edit
@@ -28,6 +28,7 @@ allowed-tools: Bash(uv run *), Read, Glob, Edit
 base_url = "https://your-immich-server.com"
 api_key = "your-api-key"
 default_album = "My Photos"  # 可选
+public_album_url = "https://your-immich-server.com/s/shared-album-key"  # 可选
 ```
 
 ### 2. 上传本地文件
@@ -75,6 +76,9 @@ curl -s -X PUT "${BASE_URL}/api/albums/${ALBUM_ID}/assets" \
   -H "x-api-key: ${API_KEY}" \
   -H "Content-Type: application/json" \
   -d "{\"ids\": [\"ASSET_ID\"]}"
+
+# 成功加入公开相册后，向用户展示资源链接
+echo "Public URL: ${PUBLIC_ALBUM_URL%/}/photos/${ASSET_ID}"
 ```
 
 ### 3. 下载远程视频并上传
@@ -141,6 +145,7 @@ cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import
 | `base_url` | 是 | Immich 服务器地址，不要包含 `/api` 后缀；客户端会自动添加 |
 | `api_key` | 是 | Immich API 密钥 |
 | `default_album` | 否 | 默认上传的 Album 名称 |
+| `public_album_url` | 否 | 默认相册的公开分享地址；成功加入该相册后生成资源公开链接 |
 
 ## 已知陷阱
 
@@ -179,6 +184,11 @@ cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import
    `client.py::upload_asset` 已把这种情况标准化成
    `{"status":"duplicate","id":"<uuid>"}` 返回值，不抛异常。
 
+7. **公开链接只属于默认相册。** 配置 `public_album_url` 后，资源成功加入
+   `default_album` 才会返回 `public_url`，格式为
+   `{public_album_url}/photos/{asset_id}`。上传到其他相册或加入相册失败时
+   不应展示公开链接；`duplicate` 资源成功加入默认相册后仍应展示。
+
 ## Python API
 
 ```python
@@ -194,7 +204,8 @@ async with ImmichClient() as client:
     uploader = ImmichUploader(client)
 
     # 上传本地文件
-    await uploader.upload_file(Path("photo.jpg"), album_name="My Album")
+    result = await uploader.upload_file(Path("photo.jpg"), album_name="My Photos")
+    print(result.get("public_url"))
 
     # 上传多个文件（并行）
     await uploader.upload_files([Path("a.jpg"), Path("b.png")], album_name="Photos")
