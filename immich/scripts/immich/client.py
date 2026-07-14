@@ -2,7 +2,7 @@
 
 import httpx
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 
@@ -85,13 +85,20 @@ class ImmichClient:
         filename: str | None = None,
         mime_type: str | None = None,
     ) -> dict:
-        """Upload an asset (image/video) to Immich."""
+        """Upload an asset (image/video) to Immich.
+
+        Returns the full server response, which is one of:
+        - {"status": "created", "id": "<uuid>"} — new asset uploaded
+        - {"status": "duplicate", "id": "<uuid>"} — same checksum already exists
+        - {"status": "replaced", ...} — replaced an existing asset (requires header)
+
+        NOTE: Immich's API does NOT accept ``originalFileName`` updates through
+        the ``PATCH /api/assets/{id}`` endpoint (verified against
+        ``UpdateAssetDto`` in server source — that DTO has no such field).
+        To rename an asset you must delete and re-upload it.
+        """
         if isinstance(file, Path):
             filename = filename or file.name
-            # Sanitize filename for Immich API (non-ASCII causes 400 errors)
-            import re
-            safe_name = re.sub(r'[^\x00-\x7F]', '_', filename)
-            filename = safe_name
             mime_type = mime_type or _guess_mime(file)
             stat = file.stat()
             file_size = stat.st_size
@@ -104,9 +111,20 @@ class ImmichClient:
 
         device_id = "immich-skill"
         device_asset_id = str(uuid.uuid4())
-        file_created_at = datetime.fromtimestamp(mtime).isoformat()
-        file_modified_at = datetime.fromtimestamp(mtime).isoformat()
+        # ISO 8601 in UTC with explicit "Z" suffix. Immich's DTO requires
+        # the timezone — a naive ``datetime.isoformat()`` (no offset)
+        # produces HTTP 400 ``Validation failed`` on the fileCreatedAt
+        # and fileModifiedAt fields.
+        file_created_at = (
+            datetime.fromtimestamp(mtime, tz=timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+        file_modified_at = file_created_at
 
+        # Immich supports non-ASCII (Chinese, etc.) filenames in the
+        # multipart ``filename`` field — they round-trip correctly in
+        # both the upload response and the GET response. No sanitization.
         files = {
             "assetData": (filename, file, mime_type or "application/octet-stream"),
             "deviceAssetId": (None, device_asset_id),
@@ -115,6 +133,26 @@ class ImmichClient:
             "fileModifiedAt": (None, file_modified_at),
         }
         resp = await self._client.post(self._url("/assets"), files=files)
+        resp.raise_for_status()
+        result = resp.json()
+        # Server returns 200 with status="duplicate" or "replaced" for
+        # known checksums; treat as a normal success.
+        if "status" not in result and "id" in result:
+            result["status"] = "created"
+        return result
+
+    async def update_asset_description(self, asset_id: str, description: str) -> dict:
+        """Update an asset's description via PATCH.
+
+        Note: ``originalFileName`` is NOT supported here (see
+        ``upload_asset`` docstring). The description is stored in
+        ``asset_exif.description`` and is visible in the Immich web UI
+        asset detail panel.
+        """
+        resp = await self._client.patch(
+            self._url(f"/assets/{asset_id}"),
+            json={"description": description},
+        )
         resp.raise_for_status()
         return resp.json()
 

@@ -35,6 +35,11 @@ def main():
     # init command
     sub.add_parser("init", help="Initialize and test config")
 
+    # update-description command: patch asset_exif.description on an existing asset
+    upd = sub.add_parser("update-description", help="Patch an asset's description (visible in Immich web UI)")
+    upd.add_argument("asset_id", help="Immich asset UUID")
+    upd.add_argument("description", help="New description text")
+
     args = parser.parse_args()
 
     if args.cmd == "init":
@@ -45,6 +50,8 @@ def main():
         asyncio.run(upload_single_url(args.url, args.album))
     elif args.cmd == "batch-upload":
         asyncio.run(batch_upload_files(args.path, args.extensions, args.album, args.no_delete, args.recursive))
+    elif args.cmd == "update-description":
+        asyncio.run(update_description(args.asset_id, args.description))
 
 
 def init_and_test():
@@ -150,6 +157,14 @@ async def batch_upload_files(directory: Path, extensions: list[str], album_name:
                 path.unlink()
                 print(f"Deleted: {path.name}")
             print(f"Deleted {len(success)} files.")
+
+
+async def update_description(asset_id: str, description: str):
+    """Patch an asset's description via PATCH /api/assets/{id}."""
+    load_config()
+    async with ImmichClient() as client:
+        result = await client.update_asset_description(asset_id, description)
+        print(f"Updated description for {asset_id}: {result.get('id', 'OK')}")
 
 
 if __name__ == "__main__":
