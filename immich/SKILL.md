@@ -51,8 +51,8 @@ console_scripts 入口点。使用上面的 python -c 调用方式。
 
 ### 2a. fallback：用 curl 直接上传
 
-如果 Python 脚本上传失败（如遇到中文文件名的 400 错误），可以用 curl
-作为 fallback，之后再调用 API 加入相册：
+如果 Python 脚本上传失败（如遇到时区缺失的 400 错误，见陷阱 #2），
+可以用 curl 作为 fallback，之后再调用 API 加入相册：
 
 ```bash
 curl -s -X POST "${BASE_URL}/api/assets" \
@@ -129,6 +129,10 @@ cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import
 
 - ghcr.io 镜像加速 & Immich v3 数据库迁移（pgvecto-rs → VectorChord）：
   `references/ghcr-mirroring-and-immich-migration.md`
+- Immich API 已验证的坑（`originalFileName` 不可改、时区必带、中文
+  文件名实际支持、`duplicate`/`replaced` 状态码、`description` 存在
+  `asset_exif` 而非 `asset`，以及一个通用的 4xx 排障脚本）：
+  `references/api-pitfalls-and-debugging.md`
 
 ## 配置说明
 
