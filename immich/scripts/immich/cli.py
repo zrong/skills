@@ -25,11 +25,6 @@ def main():
     up.add_argument("files", nargs="+", type=Path, help="File paths to upload")
     up.add_argument("--album", "-a", help="Album name")
 
-    # upload-url command
-    url = sub.add_parser("upload-url", help="Download and upload from URL")
-    url.add_argument("url", help="Remote URL to download and upload")
-    url.add_argument("--album", "-a", help="Album name")
-
     # batch-upload command
     batch = sub.add_parser("batch-upload", help="Batch upload files from a directory")
     batch.add_argument("path", nargs="?", type=Path, default=Path.home() / "Downloads", help="Directory to upload from (default: ~/Downloads)")
@@ -52,8 +47,6 @@ def main():
         init_and_test()
     elif args.cmd == "upload":
         asyncio.run(upload_files(args.files, args.album))
-    elif args.cmd == "upload-url":
-        asyncio.run(upload_single_url(args.url, args.album))
     elif args.cmd == "batch-upload":
         asyncio.run(batch_upload_files(args.path, args.extensions, args.album, args.no_delete, args.recursive))
     elif args.cmd == "update-description":
@@ -96,19 +89,6 @@ async def upload_files(paths: list[Path], album_name: str | None):
             result = await uploader.upload_file(paths[0], album_name)
             print(f"Uploaded: {result.get('id')}")
             print_public_url(result)
-
-
-async def upload_single_url(url: str, album_name: str | None):
-    """Download URL and upload to Immich."""
-    load_config()
-    album_name = album_name or get_default_album()
-
-    async with ImmichClient() as client:
-        uploader = ImmichUploader(client)
-        print(f"Downloading {url} via yt-dlp...")
-        result = await uploader.upload_url(url, album_name)
-        print(f"Uploaded: {result.get('id')}")
-        print_public_url(result)
 
 
 async def batch_upload_files(directory: Path, extensions: list[str], album_name: str | None, no_delete: bool, recursive: bool):

@@ -1,8 +1,8 @@
 ---
 name: immich
-version: 26.29.35
-description: 将图像和视频上传到 Immich 服务器。支持本地文件上传、远程URL下载上传、管理Album。当用户提到"上传到 Immich"、"上传图片"、"备份照片"、"上传视频"、"下载视频并上传"时使用此技能。
-argument-hint: "[file-path 或 url] [--album album-name]"
+version: 26.29.36
+description: 将本地图像和视频上传到 Immich 服务器，支持批量上传、管理 Album 和公开链接。网络资源下载由 video-downloader 负责；当用户提到"上传到 Immich"、"上传图片"、"备份照片"、"上传视频"、"下载视频并上传 Immich"时使用此技能。
+argument-hint: "[file-path] [--album album-name]"
 allowed-tools: Bash(uv run *), Read, Glob, Edit
 ---
 
@@ -81,14 +81,17 @@ curl -s -X PUT "${BASE_URL}/api/albums/${ALBUM_ID}/assets" \
 echo "Public URL: ${PUBLIC_ALBUM_URL%/}/photos/${ASSET_ID}"
 ```
 
-### 3. 下载远程视频并上传
+### 3. 网络资源下载后上传
 
-使用 `yt-dlp` 下载支持网站（YouTube、Twitter、Instagram、Bilibili 等）的视频：
+本 skill 不下载网络资源。用户提供视频 URL 并要求上传 Immich 时，按以下顺序组合两个 skill：
 
-```bash
-uv run immich upload-url "https://youtube.com/watch?v=xxx" --album "YouTube"
-uv run immich upload-url "https://twitter.com/user/status/xxx" --album "Twitter"
-```
+1. 使用 `video-downloader` 检查 backend 并完成下载。
+2. 从下载结果中取得准确的本地媒体文件路径。
+3. 将该路径传给本 skill 的 `upload` 命令。
+4. 上传到默认公开相册后，将 `public_url` 返回给用户。
+
+下载文件默认保留。只有用户明确要求清理时，才在确认 Immich 上传成功后删除。
+用户直接提供本地文件或附件时，跳过 `video-downloader`，直接上传。
 
 ### 4. 批量上传
 
@@ -210,6 +213,4 @@ async with ImmichClient() as client:
     # 上传多个文件（并行）
     await uploader.upload_files([Path("a.jpg"), Path("b.png")], album_name="Photos")
 
-    # 下载 URL 并上传
-    await uploader.upload_url("https://example.com/video.mp4", album_name="Downloads")
 ```

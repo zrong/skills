@@ -7,6 +7,9 @@ from immich.uploader import ImmichUploader
 
 
 class PublicUrlTests(unittest.TestCase):
+    def test_remote_url_upload_api_is_removed(self):
+        self.assertFalse(hasattr(ImmichUploader, "upload_url"))
+
     def _uploader(self, upload_result: dict):
         client = MagicMock()
         client.upload_asset = AsyncMock(return_value=dict(upload_result))

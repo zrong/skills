@@ -1,17 +1,14 @@
-"""Uploader for immich with remote URL download support via yt-dlp."""
+"""High-level uploader for local files."""
 
 import asyncio
-import tempfile
 from pathlib import Path
-
-import yt_dlp
 
 from immich.client import ImmichClient
 from immich.config import get_default_album, get_public_album_url
 
 
 class ImmichUploader:
-    """High-level uploader with yt-dlp support for remote URLs."""
+    """High-level uploader for local files and album assignment."""
 
     def __init__(
         self,
@@ -53,36 +50,3 @@ class ImmichUploader:
         """Upload multiple files in parallel."""
         tasks = [self.upload_file(p, album_name) for p in paths]
         return await asyncio.gather(*tasks, return_exceptions=True)
-
-    async def upload_url(
-        self,
-        url: str,
-        album_name: str | None = None,
-    ) -> dict:
-        """Download a remote video/image and upload to Immich."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmppath = Path(tmpdir)
-
-            # Download using yt-dlp
-            ydl_opts = {
-                "format": "best",
-                "outtmpl": str(tmppath / "%(title)s.%(ext)s"),
-                "quiet": True,
-                "no_warnings": True,
-            }
-
-            loop = asyncio.get_event_loop()
-            info = await loop.run_in_executor(None, self._download_yt_dlp, url, ydl_opts)
-
-            # Find downloaded file
-            files = list(tmppath.glob("*"))
-            if not files:
-                raise RuntimeError(f"yt-dlp failed to download: {url}")
-
-            downloaded = files[0]
-            return await self.upload_file(downloaded, album_name)
-
-    def _download_yt_dlp(self, url: str, opts: dict):
-        """Run yt-dlp download in executor."""
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            return ydl.extract_info(url, download=True)

@@ -102,8 +102,8 @@ AI 图片生成工具，通过 OpenAI/Gemini 兼容 API 生成图片。
 
 将图像和视频上传到 Immich 服务器。
 
-- 当用户说"上传到 Immich"、"上传图片"、"备份照片"、"上传视频"、"下载视频并上传"时自动激活
-- 支持本地文件上传、远程 URL 下载上传（yt-dlp）
+- 当用户说"上传到 Immich"、"上传图片"、"备份照片"、"上传视频"、"下载视频并上传 Immich"时自动激活
+- 只负责本地文件上传；网络资源先由 video-downloader 下载，再将本地路径交给 immich
 - 支持批量上传、Album 管理
 - 提供 Python SDK 和 CLI 工具
 
@@ -146,7 +146,8 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 ## 更新记录
 
 ### 2026-07-14
-- 升级 immich skill：为默认公开相册增加 `public_album_url` 配置，资源成功加入相册后返回并显示可匿名访问的资源链接；覆盖本地、远程 URL、批量和重复资源上传场景
+- 拆分下载与上传职责：immich 移除 `upload-url`、`yt-dlp` 和未使用的 `aiohttp` 依赖，只处理本地资源；网络下载统一由 video-downloader 完成并通过本地文件路径衔接
+- 升级 immich skill：为默认公开相册增加 `public_album_url` 配置，资源成功加入相册后返回并显示可匿名访问的资源链接；覆盖本地、批量和重复资源上传场景
 
 ### 2026-07-12
 - 修复 immich skill：配置查找新增 `~/.agents/agent_config.toml` 最终兜底；统一约定 `base_url` 不含 `/api` 并由客户端自动追加，兼容旧配置且避免生成 `/api/api/assets`
