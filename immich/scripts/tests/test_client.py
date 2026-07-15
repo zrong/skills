@@ -1,5 +1,8 @@
 import asyncio
+import tempfile
 import unittest
+from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch as mock_patch
 
 from immich.client import ImmichClient
@@ -63,6 +66,25 @@ class UploadAssetStatusTests(unittest.TestCase):
 
         result = self._run(client.upload_asset(MagicMock(name="file", spec=[])))
         self.assertEqual(result["status"], "replaced")
+
+    def test_explicit_file_timestamp_is_sent_in_utc(self):
+        client = self._make_client()
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"status": "created", "id": "abc-123"}
+        mock_resp.raise_for_status = MagicMock()
+        client._client = MagicMock()
+        client._client.post = AsyncMock(return_value=mock_resp)
+        timestamp = datetime(2026, 7, 15, 8, 30, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "中文标题.mp4"
+            path.write_bytes(b"video")
+            self._run(client.upload_asset(path, file_timestamp=timestamp))
+
+        files = client._client.post.await_args.kwargs["files"]
+        self.assertEqual(files["assetData"][0], "中文标题.mp4")
+        self.assertEqual(files["fileCreatedAt"][1], "2026-07-15T08:30:00Z")
+        self.assertEqual(files["fileModifiedAt"][1], "2026-07-15T08:30:00Z")
 
 
 if __name__ == "__main__":

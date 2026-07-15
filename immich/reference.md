@@ -24,6 +24,7 @@ x-api-key: your-api-key
 |------|----------|------|
 | 上传资源 | `/api/assets` | POST |
 | 获取资源 | `/api/assets/{id}` | GET |
+| 更新资源时间或描述 | `/api/assets/{id}` | PATCH |
 
 ### Albums
 
@@ -42,7 +43,11 @@ x-api-key: your-api-key
 POST /api/assets
 Content-Type: multipart/form-data
 
-file: <binary data>
+assetData: <binary data>
+deviceAssetId: <unique client id>
+deviceId: <client name>
+fileCreatedAt: <ISO 8601 timestamp with timezone>
+fileModifiedAt: <ISO 8601 timestamp with timezone>
 ```
 
 响应：
@@ -50,6 +55,16 @@ file: <binary data>
 {
   "id": "asset-uuid",
   "status": "created"
+}
+```
+
+Immich 会异步提取媒体内嵌时间。需要按上传时间排列时，等待资源返回
+`hasMetadata=true`，再 PATCH `dateTimeOriginal`；skill 默认自动执行：
+
+```json
+{
+  "dateTimeOriginal": "2026-07-15T08:30:00Z",
+  "description": "原标题 #话题"
 }
 ```
 

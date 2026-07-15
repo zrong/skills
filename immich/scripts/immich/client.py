@@ -1,5 +1,6 @@
 """Immich API client."""
 
+import asyncio
 import httpx
 import uuid
 from datetime import datetime, timezone
@@ -84,6 +85,7 @@ class ImmichClient:
         file: Path | BinaryIO,
         filename: str | None = None,
         mime_type: str | None = None,
+        file_timestamp: datetime | None = None,
     ) -> dict:
         """Upload an asset (image/video) to Immich.
 
@@ -97,17 +99,17 @@ class ImmichClient:
         ``UpdateAssetDto`` in server source — that DTO has no such field).
         To rename an asset you must delete and re-upload it.
         """
+        opened_file: BinaryIO | None = None
         if isinstance(file, Path):
             filename = filename or file.name
             mime_type = mime_type or _guess_mime(file)
             stat = file.stat()
-            file_size = stat.st_size
             mtime = stat.st_mtime
-            file = file.open("rb")
+            opened_file = file.open("rb")
+            file = opened_file
         else:
             # BinaryIO doesn't have stat info, use current time
-            mtime = datetime.now().timestamp()
-            file_size = 0
+            mtime = datetime.now(tz=timezone.utc).timestamp()
 
         device_id = "immich-skill"
         device_asset_id = str(uuid.uuid4())
@@ -115,11 +117,8 @@ class ImmichClient:
         # the timezone — a naive ``datetime.isoformat()`` (no offset)
         # produces HTTP 400 ``Validation failed`` on the fileCreatedAt
         # and fileModifiedAt fields.
-        file_created_at = (
-            datetime.fromtimestamp(mtime, tz=timezone.utc)
-            .isoformat()
-            .replace("+00:00", "Z")
-        )
+        timestamp = file_timestamp or datetime.fromtimestamp(mtime, tz=timezone.utc)
+        file_created_at = _format_datetime(timestamp)
         file_modified_at = file_created_at
 
         # Immich supports non-ASCII (Chinese, etc.) filenames in the
@@ -132,7 +131,11 @@ class ImmichClient:
             "fileCreatedAt": (None, file_created_at),
             "fileModifiedAt": (None, file_modified_at),
         }
-        resp = await self._client.post(self._url("/assets"), files=files)
+        try:
+            resp = await self._client.post(self._url("/assets"), files=files)
+        finally:
+            if opened_file:
+                opened_file.close()
         resp.raise_for_status()
         result = resp.json()
         # Server returns 200 with status="duplicate" or "replaced" for
@@ -140,6 +143,53 @@ class ImmichClient:
         if "status" not in result and "id" in result:
             result["status"] = "created"
         return result
+
+    async def get_asset(self, asset_id: str) -> dict:
+        """Get an asset by ID."""
+        resp = await self._client.get(self._url(f"/assets/{asset_id}"))
+        resp.raise_for_status()
+        return resp.json()
+
+    async def wait_for_asset_metadata(
+        self,
+        asset_id: str,
+        timeout_seconds: float = 60.0,
+        poll_interval: float = 0.5,
+    ) -> dict:
+        """Wait until Immich finishes extracting metadata for an asset."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
+        while True:
+            asset = await self.get_asset(asset_id)
+            if asset.get("hasMetadata"):
+                return asset
+            if loop.time() >= deadline:
+                raise TimeoutError(
+                    f"Immich metadata extraction timed out for asset {asset_id}"
+                )
+            await asyncio.sleep(poll_interval)
+
+    async def update_asset(
+        self,
+        asset_id: str,
+        *,
+        date_time_original: str | None = None,
+        description: str | None = None,
+    ) -> dict:
+        """Update supported asset metadata fields."""
+        payload = {}
+        if date_time_original is not None:
+            payload["dateTimeOriginal"] = date_time_original
+        if description is not None:
+            payload["description"] = description
+        if not payload:
+            raise ValueError("At least one asset field must be provided")
+        resp = await self._client.patch(
+            self._url(f"/assets/{asset_id}"),
+            json=payload,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     async def update_asset_description(self, asset_id: str, description: str) -> dict:
         """Update an asset's description via PATCH.
@@ -149,12 +199,7 @@ class ImmichClient:
         ``asset_exif.description`` and is visible in the Immich web UI
         asset detail panel.
         """
-        resp = await self._client.patch(
-            self._url(f"/assets/{asset_id}"),
-            json={"description": description},
-        )
-        resp.raise_for_status()
-        return resp.json()
+        return await self.update_asset(asset_id, description=description)
 
     async def add_assets_to_album(self, album_id: str, asset_ids: list[str]) -> dict:
         """Add assets to an album."""
@@ -191,3 +236,10 @@ def _guess_mime(path: Path) -> str:
         ".ts": "video/mp2t",
     }
     return mime_map.get(ext, "application/octet-stream")
+
+
+def _format_datetime(value: datetime) -> str:
+    """Format a datetime as an explicit UTC ISO 8601 timestamp."""
+    if value.tzinfo is None:
+        raise ValueError("file_timestamp must include timezone information")
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")

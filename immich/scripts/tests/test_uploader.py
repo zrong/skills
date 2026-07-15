@@ -13,12 +13,15 @@ class PublicUrlTests(unittest.TestCase):
     def _uploader(self, upload_result: dict):
         client = MagicMock()
         client.upload_asset = AsyncMock(return_value=dict(upload_result))
+        client.wait_for_asset_metadata = AsyncMock(return_value={"hasMetadata": True})
+        client.update_asset = AsyncMock(return_value={})
         client.get_or_create_album = AsyncMock(return_value={"id": "album-id"})
         client.add_assets_to_album = AsyncMock(return_value={})
         uploader = ImmichUploader(
             client,
             default_album="Inspiration",
             public_album_url="http://nas.example/s/inspiration/",
+            asset_time_source="source",
         )
         return uploader, client
 
@@ -56,6 +59,62 @@ class PublicUrlTests(unittest.TestCase):
         client.add_assets_to_album.side_effect = RuntimeError("album add failed")
         with self.assertRaisesRegex(RuntimeError, "album add failed"):
             asyncio.run(uploader.upload_file(Path("asset.jpg"), "Inspiration"))
+
+
+class AssetMetadataTests(unittest.TestCase):
+    def _client(self):
+        client = MagicMock()
+        client.upload_asset = AsyncMock(
+            return_value={"status": "created", "id": "asset-uuid"}
+        )
+        client.wait_for_asset_metadata = AsyncMock(
+            return_value={"hasMetadata": True}
+        )
+        client.update_asset = AsyncMock(return_value={})
+        return client
+
+    def test_upload_time_is_reapplied_after_metadata_extraction(self):
+        client = self._client()
+        uploader = ImmichUploader(client, asset_time_source="upload")
+
+        asyncio.run(uploader.upload_file(Path("asset.mp4")))
+
+        upload_time = client.upload_asset.await_args.kwargs["file_timestamp"]
+        self.assertIsNotNone(upload_time.tzinfo)
+        client.wait_for_asset_metadata.assert_awaited_once_with("asset-uuid")
+        client.update_asset.assert_awaited_once_with(
+            "asset-uuid",
+            date_time_original=upload_time.isoformat(),
+            description=None,
+        )
+
+    def test_source_time_does_not_override_extracted_metadata(self):
+        client = self._client()
+        uploader = ImmichUploader(client, asset_time_source="source")
+
+        asyncio.run(uploader.upload_file(Path("asset.mp4")))
+
+        client.upload_asset.assert_awaited_once_with(
+            Path("asset.mp4"), file_timestamp=None
+        )
+        client.wait_for_asset_metadata.assert_not_awaited()
+        client.update_asset.assert_not_awaited()
+
+    def test_description_is_preserved_after_metadata_extraction(self):
+        client = self._client()
+        uploader = ImmichUploader(client, asset_time_source="source")
+        description = "疯狂的西瓜（2）#高能 #鬼畜"
+
+        asyncio.run(
+            uploader.upload_file(Path("asset.mp4"), description=description)
+        )
+
+        client.wait_for_asset_metadata.assert_awaited_once_with("asset-uuid")
+        client.update_asset.assert_awaited_once_with(
+            "asset-uuid",
+            date_time_original=None,
+            description=description,
+        )
 
 
 if __name__ == "__main__":

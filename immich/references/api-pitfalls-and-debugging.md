@@ -71,6 +71,13 @@ datetime.fromtimestamp(mtime).isoformat()
 `/api/assets`, parse `errors[].path[]` to find which field failed.
 Don't trust the top-level `message`.
 
+For videos, valid upload fields are not enough to control the final timeline
+date. Immich's asynchronous metadata extraction can read an embedded MP4
+`creation_time` and replace `fileCreatedAt`. When upload time is required, wait
+until `GET /api/assets/{id}` reports `hasMetadata=true`, then PATCH the asset's
+`dateTimeOriginal` with the timezone-aware upload timestamp. The skill's
+default `asset_time_source = "upload"` policy performs this sequence.
+
 ## 3. Non-ASCII filenames work — the earlier "400 on Chinese
 filename" diagnosis was wrong
 
@@ -120,7 +127,7 @@ docker logs immich_server --tail 200 | grep -iE "validation|invalid|reject" | ta
 
 # 2. The NestJS API doesn't always log validation errors.
 #    Reproduce with curl and read the response body:
-curl -sS -X POST "http://nas.zengrong.net:2283/api/assets" \
+curl -sS -X POST "${BASE_URL}/api/assets" \
   -H "x-api-key: $KEY" \
   -F "assetData=@/path/to/file.mp4" \
   -F "deviceAssetId=hermes-$(date +%s)" \

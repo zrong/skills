@@ -24,6 +24,12 @@ def main():
     up = sub.add_parser("upload", help="Upload local files")
     up.add_argument("files", nargs="+", type=Path, help="File paths to upload")
     up.add_argument("--album", "-a", help="Album name")
+    up.add_argument("--description", help="Description for a single uploaded file")
+    up.add_argument(
+        "--asset-time",
+        choices=("upload", "source"),
+        help="Override the configured asset timestamp policy",
+    )
 
     # batch-upload command
     batch = sub.add_parser("batch-upload", help="Batch upload files from a directory")
@@ -32,6 +38,11 @@ def main():
     batch.add_argument("--album", "-a", help="Album name")
     batch.add_argument("--no-delete", action="store_true", help="Do not delete local files after upload")
     batch.add_argument("--recursive", "-r", action="store_true", help="Recursively find files")
+    batch.add_argument(
+        "--asset-time",
+        choices=("upload", "source"),
+        help="Override the configured asset timestamp policy",
+    )
 
     # init command
     sub.add_parser("init", help="Initialize and test config")
@@ -46,9 +57,27 @@ def main():
     if args.cmd == "init":
         init_and_test()
     elif args.cmd == "upload":
-        asyncio.run(upload_files(args.files, args.album))
+        if args.description is not None and len(args.files) != 1:
+            parser.error("--description requires exactly one file")
+        asyncio.run(
+            upload_files(
+                args.files,
+                args.album,
+                args.description,
+                args.asset_time,
+            )
+        )
     elif args.cmd == "batch-upload":
-        asyncio.run(batch_upload_files(args.path, args.extensions, args.album, args.no_delete, args.recursive))
+        asyncio.run(
+            batch_upload_files(
+                args.path,
+                args.extensions,
+                args.album,
+                args.no_delete,
+                args.recursive,
+                args.asset_time,
+            )
+        )
     elif args.cmd == "update-description":
         asyncio.run(update_description(args.asset_id, args.description))
 
@@ -68,13 +97,20 @@ def init_and_test():
         sys.exit(1)
 
 
-async def upload_files(paths: list[Path], album_name: str | None):
+async def upload_files(
+    paths: list[Path],
+    album_name: str | None,
+    description: str | None = None,
+    asset_time_source: str | None = None,
+):
     """Upload files in parallel."""
+    if description is not None and len(paths) != 1:
+        raise ValueError("description requires exactly one file")
     load_config()
     album_name = album_name or get_default_album()
 
     async with ImmichClient() as client:
-        uploader = ImmichUploader(client)
+        uploader = ImmichUploader(client, asset_time_source=asset_time_source)
 
         if len(paths) > 1:
             print(f"Uploading {len(paths)} files in parallel...")
@@ -86,12 +122,21 @@ async def upload_files(paths: list[Path], album_name: str | None):
                     print(f"OK   {path}: {result.get('id')}")
                     print_public_url(result)
         else:
-            result = await uploader.upload_file(paths[0], album_name)
+            result = await uploader.upload_file(
+                paths[0], album_name, description=description
+            )
             print(f"Uploaded: {result.get('id')}")
             print_public_url(result)
 
 
-async def batch_upload_files(directory: Path, extensions: list[str], album_name: str | None, no_delete: bool, recursive: bool):
+async def batch_upload_files(
+    directory: Path,
+    extensions: list[str],
+    album_name: str | None,
+    no_delete: bool,
+    recursive: bool,
+    asset_time_source: str | None = None,
+):
     """Batch upload files from a directory with given extensions."""
     if not directory.exists():
         print(f"Directory does not exist: {directory}")
@@ -121,7 +166,7 @@ async def batch_upload_files(directory: Path, extensions: list[str], album_name:
     load_config()
 
     async with ImmichClient() as client:
-        uploader = ImmichUploader(client)
+        uploader = ImmichUploader(client, asset_time_source=asset_time_source)
 
         # Upload in parallel
         results = await uploader.upload_files(files, album_name)

@@ -1,6 +1,6 @@
 ---
 name: immich
-version: 26.29.36
+version: 26.29.38
 description: 将本地图像和视频上传到 Immich 服务器，支持批量上传、管理 Album 和公开链接。网络资源下载由 video-downloader 负责；当用户提到"上传到 Immich"、"上传图片"、"备份照片"、"上传视频"、"下载视频并上传 Immich"时使用此技能。
 argument-hint: "[file-path] [--album album-name]"
 allowed-tools: Bash(uv run *), Read, Glob, Edit
@@ -29,6 +29,7 @@ base_url = "https://your-immich-server.com"
 api_key = "your-api-key"
 default_album = "My Photos"  # 可选
 public_album_url = "https://your-immich-server.com/s/shared-album-key"  # 可选
+asset_time_source = "upload"  # 可选，upload（默认）或 source
 ```
 
 ### 2. 上传本地文件
@@ -43,6 +44,12 @@ cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import
 # 指定 album
 cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import main; main()" upload /path/to/video.mp4 --album "Vacation"
 
+# 单文件上传并保留网络来源的完整原始描述
+cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import main; main()" upload /path/to/video.mp4 --description "原标题 #话题1 #话题2"
+
+# 本次上传改用媒体拍摄/创建时间
+cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import main; main()" upload /path/to/photo.jpg --asset-time source
+
 # 批量上传
 cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import main; main()" upload /path/to/img1.jpg /path/to/img2.png --album "Trip"
 ```
@@ -56,13 +63,25 @@ console_scripts 入口点。使用上面的 python -c 调用方式。
 可以用 curl 作为 fallback，之后再调用 API 加入相册：
 
 ```bash
+UPLOAD_AT=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
 curl -s -X POST "${BASE_URL}/api/assets" \
   -H "x-api-key: ${API_KEY}" \
   -F "assetData=@/path/to/video.mp4;type=video/mp4" \
   -F "deviceAssetId=hermes-$(date +%s)" \
   -F "deviceId=hermes-agent" \
-  -F "fileCreatedAt=2026-07-12T00:00:00.000Z" \
-  -F "fileModifiedAt=2026-07-12T00:00:00.000Z"
+  -F "fileCreatedAt=${UPLOAD_AT}" \
+  -F "fileModifiedAt=${UPLOAD_AT}"
+```
+
+视频可能包含旧的 `creation_time`，Immich 后台提取元数据后会覆盖上述时间；
+curl fallback 必须等
+`GET /api/assets/{id}` 返回 `hasMetadata=true`，再执行：
+
+```bash
+curl -s -X PATCH "${BASE_URL}/api/assets/${ASSET_ID}" \
+  -H "x-api-key: ${API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d "{\"dateTimeOriginal\": \"${UPLOAD_AT}\"}"
 ```
 
 加入默认相册（先查 album ID，再 PUT）：
@@ -87,7 +106,8 @@ echo "Public URL: ${PUBLIC_ALBUM_URL%/}/photos/${ASSET_ID}"
 
 1. 使用 `video-downloader` 检查 backend 并完成下载。
 2. 从下载结果中取得准确的本地媒体文件路径。
-3. 将该路径传给本 skill 的 `upload` 命令。
+3. 将该路径传给本 skill 的 `upload` 命令；视频号下载还应把完整
+   `Original description` 通过 `--description` 原样传入。
 4. 上传到默认公开相册后，将 `public_url` 返回给用户。
 
 下载文件默认保留。只有用户明确要求清理时，才在确认 Immich 上传成功后删除。
@@ -149,6 +169,7 @@ cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import
 | `api_key` | 是 | Immich API 密钥 |
 | `default_album` | 否 | 默认上传的 Album 名称 |
 | `public_album_url` | 否 | 默认相册的公开分享地址；成功加入该相册后生成资源公开链接 |
+| `asset_time_source` | 否 | 时间线时间来源：`upload`（默认，本次上传时间）或 `source`（媒体/文件原始时间） |
 
 ## 已知陷阱
 
@@ -158,14 +179,16 @@ cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import
    `originalFileName`。`PUT`/`PATCH /api/assets/{id}` 即使带这个字段
    也只更新 `updatedAt`，文件名不变。想改名必须**删除后重新上传**。
 
-2. **`fileCreatedAt` / `fileModifiedAt` 必须带时区。** Immich 的 DTO
+2. **`fileCreatedAt` / `fileModifiedAt` 必须带时区，且媒体元数据可能覆盖它们。** Immich 的 DTO
    校验 ISO 8601 datetime **必须带时区**（`Z` 或 `+08:00`）。
    `datetime.fromtimestamp(mtime).isoformat()` 在 Linux 上返回
    `2025-07-12T18:49:05.130080`（**无时区**），服务器返回
    `HTTP 400 {"message":"Validation failed", ...}`。
    `client.py::upload_asset` 现在用
    `datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat().replace("+00:00","Z")`
-   生成 `2025-07-12T10:49:05.130080Z` 才合法。
+   生成 `2025-07-12T10:49:05.130080Z` 才合法。默认 `upload` 策略还会等待
+   `hasMetadata=true` 后使用运行机器的本地时区偏移 PATCH `dateTimeOriginal`，
+   避免 MP4 内嵌发布时间覆盖上传时间或造成时间线分组偏移。
 
 3. **非 ASCII 文件名实际是支持的。** 之前 `client.py` 用
    `re.sub(r'[^\x00-\x7F]', '_', filename)` 把中文文件名替换成 ASCII
@@ -192,6 +215,10 @@ cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import
    `{public_album_url}/photos/{asset_id}`。上传到其他相册或加入相册失败时
    不应展示公开链接；`duplicate` 资源成功加入默认相册后仍应展示。
 
+8. **默认时间策略是本次上传时间。** `asset_time_source = "upload"` 对新资源和
+   `duplicate` 都按本次命令开始上传的时间更新 Immich 时间线。需要保留照片拍摄时间
+   或视频内嵌创建时间时，配置 `source` 或单次使用 `--asset-time source`。
+
 ## Python API
 
 ```python
@@ -207,7 +234,11 @@ async with ImmichClient() as client:
     uploader = ImmichUploader(client)
 
     # 上传本地文件
-    result = await uploader.upload_file(Path("photo.jpg"), album_name="My Photos")
+    result = await uploader.upload_file(
+        Path("photo.jpg"),
+        album_name="My Photos",
+        description="原标题 #话题",
+    )
     print(result.get("public_url"))
 
     # 上传多个文件（并行）

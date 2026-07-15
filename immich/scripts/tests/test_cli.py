@@ -41,7 +41,19 @@ class PublicUrlOutputTests(unittest.TestCase):
         load, album, client, uploader_cls, uploader = self._patch_upload_dependencies()
         uploader.upload_file = AsyncMock(return_value=dict(PUBLIC_RESULT))
         with load, album, client, uploader_cls:
-            self._capture(cli.upload_files([Path("asset.jpg")], None))
+            self._capture(
+                cli.upload_files(
+                    [Path("asset.jpg")],
+                    None,
+                    "原标题 #话题",
+                    "source",
+                )
+            )
+        uploader.upload_file.assert_awaited_once_with(
+            Path("asset.jpg"),
+            "Inspiration",
+            description="原标题 #话题",
+        )
 
     def test_batch_upload_prints_public_url(self):
         load, album, client, uploader_cls, uploader = self._patch_upload_dependencies()

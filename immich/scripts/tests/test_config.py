@@ -58,6 +58,19 @@ class ConfigLookupTests(unittest.TestCase):
         )
         self.assertIsNone(config.get_public_album_url({"immich": {}}))
 
+    def test_asset_time_source_defaults_to_upload_and_validates(self):
+        self.assertEqual(config.get_asset_time_source({"immich": {}}), "upload")
+        self.assertEqual(
+            config.get_asset_time_source(
+                {"immich": {"asset_time_source": "source"}}
+            ),
+            "source",
+        )
+        with self.assertRaisesRegex(ValueError, "asset_time_source"):
+            config.get_asset_time_source(
+                {"immich": {"asset_time_source": "invalid"}}
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -105,7 +105,7 @@ AI 图片生成工具，通过 OpenAI/Gemini 兼容 API 生成图片。
 
 - 当用户说"上传到 Immich"、"上传图片"、"备份照片"、"上传视频"、"下载视频并上传 Immich"时自动激活
 - 只负责本地文件上传；网络资源先由 video-downloader 下载，再将本地路径交给 immich
-- 支持批量上传、Album 管理
+- 支持批量上传、Album 管理、完整描述写入，并默认按本次上传时间排列资源
 - 提供 Python SDK 和 CLI 工具
 
 ### jellyfin
@@ -145,6 +145,10 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - 输出透明背景 PNG、分离的 UI 元素 PNG、元数据 JSON
 
 ## 更新记录
+
+### 2026-07-15
+- 优化微信视频号下载命名：文件名保留中文原始标题，移除话题、非法字符和符号字符，标题限制 30 字符；下载结果同时输出完整原始描述供 Immich 保存
+- 升级 immich skill：新增 `asset_time_source` 和 `--asset-time`，默认在元数据提取后将时间线时间修正为本次上传时间；单文件上传支持 `--description` 保存完整标题与话题
 
 ### 2026-07-14
 - 升级 video-downloader skill：新增微信视频号 SPH 分享链接下载，通过本地 `wx_channels_download` API 解析；认证缺失或过期时使用专用 Playwright 浏览器自动刷新腾讯元宝 Cookie、重启服务并重试，下载文件按视频号昵称建立目录，兼容迁移旧根目录文件

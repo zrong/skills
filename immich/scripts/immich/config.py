@@ -9,6 +9,7 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parent.parent.parent
 CONFIG_FILENAME = "agent_config.toml"
 GLOBAL_CONFIG = Path.home() / ".agents" / CONFIG_FILENAME
+ASSET_TIME_SOURCES = frozenset({"upload", "source"})
 
 _config_cache: dict | None = None
 
@@ -81,3 +82,13 @@ def get_public_album_url(config: dict | None = None) -> str | None:
     """Get the public share URL associated with the default album."""
     immich_cfg = get_immich_config(config)
     return immich_cfg.get("public_album_url", "").rstrip("/") or None
+
+
+def get_asset_time_source(config: dict | None = None) -> str:
+    """Get the timestamp policy used for uploaded assets."""
+    immich_cfg = get_immich_config(config)
+    source = str(immich_cfg.get("asset_time_source", "upload")).strip().lower()
+    if source not in ASSET_TIME_SOURCES:
+        choices = ", ".join(sorted(ASSET_TIME_SOURCES))
+        raise ValueError(f"asset_time_source must be one of: {choices}")
+    return source
