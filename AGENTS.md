@@ -45,6 +45,13 @@ description: <准确的触发描述，最长 1024 字符>
 3. 编写 `SKILL.md` 指令，确保能够引导 Agent 完成任务。
 4. 在 `scripts/` 中实现逻辑，确保跨平台兼容性。
 
+### 共享开发模板
+
+- 新 skill 需要读取 `agent_config.toml` 时，先参考 `shared/agent-config/README.md`。
+- 将 `shared/agent-config/scripts/agent_config.py` 复制到 skill 自己的 Python 包中，并保留对应测试和 `SKILL.md` 兜底说明。
+- 将 `shared/agent-config/agent_config.example.toml` 复制到 skill 根目录，替换 section 名并只保留该 skill 支持的配置项。
+- 禁止让可分发 skill 在运行时导入仓库级 `shared` 目录；每个 skill 必须能独立安装和运行。
+
 ### 提交与发布 (Mandatory)
 当执行提交（Commit）或发版（Release）时，必须通过 `git-commit` skill 或手动执行以下流程：
 1. **更新 README.md**：将变更摘要写入 `README.md` 底部的"更新记录"章节。

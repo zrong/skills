@@ -144,9 +144,14 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - chroma 算法直接复用 spritesheet skill 的核心（保持一致性）
 - 输出透明背景 PNG、分离的 UI 元素 PNG、元数据 JSON
 
+## 共享开发资源
+
+- [`shared/agent-config`](shared/agent-config/README.md)：`agent_config.toml` 的跨平台查找、全局兜底、显式路径、配置示例和测试模板。创建新 skill 时复制实现，运行时不依赖仓库共享目录。
+
 ## 更新记录
 
 ### 2026-07-15
+- 新增 `shared/agent-config`：统一 `agent_config.toml` 的四级查找顺序、显式路径、软硬缺失策略、配置示例及接入文档，供新 skill 复制复用
 - 优化微信视频号下载命名：文件名保留中文原始标题，移除话题、非法字符和符号字符，标题限制 30 字符；下载结果同时输出完整原始描述供 Immich 保存
 - 升级 immich skill：新增 `asset_time_source` 和 `--asset-time`，默认在元数据提取后将时间线时间修正为本次上传时间；单文件上传支持 `--description` 保存完整标题与话题
 

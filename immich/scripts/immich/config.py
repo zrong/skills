@@ -1,6 +1,7 @@
 """Configuration loader for immich skill.
 
-Borrowed the config lookup pattern from rspeak skill.
+The lookup behavior is mirrored by ``shared/agent-config``. This copy remains
+inside Immich so the skill can be installed and used independently.
 """
 
 import tomllib
