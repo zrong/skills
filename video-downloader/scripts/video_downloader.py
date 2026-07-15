@@ -12,6 +12,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlparse
@@ -37,6 +39,14 @@ DEFAULT_WX_CHANNELS_LOGIN_TIMEOUT_SECONDS = 300
 WX_CHANNELS_COOKIE_NAMES = ("hy_source", "hy_user", "hy_token")
 WX_CHANNELS_REQUIRED_COOKIE_NAMES = frozenset({"hy_user", "hy_token"})
 YUANBAO_URL = "https://yuanbao.tencent.com/"
+WX_CHANNELS_TITLE_MAX_LENGTH = 30
+
+
+@dataclass(frozen=True)
+class WxChannelsDownloadResult:
+    path: Path
+    description: str
+    author_name: str
 
 
 def die(message: str, code: int = 1) -> None:
@@ -398,9 +408,20 @@ def wx_channels_share_id(share_url: str) -> str:
 
 
 def safe_media_stem(description: str, share_id: str) -> str:
-    title = next((line.strip() for line in description.splitlines() if line.strip()), "WeChat Channels")
-    title = re.sub(r"[\\/:*?\"<>|\x00-\x1f]", "_", title).strip(" .")
-    title = title[:120].strip() or "WeChat Channels"
+    title = next(
+        (line.strip() for line in description.splitlines() if line.strip()),
+        "视频号作品",
+    )
+    title = re.sub(r"#[^#\s]+", " ", title)
+    title = re.sub(r"[\\/:*?\"<>|\x00-\x1f]", "", title)
+    title = "".join(
+        character
+        for character in title
+        if not unicodedata.category(character).startswith(("C", "S"))
+    )
+    title = re.sub(r"\s+", " ", title).strip(" ._-")
+    title = title[:WX_CHANNELS_TITLE_MAX_LENGTH].rstrip(" ._-")
+    title = title or "视频号作品"
     safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", share_id)[:80] or "video"
     return f"{title} [{safe_id}]"
 
@@ -419,21 +440,29 @@ def download_wx_channels_video(
     output_dir: Path,
     api_url: str,
     timeout: float,
-) -> Path:
+) -> WxChannelsDownloadResult:
     parsed = parse_wx_channels_video(share_url, api_url, timeout)
     filename = f"{safe_media_stem(parsed['description'], wx_channels_share_id(share_url))}.mp4"
     channel_dir = output_dir / safe_wx_channels_author_dir(parsed["author_name"])
     output_path = channel_dir / filename
     if output_path.exists() and output_path.stat().st_size > 0:
         info(f"Already downloaded: {output_path}")
-        return output_path
+        return WxChannelsDownloadResult(
+            path=output_path,
+            description=parsed["description"],
+            author_name=parsed["author_name"],
+        )
 
     legacy_path = output_dir / filename
     if legacy_path.exists() and legacy_path.stat().st_size > 0:
         channel_dir.mkdir(parents=True, exist_ok=True)
         legacy_path.replace(output_path)
         info(f"Moved legacy download into channel directory: {output_path}")
-        return output_path
+        return WxChannelsDownloadResult(
+            path=output_path,
+            description=parsed["description"],
+            author_name=parsed["author_name"],
+        )
 
     channel_dir.mkdir(parents=True, exist_ok=True)
     partial_path = output_path.with_suffix(f"{output_path.suffix}.part")
@@ -462,7 +491,11 @@ def download_wx_channels_video(
         if isinstance(exc, RuntimeError):
             raise
         raise RuntimeError(f"failed to download WeChat Channels video: {exc}") from exc
-    return output_path
+    return WxChannelsDownloadResult(
+        path=output_path,
+        description=parsed["description"],
+        author_name=parsed["author_name"],
+    )
 
 
 def runtime_yt_dlp_bin(runtime_dir: Path) -> Path:
@@ -832,7 +865,7 @@ def download_wx_channels_with_auth_refresh(
     settings: dict,
     runtime_dir: Path,
     non_interactive: bool,
-) -> Path:
+) -> WxChannelsDownloadResult:
     try:
         return download_wx_channels_video(share_url, output_dir, api_url, timeout)
     except RuntimeError as exc:
@@ -905,7 +938,7 @@ def command_download(args: argparse.Namespace) -> int:
         try:
             api_url = normalize_wx_channels_api_url(settings.get("wx_channels_api_url"))
             timeout = wx_channels_timeout(settings)
-            output_path = download_wx_channels_with_auth_refresh(
+            result = download_wx_channels_with_auth_refresh(
                 args.url,
                 output_dir,
                 api_url,
@@ -922,7 +955,8 @@ def command_download(args: argparse.Namespace) -> int:
                     "Start the local service with start-wx-channels, or fix wx_channels_api_url."
                 )
             die(f"wx-channels download failed: {message}")
-        print(f"Downloaded file: {output_path}")
+        print(f"Downloaded file: {result.path}")
+        print(f"Original description: {result.description}")
         return 0
 
     if backend == "yt-dlp":

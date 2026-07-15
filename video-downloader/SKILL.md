@@ -1,6 +1,6 @@
 ---
 name: video-downloader
-version: 26.29.37
+version: 26.29.38
 description: |
   下载视频工具。处理抖音短链、抖音作品页、微信视频号 SPH 分享链接，以及 yt-dlp 支持的网站视频下载。
 
@@ -127,8 +127,10 @@ uv run --project scripts python scripts/video_downloader.py download \
 下载目录按视频号昵称分组：
 
 ```text
-{default_output_dir}/{视频号名称}/{标题} [{sph_id}].mp4
+{default_output_dir}/{视频号名称}/{精简标题} [{sph_id}].mp4
 ```
+
+精简标题取原始描述的第一行，移除 `#话题`、文件系统非法字符和符号字符，标题部分最多保留 30 个字符；中文和常规标点保持不变，`sph_id` 始终保留用于去重。命令还会输出未经修改的 `Original description`，供上传到 Immich 时写入描述（包括原始话题）。
 
 这与 `douyin-downloader` 默认按作者昵称建立目录的规则一致，但视频号目录内不再增加 `post` 或单作品目录。旧版本已经直接保存在下载根目录的同名视频，会在再次处理时自动迁移到对应视频号目录。
 
@@ -312,6 +314,7 @@ python3 scripts/video_downloader.py refresh-cookies
 
 1. 先由本 skill 完成下载，并确认下载成功。
 2. 向后续 skill 提供准确的本地媒体文件路径，不传递原始网络 URL。
-3. 后续上传成功后仍默认保留下载文件；只有用户明确要求清理时才删除。
+3. 视频号下载同时传递命令输出的完整 `Original description`；Immich 上传时用 `--description` 原样保存，文件名中的话题不会丢失。
+4. 后续上传成功后仍默认保留下载文件；只有用户明确要求清理时才删除。
 
 用户已经提供本地文件或附件时，不调用本 skill，直接交给对应的上传 skill。

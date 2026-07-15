@@ -36,7 +36,7 @@ class MockHandler(BaseHTTPRequestHandler):
                         "data": {
                             "authorInfo": {"nickname": "Test/Channel"},
                             "feedInfo": {
-                                "description": "A test/video\nsecond line",
+                                "description": "A test/video #topic\nsecond line",
                                 "originVideoUrl": f"http://127.0.0.1:{self.server.server_port}{media_path}",
                             }
                         }
@@ -151,14 +151,39 @@ class VideoDownloaderTests(unittest.TestCase):
                 self.api_url,
                 2,
             )
-            self.assertEqual(output.name, "A test_video [A61BYtvDIe].mp4")
-            self.assertEqual(output.parent.name, "Test_Channel")
-            self.assertEqual(output.read_bytes(), b"test-video-content")
+            self.assertEqual(output.path.name, "A testvideo [A61BYtvDIe].mp4")
+            self.assertEqual(output.path.parent.name, "Test_Channel")
+            self.assertEqual(output.path.read_bytes(), b"test-video-content")
+            self.assertEqual(
+                output.description,
+                "A test/video #topic\nsecond line",
+            )
+
+    def test_wx_channels_filename_preserves_chinese_and_removes_topics(self) -> None:
+        description = (
+            "疯狂的西瓜（2）#高能 #鬼畜 #新世纪咖啡战士 #重庆 #方言 #Ai视频"
+        )
+        self.assertEqual(
+            video_downloader.safe_media_stem(description, "AOLM0zX09k"),
+            "疯狂的西瓜（2） [AOLM0zX09k]",
+        )
+
+    def test_wx_channels_filename_title_is_limited_to_30_characters(self) -> None:
+        stem = video_downloader.safe_media_stem("这是一个非常长的视频号标题" * 4, "video-id")
+        title, suffix = stem.rsplit(" [", 1)
+        self.assertEqual(len(title), 30)
+        self.assertEqual(suffix, "video-id]")
+
+    def test_wx_channels_filename_falls_back_when_only_topics_remain(self) -> None:
+        self.assertEqual(
+            video_downloader.safe_media_stem("#高能 #鬼畜", "video-id"),
+            "视频号作品 [video-id]",
+        )
 
     def test_legacy_root_download_is_moved_into_channel_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            legacy = root / "A test_video [A61BYtvDIe].mp4"
+            legacy = root / "A testvideo [A61BYtvDIe].mp4"
             legacy.write_bytes(b"legacy-video-content")
             output = video_downloader.download_wx_channels_video(
                 "https://weixin.qq.com/sph/A61BYtvDIe",
@@ -166,8 +191,8 @@ class VideoDownloaderTests(unittest.TestCase):
                 self.api_url,
                 2,
             )
-            self.assertEqual(output, root / "Test_Channel" / legacy.name)
-            self.assertEqual(output.read_bytes(), b"legacy-video-content")
+            self.assertEqual(output.path, root / "Test_Channel" / legacy.name)
+            self.assertEqual(output.path.read_bytes(), b"legacy-video-content")
             self.assertFalse(legacy.exists())
 
     def test_parse_errors_are_explicit(self) -> None:
@@ -194,7 +219,9 @@ class VideoDownloaderTests(unittest.TestCase):
     @patch("video_downloader.refresh_wx_channels_cookie")
     @patch("video_downloader.download_wx_channels_video")
     def test_auth_error_refreshes_once_and_retries(self, download, refresh) -> None:
-        expected = Path("downloaded.mp4")
+        expected = video_downloader.WxChannelsDownloadResult(
+            Path("downloaded.mp4"), "description", "author"
+        )
         download.side_effect = [RuntimeError("cloudflare.sphCookie not configured"), expected]
         result = video_downloader.download_wx_channels_with_auth_refresh(
             "https://weixin.qq.com/sph/A61BYtvDIe",
