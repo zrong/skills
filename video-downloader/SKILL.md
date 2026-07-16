@@ -99,6 +99,14 @@ python3 scripts/video_downloader.py download "https://v.douyin.com/xxxx/" --back
 python3 scripts/video_downloader.py download "https://example.com/video" --backend yt-dlp
 ```
 
+yt-dlp 与其他 backend 使用相同的作者目录结构：
+
+```text
+{default_output_dir}/{作者名或账号名}/{标题} [{id}].{ext}
+```
+
+作者目录依次取 `uploader`、`channel`、`creator`、`uploader_id`、`channel_id`，均不可用时使用 `unknown-author`。`yt_dlp_output_template` 只控制作者目录内的相对路径，不能使用绝对路径或 `..`。
+
 ### 微信视频号 SPH 分享链接
 
 首次使用先安装 skill 依赖及专用 Chromium：
@@ -257,6 +265,7 @@ search_output_dir = ""
 说明：
 
 - `yt_dlp_path`：显式指定 `yt-dlp` 可执行文件路径。
+- `yt_dlp_output_template`：yt-dlp 在作者目录内使用的相对输出模板，默认 `%(title)s [%(id)s].%(ext)s`。skill 始终添加作者/账号目录；模板可包含更深的相对子目录，但不能是绝对路径或包含 `..`。
 - `douyin_downloader_home`：显式指定 `douyin-downloader` 仓库目录。为空时使用 skill 目录下的 `.runtime/douyin-downloader`。
 - `douyin_config_path`：显式指定 `douyin-downloader` 使用的原生 `config.yml` 路径。为空时使用 `.runtime/douyin-downloader/config.yml`。
 - `wx_channels_api_url`：`wx_channels_download` API 服务根地址，默认 `http://127.0.0.1:2022`；配置末尾的 `/api` 会自动清理。

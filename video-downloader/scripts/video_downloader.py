@@ -14,7 +14,7 @@ import tempfile
 import time
 import unicodedata
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import Request, urlopen
@@ -40,6 +40,10 @@ WX_CHANNELS_COOKIE_NAMES = ("hy_source", "hy_user", "hy_token")
 WX_CHANNELS_REQUIRED_COOKIE_NAMES = frozenset({"hy_user", "hy_token"})
 YUANBAO_URL = "https://yuanbao.tencent.com/"
 WX_CHANNELS_TITLE_MAX_LENGTH = 30
+DEFAULT_YT_DLP_OUTPUT_TEMPLATE = "%(title)s [%(id)s].%(ext)s"
+YT_DLP_AUTHOR_DIRECTORY_TEMPLATE = (
+    "%(uploader,channel,creator,uploader_id,channel_id|unknown-author)s"
+)
 
 
 @dataclass(frozen=True)
@@ -130,6 +134,44 @@ def resolve_backend(url: str, requested: str, settings: dict) -> str:
     if is_wx_channels_url(url):
         return "wx-channels"
     return "yt-dlp"
+
+
+def build_yt_dlp_output_template(settings: dict) -> str:
+    """Place every yt-dlp download below an author/account directory."""
+    configured = settings.get("yt_dlp_output_template", DEFAULT_YT_DLP_OUTPUT_TEMPLATE)
+    if not isinstance(configured, str) or not configured.strip():
+        raise ValueError("yt_dlp_output_template must be a non-empty string")
+
+    relative_template = configured.strip()
+    posix_path = PurePosixPath(relative_template)
+    windows_path = PureWindowsPath(relative_template)
+    if posix_path.is_absolute() or windows_path.is_absolute() or windows_path.drive:
+        raise ValueError("yt_dlp_output_template must be relative to the author directory")
+
+    parts = re.split(r"[\\/]", relative_template)
+    if any(part == ".." for part in parts):
+        raise ValueError("yt_dlp_output_template must not contain '..'")
+    normalized_template = "/".join(part for part in parts if part not in {"", "."})
+    if not normalized_template:
+        raise ValueError("yt_dlp_output_template must contain a file name template")
+
+    return f"{YT_DLP_AUTHOR_DIRECTORY_TEMPLATE}/{normalized_template}"
+
+
+def build_yt_dlp_download_command(
+    yt_bin: Path,
+    output_dir: Path,
+    settings: dict,
+    url: str,
+) -> list[str]:
+    return [
+        str(yt_bin),
+        "-P",
+        str(output_dir),
+        "-o",
+        build_yt_dlp_output_template(settings),
+        url,
+    ]
 
 
 def normalize_wx_channels_api_url(value: str | None) -> str:
@@ -966,8 +1008,11 @@ def command_download(args: argparse.Namespace) -> int:
                 "yt-dlp backend is unavailable. Ask the user whether to install yt-dlp, "
                 "or set [video-downloader].yt_dlp_path in agent_config.toml."
             )
-        template = settings.get("yt_dlp_output_template", "%(title)s [%(id)s].%(ext)s")
-        run([str(yt_bin), "-o", str(output_dir / template), args.url], cwd=PROJECT_ROOT)
+        try:
+            cmd = build_yt_dlp_download_command(yt_bin, output_dir, settings, args.url)
+        except ValueError as exc:
+            die(str(exc))
+        run(cmd, cwd=PROJECT_ROOT)
         return 0
 
     if backend != "douyin":

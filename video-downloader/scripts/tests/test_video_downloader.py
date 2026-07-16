@@ -96,6 +96,47 @@ class VideoDownloaderTests(unittest.TestCase):
         self.assertFalse(video_downloader.is_wx_channels_url("https://weixin.qq.com/"))
         self.assertEqual(video_downloader.resolve_backend(sph_url, "auto", {}), "wx-channels")
 
+    def test_yt_dlp_default_template_uses_author_directory(self) -> None:
+        self.assertEqual(
+            video_downloader.build_yt_dlp_output_template({}),
+            "%(uploader,channel,creator,uploader_id,channel_id|unknown-author)s/"
+            "%(title)s [%(id)s].%(ext)s",
+        )
+
+    def test_yt_dlp_configured_template_stays_below_author_directory(self) -> None:
+        settings = {
+            "yt_dlp_output_template": "clips/%(upload_date)s_%(title)s [%(id)s].%(ext)s"
+        }
+        self.assertEqual(
+            video_downloader.build_yt_dlp_output_template(settings),
+            "%(uploader,channel,creator,uploader_id,channel_id|unknown-author)s/"
+            "clips/%(upload_date)s_%(title)s [%(id)s].%(ext)s",
+        )
+
+    def test_yt_dlp_template_rejects_paths_outside_author_directory(self) -> None:
+        invalid_templates = (
+            "",
+            "/tmp/%(title)s.%(ext)s",
+            "C:\\Downloads\\%(title)s.%(ext)s",
+            "../%(title)s.%(ext)s",
+        )
+        for template in invalid_templates:
+            with self.subTest(template=template), self.assertRaises(ValueError):
+                video_downloader.build_yt_dlp_output_template(
+                    {"yt_dlp_output_template": template}
+                )
+
+    def test_yt_dlp_command_keeps_root_and_template_separate(self) -> None:
+        command = video_downloader.build_yt_dlp_download_command(
+            Path("yt-dlp"),
+            Path("D:/Downloads/video-downloads"),
+            {"yt_dlp_output_template": "%(title)s [%(id)s].%(ext)s"},
+            "https://example.com/video",
+        )
+        self.assertEqual(command[1:3], ["-P", "D:/Downloads/video-downloads"])
+        self.assertEqual(command[3], "-o")
+        self.assertTrue(command[4].endswith("/%(title)s [%(id)s].%(ext)s"))
+
     def test_api_url_normalization(self) -> None:
         self.assertEqual(
             video_downloader.normalize_wx_channels_api_url("http://127.0.0.1:2022/api/"),

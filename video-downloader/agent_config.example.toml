@@ -8,8 +8,14 @@ default_backend = "auto"
 # 通用下载输出目录（主要给 yt-dlp 使用）
 default_output_dir = "~/Downloads/video-downloads"
 
-# 可选：显式指定 yt-dlp 可执行文件
+# 可选：显式指定 yt-dlp 可执行文件；为空时依次检查 skill runtime 和 PATH。
 yt_dlp_path = ""
+
+# yt-dlp 在作者目录内使用的相对输出模板。
+# Skill 始终在前面添加作者/账号目录，字段回退顺序为：
+# uploader -> channel -> creator -> uploader_id -> channel_id -> unknown-author。
+# 最终路径示例：default_output_dir/作者名/标题 [ID].扩展名
+# 可以增加相对子目录，但不允许绝对路径或 ".."。
 yt_dlp_output_template = "%(title)s [%(id)s].%(ext)s"
 
 # 可选：显式指定 douyin-downloader 的配置文件路径
