@@ -81,6 +81,14 @@ MCP 服务器自动部署工具。
 - 支持抽帧分析和原生视频输入两种模式
 - 多模型配置（豆包、GPT-4o 等 OpenAI 兼容 API）
 
+### seedance-2-video
+
+为 Sorb 的 Seedance 2.0 视频生成提供提示词、素材分析和分镜方法。
+
+- 当用户明确提出 Seedance 2.0、图生视频、参考视频复刻、运镜、分镜、视频延长或长视频规划时激活
+- 支持图片与视频抽帧分析、四维运镜、美学约束、首帧设计和多镜头生产流程
+- 使用 Sorb 模型 schema、`@图像N` 引用语义和 Canvas Agent 工具，不包含外部执行脚本
+
 ### image-generation
 
 AI 图片生成工具，通过 OpenAI/Gemini 兼容 API 生成图片。
@@ -149,6 +157,9 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - [`shared/agent-config`](shared/agent-config/README.md)：`agent_config.toml` 的跨平台查找、全局兜底、显式路径、配置示例和测试模板。创建新 skill 时复制实现，运行时不依赖仓库共享目录。
 
 ## 更新记录
+
+### 2026-07-19
+- 新增 seedance-2-video：适配 Seedance 2.0 提示词、图生视频、参考视频、分镜和长视频方法论，统一使用 Sorb 模型 schema 与 Canvas Agent 工具
 
 ### 2026-07-16
 - 统一 video-downloader 输出目录：yt-dlp 下载默认按作者名或账号名建立子目录，与抖音、微信视频号保持一致；作者字段缺失时使用 `unknown-author`

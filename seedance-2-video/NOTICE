@@ -1,0 +1,14 @@
+Sorb Seedance 2.0 Video Skill
+
+This skill adapts methodology from:
+https://github.com/MapleShaw/seedance2.0-prompt-skill
+
+Initial upstream commit:
+a2ab7fd9b73e1d531fabd7f59f390e8d39dc57a5
+
+The upstream project is distributed under the MIT License included in this
+directory. The Sorb adaptation narrows the triggering scope, uses Sorb media
+references and model schemas, and removes upstream-specific execution paths.
+
+Future upstream changes must be reviewed and adapted manually before they are
+included here.
