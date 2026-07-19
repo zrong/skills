@@ -160,6 +160,7 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 
 ### 2026-07-19
 - 新增 seedance-2-video：适配 Seedance 2.0 提示词、图生视频、参考视频、分镜和长视频方法论，统一使用 Sorb 模型 schema 与 Canvas Agent 工具
+- 修正 seedance-2-video 的 Canvas 参数约束：使用 `canvas_form` 的精确字段与 `select`/`aspect_ratio` 映射，避免把 Provider schema 结构键写入生成节点
 
 ### 2026-07-16
 - 统一 video-downloader 输出目录：yt-dlp 下载默认按作者名或账号名建立子目录，与抖音、微信视频号保持一致；作者字段缺失时使用 `unknown-author`

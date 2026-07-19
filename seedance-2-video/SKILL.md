@@ -9,7 +9,7 @@ description: 为 Sorb 的 Seedance 2.0 视频生成分析图片或参考视频�
 
 ## 核心边界
 
-1. 把 `get_generation_model_options` 返回的模型 schema 视为参数、时长、比例和参考数量的唯一运行时真值。
+1. 把 `get_generation_model_options` 返回的模型 schema 视为参数、时长、比例和参考数量的唯一运行时真值；写 Canvas 时只使用每个模型的 `canvas_form` 键和映射。
 2. 使用当前视觉消息标注的引用槽位，不根据节点标题猜测编号；引用数量上限读取模型工具。图像、视频、音频引用分别写成 `@图像N`、`@视频N`、`@音频N`。
 3. 先给出创意和提示词方案。需要修改 Canvas 或提交生成时，只使用 Sorb 已有的 `create_generation_node`、`update_generation_node`、`connect_reference` 和 `submit_generation`。
 4. 尊重 Sorb 的审批、计费、项目权限和任务链。不要绕过审批，不要声称已经生成尚未提交的内容。
@@ -92,7 +92,7 @@ description: 为 Sorb 的 Seedance 2.0 视频生成分析图片或参考视频�
 
 ### 5. 更新或提交 Canvas
 
-1. 使用工具返回的 `model_config_id` 和 schema 字段构造 `form`，不要写未知字段。
+1. 以工具返回的 `canvas_form.default_form` 为起点，只使用 `canvas_form.allowed_fields` 和 `canvas_form.fields` 构造 `form`；`params_schema.select` 映射为 `orientation`，`params_schema.aspect_ratio` 映射为 `ratio`，不要把这两个结构键直接写入 `form`。
 2. 创建或更新生成节点后，使用最新 revision 继续连接素材。
 3. 提交前复查引用数量、提示词 token、时长和生成模式。
 4. 只有用户要求生成时才调用 `submit_generation`；审批结果由 Sorb 返回。
