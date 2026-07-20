@@ -1,6 +1,6 @@
 # media-use scripts
 
-基于 ffmpeg 的媒体处理工具集，提供 4 个独立 CLI：转码、裁剪、合并、修复。
+基于 ffmpeg 的媒体处理工具集，提供 5 个独立 CLI：转码、品牌包装、裁剪、合并、修复。
 
 ## 安装
 
@@ -26,6 +26,38 @@ uv run ffmpeg_batch --list-codecs
 常用参数：`-vc/--video-codec`、`-ac/--audio-codec`、`-vb/--video-bitrate`、
 `-ab/--audio-bitrate`、`--hwaccel-decode`、`-s/--suffix`、`-r/--recursive`、
 `-e/--ext`、`-j/--jobs`、`--dry-run`、`--list-codecs`。
+
+### ffmpeg_brand —— 水印、片尾与目标体积压缩
+
+```bash
+# 左下角 Logo + 片尾，输出 480P / 30fps
+uv run ffmpeg_brand input.mp4 \
+  --watermark logo.png \
+  --outro outro.mp4 \
+  --height 480 --fps 30 \
+  --watermark-width 15% \
+  --watermark-opacity 0.45 \
+  -o output.mp4
+
+# 目标小于 20MB，自动计算视频码率并执行两遍编码
+uv run ffmpeg_brand input.mp4 \
+  --watermark logo.png \
+  --outro outro.mp4 \
+  --target-mb 20 \
+  --height 480 --fps 20 \
+  --audio-bitrate 64k \
+  --preset slow \
+  -o output_under20mb.mp4
+```
+
+常用参数：`-w/--watermark`、`--outro`、`-o/--output`、`--target-mb`、
+`-vb/--video-bitrate`、`-ab/--audio-bitrate`、`--height`、`--width`、`--fps`、
+`--watermark-width`、`--watermark-opacity`、`--watermark-position`、
+`--watermark-scope main|all`、`--margin`、`--preset`、`--dry-run`、
+`--non-interactive`。
+
+`--target-mb` 使用十进制 MB，自动预留 5% 封装余量。默认只给主视频加水印；
+`--watermark-scope all` 会让水印覆盖追加片尾。片尾没有音轨时会自动补静音。
 
 ### ffmpeg_cut —— 无损裁剪
 

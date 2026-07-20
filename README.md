@@ -53,9 +53,9 @@ MCP 服务器自动部署工具。
 
 ### media-use
 
-媒体处理工具集，基于 ffmpeg 提供视频转码、裁剪、合并、修复等功能。
+媒体处理工具集，基于 ffmpeg 提供视频转码、目标体积压缩、Logo 水印、片尾拼接、裁剪、合并和修复等功能。
 
-- 当用户需要进行视频转码、格式转换、音频处理、视频裁剪/剪辑、视频合并、修复 m3u 下载的损坏视频时自动激活
+- 当用户需要视频转码、格式转换、指定大小压缩、添加水印/Logo、追加片头片尾、音频处理、视频裁剪/剪辑、视频合并或修复 m3u 下载的损坏视频时自动激活
 - ffmpeg_batch：批量视频转码（H.264、H.265/HEVC、AV1、VP9，支持 GPU 硬件加速）
 - ffmpeg_cut：按起止时间无损裁剪视频片段（-c copy，支持 HH:MM:SS.ms / 秒数）
 - ffmpeg_merge：合并编码一致的视频文件（concat demuxer + -c copy，自动一致性校验）
@@ -157,6 +157,9 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - [`shared/agent-config`](shared/agent-config/README.md)：`agent_config.toml` 的跨平台查找、全局兜底、显式路径、配置示例和测试模板。创建新 skill 时复制实现，运行时不依赖仓库共享目录。
 
 ## 更新记录
+
+### 2026-07-20
+- 升级 media-use 至 v0.3.0：新增 `ffmpeg_brand`，支持图片水印、片尾拼接、统一分辨率与帧率、目标体积两遍编码、缺失音轨补静音及超限自动降码率重试
 
 ### 2026-07-19
 - 新增 seedance-2-video：适配 Seedance 2.0 提示词、图生视频、参考视频、分镜和长视频方法论，统一使用 Sorb 模型 schema 与 Canvas Agent 工具

@@ -1,11 +1,11 @@
 ---
 name: media-use
-description: 媒体处理工具集（基于 ffmpeg）。当用户需要进行视频转码、格式转换、音频处理、视频裁剪/剪辑、视频合并/拼接、修复 m3u 下载的损坏视频（faststart/moov atom）等媒体操作时使用。支持批量视频转码（H.264、H.265、AV1、VP9 + GPU 硬件加速）、按时间段无损裁剪、编码一致视频合并、mp4 moov 前置修复。
+description: 媒体处理工具集（基于 ffmpeg）。当用户需要视频转码、格式转换、压缩到指定大小、调整分辨率/帧率、添加 Logo 或图片水印、设置水印位置/尺寸/透明度、追加片头片尾、音频处理、视频裁剪/剪辑、合并/拼接、修复 m3u 下载损坏视频（faststart/moov atom）时使用。支持品牌视频一体化生成、目标 MB 两遍编码、H.264/H.265/AV1/VP9 批量转码、无损裁剪与合并、mp4 moov 前置修复。
 ---
 
 # Media Use - 媒体处理工具集
 
-基于 ffmpeg 的媒体处理工具集，提供 4 个独立 CLI：转码、裁剪、合并、修复。
+基于 ffmpeg 的媒体处理工具集，提供 5 个独立 CLI：转码、品牌包装、裁剪、合并、修复。
 
 ## 准备
 
@@ -36,6 +36,46 @@ uv run ffmpeg_batch --list-codecs
 常用参数：`-vc/--video-codec`、`-ac/--audio-codec`、`-vb/--video-bitrate`、
 `-ab/--audio-bitrate`、`--hwaccel-decode`、`-s/--suffix`、`-r/--recursive`、
 `-e/--ext`、`-j/--jobs`、`--dry-run`、`--list-codecs`。
+
+### ffmpeg_brand —— 水印、片尾与目标体积压缩
+
+为单个视频添加图片水印、追加片尾，并统一输出尺寸、帧率和编码。设置
+`--target-mb` 时自动按主视频与片尾总时长计算码率，使用 H.264 两遍编码并预留
+5% 封装余量；若第一次结果仍超出目标，会自动降低视频码率重试一次。
+
+```bash
+# 480P / 30fps，左下角半透明 Logo，并追加片尾
+uv run ffmpeg_brand input.mp4 \
+  --watermark logo.png \
+  --outro outro.mp4 \
+  --height 480 --fps 30 \
+  --watermark-position bottom-left \
+  --watermark-width 15% \
+  --watermark-opacity 0.45 \
+  -o output.mp4
+
+# 控制在 20MB 内；长视频可降低帧率与音频码率
+uv run ffmpeg_brand input.mp4 \
+  --watermark logo.png \
+  --outro outro.mp4 \
+  --target-mb 20 \
+  --height 480 --fps 20 \
+  --audio-bitrate 64k \
+  --preset slow \
+  -o output_under20mb.mp4
+```
+
+常用参数：`-w/--watermark`、`--outro`、`-o/--output`、`--target-mb`、
+`-vb/--video-bitrate`、`-ab/--audio-bitrate`、`--height`、`--width`、`--fps`、
+`--watermark-width`（像素或百分比）、`--watermark-opacity`、
+`--watermark-position`、`--watermark-scope main|all`、`--margin`、`--preset`、
+`--dry-run`、`--non-interactive`。
+
+- 默认 `--watermark-scope main`，水印只覆盖主视频，追加的片尾保持原样；使用
+  `--watermark-scope all` 可覆盖完整成片。
+- 推荐使用透明背景 PNG。JPG 或带实色背景的图片调整透明度时，背景也会一起变淡。
+- 若目标体积导致视频码率低于 100kbps，命令会拒绝执行，避免生成不可用成片。
+- 主视频或片尾缺少音轨时，拼接段会自动补静音，避免 concat 失败或音画错位。
 
 ### ffmpeg_cut —— 无损视频裁剪
 
@@ -84,3 +124,4 @@ uv run ffmpeg_fix ./downloads -o ./fixed -e mp4  # 文件夹批量
 - 目标文件夹必须为空或不存在（转码 / 批量修复会自动创建）
 - GPU 编码器需要对应的硬件和驱动支持
 - 裁剪 / 合并 / 修复均使用 `-c copy`（无损、极快），不重新编码
+- 水印与片尾会重新编码；在严格目标体积下，时长越长，可分配的视频码率越低

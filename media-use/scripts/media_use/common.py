@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rich.console import Console
+from rich.text import Text
 
 console = Console()
 
@@ -89,7 +90,10 @@ def probe(path: Path) -> MediaInfo | None:
 def run_ffmpeg(args: list[str], *, dry_run: bool = False) -> bool:
     """执行 ffmpeg（args 不含开头的 ffmpeg）；dry_run 时仅打印命令。返回是否成功。"""
     if dry_run:
-        console.print(f"[yellow][dry-run][/yellow] {shlex.join(['ffmpeg', *args])}")
+        console.print(
+            Text("[dry-run]", style="yellow"),
+            Text(shlex.join(["ffmpeg", *args])),
+        )
         return True
     try:
         # -y：自动覆盖已存在的输出。ffmpeg 8.x 在非交互 stdin 下遇到「文件已存在」

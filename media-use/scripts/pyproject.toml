@@ -1,7 +1,7 @@
 [project]
 name = "media-use"
-version = "0.2.0"
-description = "媒体处理工具集（转码 / 裁剪 / 合并 / 修复）"
+version = "0.3.0"
+description = "媒体处理工具集（转码 / 裁剪 / 合并 / 修复 / 水印与片尾）"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -14,6 +14,7 @@ ffmpeg_batch = "media_use.convert:app"
 ffmpeg_cut = "media_use.cut:app"
 ffmpeg_merge = "media_use.merge:app"
 ffmpeg_fix = "media_use.fix:app"
+ffmpeg_brand = "media_use.brand:app"
 
 [build-system]
 requires = ["hatchling"]
