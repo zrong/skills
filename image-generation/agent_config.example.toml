@@ -1,41 +1,80 @@
-# image-generation skill 配置
-# 在 [image-generation] 命名空间下配置
+# image-generation v2: every endpoint owns one adapter, base URL, credential,
+# exact model allowlist, and per-model capability policy.
 
 [image-generation]
-# 默认使用的 provider（对应下方 providers 中的 key）
-default_provider = "apiyi"
+default_provider = "primary"
 
-# Provider：共享 name + api_key，endpoints 按 API 类型区分
-# endpoints 的 key 即 API 类型：openai / gemini
+[image-generation.providers.primary]
+name = "Independent image APIs"
+default_endpoint = "openai"
 
-[image-generation.providers.apiyi]
-name = "API易"
-api_key = "sk-xxx"
+[image-generation.providers.primary.endpoints.openai]
+adapter = "openai"
+base_url = "https://api.openai.com/v1"
+api_key = "${OPENAI_API_KEY}"
+default_model = "gpt-image-1.5"
+timeout = 180
 
-[image-generation.providers.apiyi.endpoints.openai]
-base_url = "https://api.apiyi.com/v1"
-default_model = "gpt-image-1"
+[image-generation.providers.primary.endpoints.openai.models."gpt-image-1.5"]
+adapter = "openai"
+operations = ["generate", "edit"]
+capabilities = [
+  "multi_reference", "mask", "size", "quality", "background",
+  "output_format", "output_compression", "moderation", "input_fidelity",
+]
+sizes = ["auto", "1024x1024", "1536x1024", "1024x1536"]
+qualities = ["auto", "low", "medium", "high"]
+output_formats = ["png", "jpeg", "webp"]
+max_references = 16
+max_outputs = 10
 
-[image-generation.providers.apiyi.endpoints.gemini]
-base_url = "https://api.apiyi.com"
-default_model = "gemini-2.0-flash-exp"
+[image-generation.providers.primary.endpoints.openai.models."gpt-image-1.5".options]
+generate_path = "/images/generations"
+edit_path = "/images/edits"
+image_field = "image[]"
 
-# 单端点 provider 示例：
+[image-generation.providers.primary.endpoints.gemini]
+adapter = "gemini"
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+api_key = "${GEMINI_API_KEY}"
+auth = "x-goog-api-key"
+default_model = "gemini-3-pro-image-preview"
+timeout = 180
 
-# [image-generation.providers.siliconflow]
-# name = "SiliconFlow"
-# api_key = "sk-xxx"
-#
-# [image-generation.providers.siliconflow.endpoints.openai]
-# base_url = "https://api.siliconflow.cn/v1"
-# default_model = "black-forest-labs/FLUX.1-schnell"
+[image-generation.providers.primary.endpoints.gemini.models."gemini-3-pro-image-preview"]
+adapter = "gemini"
+operations = ["generate", "edit"]
+capabilities = ["multi_reference", "aspect_ratio", "image_size"]
+max_references = 14
+max_outputs = 4
 
-# Google 原生 API 示例：
+[image-generation.providers.primary.endpoints.seedream]
+adapter = "seedream"
+base_url = "https://ark.cn-beijing.volces.com/api/v3"
+api_key = "${ARK_API_KEY}"
+default_model = "doubao-seedream-5-0-pro-260628"
+timeout = 300
 
-# [image-generation.providers.google]
-# name = "Google AI"
-# api_key = "xxx"
-#
-# [image-generation.providers.google.endpoints.gemini]
-# base_url = "https://generativelanguage.googleapis.com/v1beta"
-# default_model = "gemini-2.5-flash-image"
+# Seedream 5.0 Pro: up to 10 references, one output, normalized point/bbox edit.
+[image-generation.providers.primary.endpoints.seedream.models."doubao-seedream-5-0-pro-260628"]
+adapter = "seedream"
+operations = ["generate", "edit"]
+capabilities = ["multi_reference", "size", "seed", "watermark", "interactive_edit"]
+max_references = 10
+max_outputs = 1
+
+[image-generation.providers.primary.endpoints.seedream.models."doubao-seedream-5-0-pro-260628".options]
+generate_path = "/images/generations"
+response_format = "b64_json"
+
+# Seedream 4.5 group-image example. Keep only models enabled by this exact key/base_url.
+[image-generation.providers.primary.endpoints.seedream.models."doubao-seedream-4-5-251128"]
+adapter = "seedream"
+operations = ["generate", "edit"]
+capabilities = ["multi_reference", "size", "seed", "stream", "watermark", "sequential"]
+max_references = 10
+max_outputs = 10
+
+[image-generation.providers.primary.endpoints.seedream.models."doubao-seedream-4-5-251128".options]
+generate_path = "/images/generations"
+response_format = "b64_json"

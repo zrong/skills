@@ -1,0 +1,38 @@
+{
+  "skill_name": "image-generation",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "用 OpenAI adapter 编辑一张带透明区域蒙版的产品图，保留未遮罩区域，输出透明背景 PNG，并把最终执行命令和输出路径告诉我。",
+      "expected_output": "选择配置 allowlist 内支持 edit、mask 和 transparent 的 OpenAI 模型；在发送请求前校验输入文件、模型能力与 PNG/WebP 输出约束；通过统一 imggen edit CLI 生成且不覆盖已有文件。",
+      "files": [],
+      "expectations": [
+        "调用统一 imggen edit CLI，并显式选择 OpenAI endpoint 与 allowlist 内模型",
+        "蒙版以 multipart image/mask 请求发送，透明背景和 PNG 输出参数正确映射",
+        "模型或 endpoint 未配置、能力不支持、输出已存在时在网络调用前拒绝"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "用 Gemini adapter 参考三张角色图做一次语义编辑，保持人物身份和服装，只调整姿势与环境；先 dry-run，再生成正式图片。",
+      "expected_output": "选择配置 allowlist 内支持多参考编辑的 Gemini 图像模型；dry-run 只输出脱敏后的请求计划；正式调用通过 generateContent contents 发送三张 inlineData 参考图并保存结果。",
+      "files": [],
+      "expectations": [
+        "dry-run 完成配置、文件、模型和能力校验但不发送网络请求",
+        "Gemini 请求使用原生 generateContent，并按顺序携带全部 inlineData 参考图",
+        "不把 OpenAI mask、compression 等 Gemini 未声明能力的参数静默丢弃"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "用 Seedream 5.0 Pro 建立交互编辑会话：第一轮把主体变成红色圆形，第二轮在圆心加一颗黑色五角星；保存会话，随后演示从第二轮 retry。",
+      "expected_output": "仅使用配置 allowlist 内、声明 interactive_points 或 interactive_bbox 的 Seedream 5.0 Pro 模型；两轮输出和 request/session 元数据可恢复；第二轮自动以上一轮输出为输入，retry 不破坏已有成功记录。",
+      "files": [],
+      "expectations": [
+        "interactive start/edit/retry 全部经统一 imggen CLI 与 Seedream adapter 执行",
+        "第二轮 session 记录引用第一轮输出，point/bbox 标注映射到官方请求字段",
+        "会话文件不保存 API key，失败或 retry 保留可审计的 turn 状态"
+      ]
+    }
+  ]
+}

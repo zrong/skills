@@ -91,12 +91,12 @@ MCP 服务器自动部署工具。
 
 ### image-generation
 
-AI 图片生成工具，通过 OpenAI/Gemini 兼容 API 生成图片。
+AI 图片生成与编辑工具，通过独立 OpenAI、Gemini 原生和 Seedream adapter 调用图片 API。
 
-- 当用户说"生成图片"、"画图"、"封面图"、"配图"、"AI生图"时自动激活
-- 支持多 provider 配置（OpenAI 兼容 / Gemini 兼容）
-- 支持从 API 动态获取可用模型列表
-- 自动将中文 prompt 优化为英文，提升生成效果
+- 当用户说"生成图片"、"改图"、"参考图编辑"、"封面图"、"Gemini 生图"、"Seedream"时自动激活
+- endpoint 独立配置 adapter/base_url/key，并用精确模型 allowlist 与 capability policy 在请求前拦截越权调用
+- 支持生成、mask/多参考图编辑、JSONL 并发、downscale、chroma-key 和防覆盖输出
+- 支持 Seedream 5.0 Pro 点选/框选坐标协议与可恢复的连续编辑 session
 
 ### joplin
 
@@ -164,6 +164,7 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 ### 2026-07-19
 - 新增 seedance-2-video：适配 Seedance 2.0 提示词、图生视频、参考视频、分镜和长视频方法论，统一使用 Sorb 模型 schema 与 Canvas Agent 工具
 - 修正 seedance-2-video 的 Canvas 参数约束：使用 `canvas_form` 的精确字段与 `select`/`aspect_ratio` 映射，避免把 Provider schema 结构键写入生成节点
+- 升级 image-generation 至 v26.29.14：移植系统 imagegen CLI 能力，拆分 OpenAI/Gemini/Seedream adapter，新增严格 endpoint 模型 allowlist、Gemini/Seedream 生成与编辑、Seedream 5.0 Pro 坐标交互会话、批量/重试/downscale/chroma-key 及离线与 live smoke 验证
 
 ### 2026-07-16
 - 统一 video-downloader 输出目录：yt-dlp 下载默认按作者名或账号名建立子目录，与抖音、微信视频号保持一致；作者字段缺失时使用 `unknown-author`

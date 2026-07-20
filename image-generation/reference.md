@@ -1,73 +1,38 @@
-# 技术参考
+# 技术实现索引
 
-## 模块结构
+## 模块
 
-```
+```text
 scripts/imggen/
-├── __init__.py     # 包初始化
-├── cli.py          # CLI 入口（typer）
-├── config.py       # 配置加载
-└── provider.py     # Provider 实现
+├── cli.py                # argparse 统一 CLI、batch、interactive
+├── config.py             # 配置发现、endpoint 凭据、精确模型 allowlist
+├── models.py             # EndpointConfig / ModelPolicy / ImageRequest
+├── service.py            # capability 校验与瞬时错误重试
+├── prompting.py          # prompt-file 与结构化 prompt
+├── output.py             # 防覆盖、命名、格式、downscale
+├── interactive.py        # Seedream 坐标标注与原子会话 manifest
+├── chroma.py             # 纯色背景转 alpha
+├── provider.py           # 兼容 Python 入口，不再做协议猜测
+└── adapters/
+    ├── base.py
+    ├── openai.py
+    ├── gemini.py
+    └── seedream.py
 ```
 
-## config.py
+## 关键边界
 
-复用 rspeak 的 `_find_project_root()` 模式，从项目根 `agent_config.toml` 的 `[image-generation]` 命名空间加载配置。
+- `config.get_endpoint_config()` 在任何网络动作前解析 endpoint，并要求非空 `models` 子表。
+- `EndpointConfig.resolve_model()` 只做 exact match，并校验 `generate/edit` operation。
+- `service.validate_request()` 将每个显式参数映射到 capability，同时检查引用数、输出数和枚举 allowlist。
+- `adapters.create_adapter()` 只读取 endpoint 的 `adapter`；任何模型名称都不会改变协议。
+- `interactive.SessionStore` 先原子记录 pending turn，再记录 completed/failed，重启后可从最后成功输出继续或重试失败轮次。
 
-关键函数：
-- `load_config()` → 加载完整配置文件
-- `_get_imggen_config()` → 提取 `[image-generation]` 子字典
-- `list_providers()` → 返回所有 provider 概要信息
-- `get_provider_config(provider)` → 获取指定 provider 配置，支持默认/首个回退
+## 参考
 
-## provider.py
-
-扁平分派设计，按 provider 的 `type` 字段分派到不同 API 实现。
-
-### OpenAI 兼容实现
-
-**获取模型**：
-- `GET {base_url}/models`
-- Header: `Authorization: Bearer {api_key}`
-- 返回模型 ID 列表
-
-**生成图片（Images API）**：
-- `POST {base_url}/images/generations`
-- Body: `{"model": "...", "prompt": "...", "size": "1024x1024", "n": 1}`
-- 用于标准图片生成模型（DALL-E、Flux 等）
-
-**生成图片（Chat Completions API）**：
-- `POST {base_url}/chat/completions`
-- Body: `{"model": "...", "messages": [{"role": "user", "content": [{"type": "text", "text": "..."}, {"type": "image_url", "image_url": {"url": "..."}}]}]}`
-- 用于聊天生图模型（GPT-Image-1、Sora Image 等）
-- 模型名称匹配规则：包含 `gpt-image`、`sora` 等关键词的模型自动走此路径
-
-**响应处理**：
-- 优先使用 `b64_json` 字段（base64 解码保存）
-- 回退使用 `url` 字段（下载图片数据）
-
-### Gemini 兼容实现
-
-**获取模型**：
-- `GET {base_url}/models`
-- Header: `x-goog-api-key: {api_key}`
-
-**生成图片**：
-- `POST {base_url}/models/{model}:generateContent`
-- Header: `x-goog-api-key: {api_key}`
-- Body:
-```json
-{
-  "contents": [{"parts": [{"text": "prompt"}]}],
-  "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]}
-}
-```
-- 响应：从 `candidates[0].content.parts[]` 提取 `inlineData.data`（base64 图片）
-
-## CLI 命令（cli.py）
-
-使用 typer 框架，三个子命令：
-
-- `list`：列出已配置的 provider
-- `models`：从 API 获取可用模型列表（可选 `-p` 指定 provider）
-- `generate`：生成图片，参数包括 prompt、provider、model、size、output、n
+- [配置与安全边界](references/configuration.md)
+- [能力矩阵](references/capability-matrix.md)
+- [完整 CLI](references/cli.md)
+- [Prompt 结构](references/prompting.md)
+- [Seedream 交互编辑](references/seedream-interactive.md)
+- [系统 imagegen 迁移审计](references/migration-audit.md)
