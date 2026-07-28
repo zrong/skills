@@ -14,9 +14,10 @@ import tempfile
 import time
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, parse_qsl, quote, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
 try:
@@ -44,6 +45,70 @@ DEFAULT_YT_DLP_OUTPUT_TEMPLATE = "%(title)s [%(id)s].%(ext)s"
 YT_DLP_AUTHOR_DIRECTORY_TEMPLATE = (
     "%(uploader,channel,creator,uploader_id,channel_id|unknown-author)s"
 )
+VIDEO_METADATA_SCHEMA = "video-downloader.metadata/v1"
+VIDEO_METADATA_SUFFIX = ".metadata.json"
+VIDEO_EXTENSIONS = frozenset(
+    {
+        ".3gp",
+        ".avi",
+        ".flv",
+        ".m2ts",
+        ".m4v",
+        ".mkv",
+        ".mov",
+        ".mp4",
+        ".mpeg",
+        ".mpg",
+        ".ts",
+        ".webm",
+        ".wmv",
+    }
+)
+VIDEO_METADATA_FIELDS = (
+    "backend",
+    "platform",
+    "source_url",
+    "media_id",
+    "title",
+    "description",
+    "author_name",
+    "author_id",
+    "published_at",
+    "duration_seconds",
+    "tags",
+)
+YT_DLP_METADATA_FIELDS = (
+    "filepath",
+    "id",
+    "title",
+    "description",
+    "uploader",
+    "uploader_id",
+    "channel",
+    "channel_id",
+    "creator",
+    "upload_date",
+    "timestamp",
+    "release_timestamp",
+    "duration",
+    "tags",
+    "extractor_key",
+    "extractor",
+    "webpage_url",
+)
+YT_DLP_METADATA_TEMPLATE = "\t".join(
+    f"%({field})j" for field in YT_DLP_METADATA_FIELDS
+)
+SENSITIVE_QUERY_KEY_PARTS = (
+    "auth",
+    "cookie",
+    "credential",
+    "expires",
+    "key",
+    "secret",
+    "sig",
+    "token",
+)
 
 
 @dataclass(frozen=True)
@@ -51,6 +116,7 @@ class WxChannelsDownloadResult:
     path: Path
     description: str
     author_name: str
+    metadata_path: Path | None = None
 
 
 def die(message: str, code: int = 1) -> None:
@@ -60,6 +126,134 @@ def die(message: str, code: int = 1) -> None:
 
 def info(message: str) -> None:
     print(f"INFO: {message}", file=sys.stderr)
+
+
+def metadata_sidecar_path(media_path: Path) -> Path:
+    return Path(f"{media_path}{VIDEO_METADATA_SUFFIX}")
+
+
+def _clean_tags(value: object) -> list[str]:
+    if not isinstance(value, (list, tuple, set)):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if isinstance(item, dict):
+            item = (
+                item.get("name")
+                or item.get("title")
+                or item.get("hashtag_name")
+                or ""
+            )
+        tag = str(item).strip().lstrip("#")
+        if tag and tag not in seen:
+            result.append(tag)
+            seen.add(tag)
+    return result
+
+
+def extract_hashtags(text: str) -> list[str]:
+    return _clean_tags(re.findall(r"#([^#\s]+)", text))
+
+
+def metadata_title_from_description(description: str, fallback: str = "") -> str:
+    title = next(
+        (line.strip() for line in description.splitlines() if line.strip()),
+        fallback,
+    )
+    title = re.sub(r"#[^#\s]+", " ", title)
+    return re.sub(r"\s+", " ", title).strip()
+
+
+def normalize_published_at(value: object) -> str:
+    if value is None or value == "":
+        return ""
+    try:
+        timestamp = float(value)
+    except (TypeError, ValueError):
+        text = str(value).strip()
+        if re.fullmatch(r"\d{8}", text):
+            return f"{text[:4]}-{text[4:6]}-{text[6:]}"
+        return text
+    return (
+        datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        .astimezone()
+        .isoformat(timespec="seconds")
+    )
+
+
+def sanitize_public_source_url(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    parsed = urlparse(value.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return ""
+    hostname = parsed.hostname
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    netloc = hostname
+    try:
+        port = parsed.port
+    except ValueError:
+        return ""
+    if port:
+        netloc = f"{netloc}:{port}"
+    safe_query = urlencode(
+        [
+            (key, item)
+            for key, item in parse_qsl(parsed.query, keep_blank_values=True)
+            if not any(part in key.lower() for part in SENSITIVE_QUERY_KEY_PARTS)
+        ],
+        doseq=True,
+    )
+    return urlunparse(
+        (parsed.scheme, netloc, parsed.path, parsed.params, safe_query, "")
+    )
+
+
+def write_video_metadata(media_path: Path, metadata: dict) -> Path:
+    sidecar = metadata_sidecar_path(media_path)
+    existing: dict = {}
+    if sidecar.exists():
+        try:
+            loaded = json.loads(sidecar.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict) and loaded.get("schema") == VIDEO_METADATA_SCHEMA:
+                existing = loaded
+        except (OSError, json.JSONDecodeError):
+            existing = {}
+
+    payload: dict[str, object] = {"schema": VIDEO_METADATA_SCHEMA}
+    for field in VIDEO_METADATA_FIELDS:
+        value = metadata.get(field)
+        if field == "tags":
+            value = _clean_tags(value)
+        elif field == "source_url":
+            value = sanitize_public_source_url(value)
+        elif isinstance(value, str):
+            value = value.strip()
+        if value is not None and value != "" and value != () and value != []:
+            payload[field] = value
+    payload["file_name"] = media_path.name
+    payload["downloaded_at"] = existing.get("downloaded_at") or (
+        datetime.now().astimezone().isoformat(timespec="seconds")
+    )
+
+    sidecar.parent.mkdir(parents=True, exist_ok=True)
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    if sidecar.exists() and sidecar.read_text(encoding="utf-8") == serialized:
+        return sidecar
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=sidecar.parent,
+        prefix=f".{sidecar.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as output:
+        output.write(serialized)
+        temp_path = Path(output.name)
+    os.replace(temp_path, sidecar)
+    return sidecar
 
 
 def expand_path(value: str | None, base_dir: Path = SKILL_DIR) -> Path | None:
@@ -163,15 +357,105 @@ def build_yt_dlp_download_command(
     output_dir: Path,
     settings: dict,
     url: str,
+    metadata_output_path: Path | None = None,
 ) -> list[str]:
-    return [
+    command = [
         str(yt_bin),
         "-P",
         str(output_dir),
         "-o",
         build_yt_dlp_output_template(settings),
-        url,
     ]
+    if metadata_output_path is not None:
+        command.extend(
+            [
+                "--print-to-file",
+                f"after_move:{YT_DLP_METADATA_TEMPLATE}",
+                str(metadata_output_path),
+            ]
+        )
+    command.append(url)
+    return command
+
+
+def _path_within_output_dir(raw_path: object, output_dir: Path) -> Path:
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        raise ValueError("download metadata does not contain a media path")
+    candidate = Path(raw_path).expanduser()
+    if not candidate.is_absolute():
+        candidate = output_dir / candidate
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(output_dir.resolve())
+    except ValueError as exc:
+        raise ValueError(
+            f"media path is outside the configured output directory: {candidate}"
+        ) from exc
+    return candidate
+
+
+def _read_yt_dlp_metadata_line(line: str) -> dict:
+    parts = line.rstrip("\n").split("\t")
+    if len(parts) != len(YT_DLP_METADATA_FIELDS):
+        raise ValueError("yt-dlp metadata record has an unexpected field count")
+    values: list[object] = []
+    for value in parts:
+        try:
+            values.append(json.loads(value))
+        except json.JSONDecodeError as exc:
+            raise ValueError("yt-dlp metadata record contains invalid JSON") from exc
+    return dict(zip(YT_DLP_METADATA_FIELDS, values))
+
+
+def sync_yt_dlp_metadata_sidecars(
+    metadata_output_path: Path,
+    output_dir: Path,
+) -> list[Path]:
+    if not metadata_output_path.exists():
+        return []
+    sidecars: list[Path] = []
+    for line_number, line in enumerate(
+        metadata_output_path.read_text(encoding="utf-8").splitlines(),
+        start=1,
+    ):
+        if not line.strip():
+            continue
+        try:
+            record = _read_yt_dlp_metadata_line(line)
+            media_path = _path_within_output_dir(record["filepath"], output_dir)
+        except ValueError as exc:
+            raise ValueError(f"invalid yt-dlp metadata on line {line_number}: {exc}") from exc
+        if not media_path.exists() or media_path.suffix.lower() not in VIDEO_EXTENSIONS:
+            continue
+        platform = record.get("extractor_key") or record.get("extractor") or "yt-dlp"
+        published_at = normalize_published_at(
+            record.get("timestamp")
+            or record.get("release_timestamp")
+            or record.get("upload_date")
+        )
+        sidecars.append(
+            write_video_metadata(
+                media_path,
+                {
+                    "backend": "yt-dlp",
+                    "platform": str(platform),
+                    "source_url": record.get("webpage_url"),
+                    "media_id": record.get("id"),
+                    "title": record.get("title"),
+                    "description": record.get("description"),
+                    "author_name": (
+                        record.get("uploader")
+                        or record.get("channel")
+                        or record.get("creator")
+                    ),
+                    "author_id": record.get("uploader_id") or record.get("channel_id"),
+                    "published_at": published_at,
+                    "duration_seconds": record.get("duration"),
+                    "tags": record.get("tags"),
+                },
+            )
+        )
+    return sidecars
 
 
 def normalize_wx_channels_api_url(value: str | None) -> str:
@@ -437,6 +721,14 @@ def parse_wx_channels_video(share_url: str, api_url: str, timeout: float) -> dic
         "video_url": video_url,
         "description": str(feed_info.get("description") or ""),
         "author_name": str(author_name or ""),
+        "author_id": str(
+            (author_info.get("username") or author_info.get("finderUsername") or "")
+            if isinstance(author_info, dict)
+            else ""
+        ),
+        "published_at": normalize_published_at(
+            feed_info.get("createtime") or feed_info.get("createTime")
+        ),
     }
 
 
@@ -477,6 +769,29 @@ def safe_wx_channels_author_dir(author_name: str) -> str:
     return name or "unknown-channel"
 
 
+def write_wx_channels_metadata(
+    media_path: Path,
+    share_url: str,
+    parsed: dict,
+) -> Path:
+    description = parsed["description"]
+    return write_video_metadata(
+        media_path,
+        {
+            "backend": "wx-channels",
+            "platform": "微信视频号",
+            "source_url": share_url,
+            "media_id": wx_channels_share_id(share_url),
+            "title": metadata_title_from_description(description, "视频号作品"),
+            "description": description,
+            "author_name": parsed["author_name"],
+            "author_id": parsed.get("author_id"),
+            "published_at": parsed.get("published_at"),
+            "tags": extract_hashtags(description),
+        },
+    )
+
+
 def download_wx_channels_video(
     share_url: str,
     output_dir: Path,
@@ -489,21 +804,28 @@ def download_wx_channels_video(
     output_path = channel_dir / filename
     if output_path.exists() and output_path.stat().st_size > 0:
         info(f"Already downloaded: {output_path}")
+        metadata_path = write_wx_channels_metadata(output_path, share_url, parsed)
         return WxChannelsDownloadResult(
             path=output_path,
             description=parsed["description"],
             author_name=parsed["author_name"],
+            metadata_path=metadata_path,
         )
 
     legacy_path = output_dir / filename
     if legacy_path.exists() and legacy_path.stat().st_size > 0:
         channel_dir.mkdir(parents=True, exist_ok=True)
         legacy_path.replace(output_path)
+        legacy_metadata_path = metadata_sidecar_path(legacy_path)
+        if legacy_metadata_path.exists():
+            legacy_metadata_path.replace(metadata_sidecar_path(output_path))
         info(f"Moved legacy download into channel directory: {output_path}")
+        metadata_path = write_wx_channels_metadata(output_path, share_url, parsed)
         return WxChannelsDownloadResult(
             path=output_path,
             description=parsed["description"],
             author_name=parsed["author_name"],
+            metadata_path=metadata_path,
         )
 
     channel_dir.mkdir(parents=True, exist_ok=True)
@@ -533,10 +855,12 @@ def download_wx_channels_video(
         if isinstance(exc, RuntimeError):
             raise
         raise RuntimeError(f"failed to download WeChat Channels video: {exc}") from exc
+    metadata_path = write_wx_channels_metadata(output_path, share_url, parsed)
     return WxChannelsDownloadResult(
         path=output_path,
         description=parsed["description"],
         author_name=parsed["author_name"],
+        metadata_path=metadata_path,
     )
 
 
@@ -652,6 +976,71 @@ def run(cmd: list[str], cwd: Path | None = None) -> None:
     result = subprocess.run(cmd, cwd=str(cwd) if cwd else None)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
+
+
+def sync_douyin_metadata_sidecars(output_dir: Path) -> list[Path]:
+    manifest_path = output_dir / "download_manifest.jsonl"
+    if not manifest_path.exists():
+        return []
+    sidecars: list[Path] = []
+    seen: set[Path] = set()
+    for line_number, line in enumerate(
+        manifest_path.read_text(encoding="utf-8").splitlines(),
+        start=1,
+    ):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            info(f"Skipping invalid Douyin manifest line {line_number}")
+            continue
+        if not isinstance(record, dict):
+            continue
+        description = str(record.get("desc") or "")
+        aweme_id = str(record.get("aweme_id") or "")
+        published_at = normalize_published_at(
+            record.get("publish_timestamp") or record.get("date")
+        )
+        raw_paths = record.get("file_paths") or []
+        if isinstance(raw_paths, str):
+            raw_paths = [raw_paths]
+        for raw_path in raw_paths:
+            try:
+                media_path = _path_within_output_dir(raw_path, output_dir)
+            except ValueError as exc:
+                info(f"Skipping invalid Douyin media path on line {line_number}: {exc}")
+                continue
+            if (
+                media_path in seen
+                or not media_path.exists()
+                or media_path.suffix.lower() not in VIDEO_EXTENSIONS
+            ):
+                continue
+            source_url = (
+                f"https://www.douyin.com/video/{aweme_id}" if aweme_id else ""
+            )
+            sidecars.append(
+                write_video_metadata(
+                    media_path,
+                    {
+                        "backend": "douyin",
+                        "platform": "抖音",
+                        "source_url": source_url,
+                        "media_id": aweme_id,
+                        "title": metadata_title_from_description(
+                            description,
+                            media_path.stem,
+                        ),
+                        "description": description,
+                        "author_name": record.get("author_name"),
+                        "published_at": published_at,
+                        "tags": record.get("tags") or extract_hashtags(description),
+                    },
+                )
+            )
+            seen.add(media_path)
+    return sidecars
 
 
 def build_douyin_request_config(
@@ -998,6 +1387,8 @@ def command_download(args: argparse.Namespace) -> int:
                 )
             die(f"wx-channels download failed: {message}")
         print(f"Downloaded file: {result.path}")
+        if result.metadata_path:
+            print(f"Metadata file: {result.metadata_path}")
         print(f"Original description: {result.description}")
         return 0
 
@@ -1008,11 +1399,38 @@ def command_download(args: argparse.Namespace) -> int:
                 "yt-dlp backend is unavailable. Ask the user whether to install yt-dlp, "
                 "or set [video-downloader].yt_dlp_path in agent_config.toml."
             )
+        metadata_state_dir = runtime_dir / "state"
+        metadata_state_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            dir=metadata_state_dir,
+            prefix="yt-dlp-metadata-",
+            suffix=".jsonl",
+            delete=False,
+        ) as metadata_output:
+            metadata_output_path = Path(metadata_output.name)
         try:
-            cmd = build_yt_dlp_download_command(yt_bin, output_dir, settings, args.url)
-        except ValueError as exc:
-            die(str(exc))
-        run(cmd, cwd=PROJECT_ROOT)
+            try:
+                cmd = build_yt_dlp_download_command(
+                    yt_bin,
+                    output_dir,
+                    settings,
+                    args.url,
+                    metadata_output_path,
+                )
+            except ValueError as exc:
+                die(str(exc))
+            run(cmd, cwd=PROJECT_ROOT)
+            try:
+                sidecars = sync_yt_dlp_metadata_sidecars(
+                    metadata_output_path,
+                    output_dir,
+                )
+            except ValueError as exc:
+                die(str(exc))
+            for sidecar in sidecars:
+                print(f"Metadata file: {sidecar}")
+        finally:
+            metadata_output_path.unlink(missing_ok=True)
         return 0
 
     if backend != "douyin":
@@ -1063,6 +1481,9 @@ def command_download(args: argparse.Namespace) -> int:
         ],
         cwd=douyin_home,
     )
+    sidecars = sync_douyin_metadata_sidecars(output_dir)
+    for sidecar in sidecars:
+        print(f"Metadata file: {sidecar}")
     return 0
 
 

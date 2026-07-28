@@ -23,6 +23,11 @@ description: |
 - `wx_channels_download`：用于微信视频号 `weixin.qq.com/sph/` 分享链接，通过本地 API 解析并下载，不操作微信客户端。
 - `yt-dlp`：用于 yt-dlp 支持的网站视频下载。
 
+三个 backend 成功下载视频后，都会在媒体文件旁生成
+`<媒体文件名>.metadata.json`。侧车记录可获得的标题、作者、平台、发布时间、
+时长、视频 ID、完整原始文案、话题和公开来源页，供 Immich 等下游 skill
+自动生成完整描述。字段契约见 `references/metadata-handoff.md`。
+
 ## 配置来源
 
 配置文件固定按以下顺序查找：
@@ -140,6 +145,9 @@ uv run --project scripts python scripts/video_downloader.py download \
 
 精简标题取原始描述的第一行，移除 `#话题`、文件系统非法字符和符号字符，标题部分最多保留 30 个字符；中文和常规标点保持不变，`sph_id` 始终保留用于去重。命令还会输出未经修改的 `Original description`，供上传到 Immich 时写入描述（包括原始话题）。
 
+命令同时输出 `Metadata file`。上传到 Immich 时优先传递媒体路径，让 Immich
+自动读取相邻侧车；`Original description` 仅用于人工核对或不支持侧车的下游。
+
 这与 `douyin-downloader` 默认按作者昵称建立目录的规则一致，但视频号目录内不再增加 `post` 或单作品目录。旧版本已经直接保存在下载根目录的同名视频，会在再次处理时自动迁移到对应视频号目录。
 
 需要主动刷新时运行：
@@ -162,6 +170,19 @@ uv run --project scripts python scripts/video_downloader.py --non-interactive \
 ```bash
 python3 scripts/video_downloader.py download "URL" --backend auto
 ```
+
+## 与 Immich 组合
+
+当用户要求下载并上传到 Immich 时：
+
+1. 执行 `doctor --json`，按 URL 选择 backend。
+2. 下载视频，确认命令返回的 `Downloaded file` 或 backend 最终媒体路径。
+3. 确认媒体旁存在 `<媒体文件名>.metadata.json`。
+4. 把媒体路径交给 `immich upload`；无需手工拼接 `--description`。
+5. 上传成功后返回 Immich 的公开链接。下载文件默认保留。
+
+元数据侧车只包含公开白名单字段，不包含 Cookie、请求头、API key、
+浏览器 profile 或平台媒体直链。`yt-dlp` 不保存完整 info JSON。
 
 ## 安装命令
 
@@ -323,7 +344,7 @@ python3 scripts/video_downloader.py refresh-cookies
 
 1. 先由本 skill 完成下载，并确认下载成功。
 2. 向后续 skill 提供准确的本地媒体文件路径，不传递原始网络 URL。
-3. 视频号下载同时传递命令输出的完整 `Original description`；Immich 上传时用 `--description` 原样保存，文件名中的话题不会丢失。
+3. 同时保留相邻的 `<媒体文件名>.metadata.json`；Immich 会自动读取并生成详细描述。
 4. 后续上传成功后仍默认保留下载文件；只有用户明确要求清理时才删除。
 
 用户已经提供本地文件或附件时，不调用本 skill，直接交给对应的上传 skill。

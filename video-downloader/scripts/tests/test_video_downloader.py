@@ -37,6 +37,7 @@ class MockHandler(BaseHTTPRequestHandler):
                             "authorInfo": {"nickname": "Test/Channel"},
                             "feedInfo": {
                                 "description": "A test/video #topic\nsecond line",
+                                "createtime": 1720000000,
                                 "originVideoUrl": f"http://127.0.0.1:{self.server.server_port}{media_path}",
                             }
                         }
@@ -127,15 +128,68 @@ class VideoDownloaderTests(unittest.TestCase):
                 )
 
     def test_yt_dlp_command_keeps_root_and_template_separate(self) -> None:
+        metadata_path = Path("runtime/metadata.jsonl")
         command = video_downloader.build_yt_dlp_download_command(
             Path("yt-dlp"),
             Path("D:/Downloads/video-downloads"),
             {"yt_dlp_output_template": "%(title)s [%(id)s].%(ext)s"},
             "https://example.com/video",
+            metadata_path,
         )
         self.assertEqual(command[1:3], ["-P", "D:/Downloads/video-downloads"])
         self.assertEqual(command[3], "-o")
         self.assertTrue(command[4].endswith("/%(title)s [%(id)s].%(ext)s"))
+        self.assertIn("--print-to-file", command)
+        self.assertIn(str(metadata_path), command)
+        self.assertTrue(command[-1].startswith("https://"))
+
+    def test_yt_dlp_metadata_creates_safe_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+            media_path = output_dir / "Author" / "Video [abc].mp4"
+            media_path.parent.mkdir()
+            media_path.write_bytes(b"video")
+            record = {
+                "filepath": str(media_path),
+                "id": "abc",
+                "title": "Video title",
+                "description": "Full description #topic",
+                "uploader": "Author",
+                "uploader_id": "author-id",
+                "channel": None,
+                "channel_id": None,
+                "creator": None,
+                "upload_date": "20240703",
+                "timestamp": None,
+                "release_timestamp": None,
+                "duration": 65.4,
+                "tags": ["topic"],
+                "extractor_key": "Youtube",
+                "extractor": "youtube",
+                "webpage_url": "https://example.com/watch?v=abc&token=secret#part",
+            }
+            metadata_output = output_dir / "yt-metadata.jsonl"
+            metadata_output.write_text(
+                "\t".join(
+                    json.dumps(record[field], ensure_ascii=False)
+                    for field in video_downloader.YT_DLP_METADATA_FIELDS
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            sidecars = video_downloader.sync_yt_dlp_metadata_sidecars(
+                metadata_output,
+                output_dir,
+            )
+
+            self.assertEqual(sidecars, [video_downloader.metadata_sidecar_path(media_path)])
+            payload = json.loads(sidecars[0].read_text(encoding="utf-8"))
+            self.assertEqual(payload["schema"], video_downloader.VIDEO_METADATA_SCHEMA)
+            self.assertEqual(payload["platform"], "Youtube")
+            self.assertEqual(payload["duration_seconds"], 65.4)
+            self.assertEqual(payload["source_url"], "https://example.com/watch?v=abc")
+            self.assertNotIn("token", json.dumps(payload))
 
     def test_api_url_normalization(self) -> None:
         self.assertEqual(
@@ -199,6 +253,16 @@ class VideoDownloaderTests(unittest.TestCase):
                 output.description,
                 "A test/video #topic\nsecond line",
             )
+            self.assertEqual(
+                output.metadata_path,
+                video_downloader.metadata_sidecar_path(output.path),
+            )
+            metadata = json.loads(output.metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual(metadata["platform"], "微信视频号")
+            self.assertEqual(metadata["title"], "A test/video")
+            self.assertEqual(metadata["tags"], ["topic"])
+            self.assertEqual(metadata["media_id"], "A61BYtvDIe")
+            self.assertNotIn("video_url", metadata)
 
     def test_wx_channels_filename_preserves_chinese_and_removes_topics(self) -> None:
         description = (
@@ -235,6 +299,43 @@ class VideoDownloaderTests(unittest.TestCase):
             self.assertEqual(output.path, root / "Test_Channel" / legacy.name)
             self.assertEqual(output.path.read_bytes(), b"legacy-video-content")
             self.assertFalse(legacy.exists())
+
+    def test_douyin_manifest_creates_video_sidecar_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir)
+            author_dir = output_dir / "作者"
+            author_dir.mkdir()
+            media_path = author_dir / "标题 [123].mp4"
+            cover_path = author_dir / "标题 [123].jpg"
+            media_path.write_bytes(b"video")
+            cover_path.write_bytes(b"cover")
+            record = {
+                "aweme_id": "123",
+                "author_name": "作者",
+                "desc": "完整标题 #话题\n第二行",
+                "tags": ["话题"],
+                "date": "2024-07-03",
+                "file_paths": [
+                    str(media_path.relative_to(output_dir)),
+                    str(cover_path.relative_to(output_dir)),
+                ],
+            }
+            (output_dir / "download_manifest.jsonl").write_text(
+                json.dumps(record, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
+            sidecars = video_downloader.sync_douyin_metadata_sidecars(output_dir)
+
+            self.assertEqual(sidecars, [video_downloader.metadata_sidecar_path(media_path)])
+            payload = json.loads(sidecars[0].read_text(encoding="utf-8"))
+            self.assertEqual(payload["platform"], "抖音")
+            self.assertEqual(payload["title"], "完整标题")
+            self.assertEqual(
+                payload["source_url"],
+                "https://www.douyin.com/video/123",
+            )
+            self.assertFalse(video_downloader.metadata_sidecar_path(cover_path).exists())
 
     def test_parse_errors_are_explicit(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "sphCookie not configured"):
