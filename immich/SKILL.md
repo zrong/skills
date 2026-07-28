@@ -34,28 +34,28 @@ asset_time_source = "upload"  # 可选，upload（默认）或 source
 
 ### 2. 上传本地文件
 
-**运行方式（重要）：** 必须从 `agent_config.toml` 所在目录运行，且需要用
-`--project` 指定 scripts 目录，再通过 `python -c` 调用 CLI：
+使用 `--project` 指定 scripts 目录即可从任意工作目录调用 CLI。配置仍按前述
+优先级查找，最终兜底为 `~/.agents/agent_config.toml`：
 
 ```bash
-# 从全局配置目录运行（推荐）
-cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import main; main()" upload /path/to/photo.jpg
+# 上传单个文件
+uv run --project {SCRIPTS_DIR} immich upload "{LOCAL_PHOTO}"
 
 # 指定 album
-cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import main; main()" upload /path/to/video.mp4 --album "Vacation"
+uv run --project {SCRIPTS_DIR} immich upload "{LOCAL_VIDEO}" --album "Vacation"
 
 # 单文件上传并保留网络来源的完整原始描述
-cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import main; main()" upload /path/to/video.mp4 --description "原标题 #话题1 #话题2"
+uv run --project {SCRIPTS_DIR} immich upload "{LOCAL_VIDEO}" --description "原标题 #话题1 #话题2"
+
+# 显式指定 video-downloader 元数据侧车（通常无需指定，会自动查找相邻文件）
+uv run --project {SCRIPTS_DIR} immich upload "{LOCAL_VIDEO}" --metadata-file "{METADATA_FILE}"
 
 # 本次上传改用媒体拍摄/创建时间
-cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import main; main()" upload /path/to/photo.jpg --asset-time source
+uv run --project {SCRIPTS_DIR} immich upload "{LOCAL_PHOTO}" --asset-time source
 
 # 批量上传
-cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import main; main()" upload /path/to/img1.jpg /path/to/img2.png --album "Trip"
+uv run --project {SCRIPTS_DIR} immich upload "{LOCAL_IMAGE_1}" "{LOCAL_IMAGE_2}" --album "Trip"
 ```
-
-`uv run immich upload ...`（文档中的简写形式）**不工作**——该包没有注册
-console_scripts 入口点。使用上面的 python -c 调用方式。
 
 ### 2a. fallback：用 curl 直接上传
 
@@ -105,13 +105,20 @@ echo "Public URL: ${PUBLIC_ALBUM_URL%/}/photos/${ASSET_ID}"
 本 skill 不下载网络资源。用户提供视频 URL 并要求上传 Immich 时，按以下顺序组合两个 skill：
 
 1. 使用 `video-downloader` 检查 backend 并完成下载。
-2. 从下载结果中取得准确的本地媒体文件路径。
-3. 将该路径传给本 skill 的 `upload` 命令；视频号下载还应把完整
-   `Original description` 通过 `--description` 原样传入。
+2. 从下载结果中取得准确的本地媒体文件路径，并保留相邻的
+   `<媒体文件名>.metadata.json`。
+3. 将媒体路径传给本 skill 的 `upload` 命令。未显式提供
+   `--description` 时，Immich 自动读取侧车，并把可获得的标题、作者、平台、
+   发布时间、时长、视频 ID、原始文案、话题和来源页写入 Description。
 4. 上传到默认公开相册后，将 `public_url` 返回给用户。
 
 下载文件默认保留。只有用户明确要求清理时，才在确认 Immich 上传成功后删除。
 用户直接提供本地文件或附件时，跳过 `video-downloader`，直接上传。
+
+侧车使用 `video-downloader.metadata/v1` schema，字段契约见
+video-downloader skill 的 `references/metadata-handoff.md`。显式
+`--description` 优先于自动侧车；`--metadata-file` 可为单文件上传指定非相邻
+侧车。侧车不存在时保持原有本地上传行为，不猜测视频信息。
 
 ### 4. 批量上传
 
@@ -131,6 +138,9 @@ uv run immich batch-upload /path/to/videos mp4 mkv mov --recursive --album "Vide
 uv run immich batch-upload --no-delete
 ```
 
+批量上传会为每个媒体文件分别查找相邻侧车。启用默认删除行为时，上传成功的
+媒体及其侧车会一起删除。
+
 ### 5. 初始化和测试
 
 ```bash
@@ -145,8 +155,7 @@ Immich 没法改 `originalFileName`，但可以在 asset 详情面板的"Descrip
 文件名、作者、来源 URL 写进去：
 
 ```bash
-cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import main; main()" \
-  update-description <ASSET_UUID> "原文件名: xxx.mp4
+uv run --project {SCRIPTS_DIR} immich update-description <ASSET_UUID> "原文件名: xxx.mp4
 抖音作者: 某某
 抖音ID: 7659048818268179754
 原始 URL: https://v.douyin.com/xxxxx/"
@@ -219,6 +228,10 @@ cd ~/.agents && uv run --project {SCRIPTS_DIR} python -c "from immich.cli import
    `duplicate` 都按本次命令开始上传的时间更新 Immich 时间线。需要保留照片拍摄时间
    或视频内嵌创建时间时，配置 `source` 或单次使用 `--asset-time source`。
 
+9. **下载视频的详细描述来自相邻侧车。** `video-downloader` 会生成
+   `<媒体文件名>.metadata.json`。Immich 在没有显式 `--description` 时自动
+   读取并格式化；缺失字段会省略，侧车不存在时不改变普通本地上传行为。
+
 ## Python API
 
 ```python
@@ -237,7 +250,6 @@ async with ImmichClient() as client:
     result = await uploader.upload_file(
         Path("photo.jpg"),
         album_name="My Photos",
-        description="原标题 #话题",
     )
     print(result.get("public_url"))
 

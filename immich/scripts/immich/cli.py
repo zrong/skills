@@ -7,6 +7,7 @@ from pathlib import Path
 
 from immich.config import get_default_album, load_config
 from immich.client import ImmichClient
+from immich.metadata import metadata_sidecar_path
 from immich.uploader import ImmichUploader
 
 
@@ -24,7 +25,16 @@ def main():
     up = sub.add_parser("upload", help="Upload local files")
     up.add_argument("files", nargs="+", type=Path, help="File paths to upload")
     up.add_argument("--album", "-a", help="Album name")
-    up.add_argument("--description", help="Description for a single uploaded file")
+    description_source = up.add_mutually_exclusive_group()
+    description_source.add_argument(
+        "--description",
+        help="Description for a single uploaded file",
+    )
+    description_source.add_argument(
+        "--metadata-file",
+        type=Path,
+        help="video-downloader metadata sidecar for a single uploaded file",
+    )
     up.add_argument(
         "--asset-time",
         choices=("upload", "source"),
@@ -59,12 +69,15 @@ def main():
     elif args.cmd == "upload":
         if args.description is not None and len(args.files) != 1:
             parser.error("--description requires exactly one file")
+        if args.metadata_file is not None and len(args.files) != 1:
+            parser.error("--metadata-file requires exactly one file")
         asyncio.run(
             upload_files(
                 args.files,
                 args.album,
                 args.description,
                 args.asset_time,
+                args.metadata_file,
             )
         )
     elif args.cmd == "batch-upload":
@@ -102,6 +115,7 @@ async def upload_files(
     album_name: str | None,
     description: str | None = None,
     asset_time_source: str | None = None,
+    metadata_file: Path | None = None,
 ):
     """Upload files in parallel."""
     if description is not None and len(paths) != 1:
@@ -122,9 +136,10 @@ async def upload_files(
                     print(f"OK   {path}: {result.get('id')}")
                     print_public_url(result)
         else:
-            result = await uploader.upload_file(
-                paths[0], album_name, description=description
-            )
+            upload_options = {"description": description}
+            if metadata_file is not None:
+                upload_options["metadata_path"] = metadata_file
+            result = await uploader.upload_file(paths[0], album_name, **upload_options)
             print(f"Uploaded: {result.get('id')}")
             print_public_url(result)
 
@@ -190,6 +205,7 @@ async def batch_upload_files(
             print("\nDeleting uploaded files...")
             for path, result in success:
                 path.unlink()
+                metadata_sidecar_path(path).unlink(missing_ok=True)
                 print(f"Deleted: {path.name}")
             print(f"Deleted {len(success)} files.")
 

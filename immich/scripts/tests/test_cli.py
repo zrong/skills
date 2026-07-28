@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from immich import cli
+from immich.metadata import VIDEO_METADATA_SCHEMA, metadata_sidecar_path
 
 
 PUBLIC_RESULT = {
@@ -55,6 +56,25 @@ class PublicUrlOutputTests(unittest.TestCase):
             description="原标题 #话题",
         )
 
+    def test_explicit_metadata_file_is_forwarded(self):
+        load, album, client, uploader_cls, uploader = self._patch_upload_dependencies()
+        uploader.upload_file = AsyncMock(return_value=dict(PUBLIC_RESULT))
+        metadata_file = Path("asset.metadata.json")
+        with load, album, client, uploader_cls:
+            self._capture(
+                cli.upload_files(
+                    [Path("asset.mp4")],
+                    None,
+                    metadata_file=metadata_file,
+                )
+            )
+        uploader.upload_file.assert_awaited_once_with(
+            Path("asset.mp4"),
+            "Inspiration",
+            description=None,
+            metadata_path=metadata_file,
+        )
+
     def test_batch_upload_prints_public_url(self):
         load, album, client, uploader_cls, uploader = self._patch_upload_dependencies()
         uploader.upload_files = AsyncMock(return_value=[dict(PUBLIC_RESULT)])
@@ -65,6 +85,31 @@ class PublicUrlOutputTests(unittest.TestCase):
                 self._capture(
                     cli.batch_upload_files(path, ["jpg"], None, True, False)
                 )
+
+    def test_batch_delete_removes_adjacent_metadata(self):
+        load, album, client, uploader_cls, uploader = self._patch_upload_dependencies()
+        uploader.upload_files = AsyncMock(return_value=[dict(PUBLIC_RESULT)])
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            media_path = directory / "asset.mp4"
+            media_path.touch()
+            sidecar = metadata_sidecar_path(media_path)
+            sidecar.write_text(
+                '{"schema": "' + VIDEO_METADATA_SCHEMA + '"}',
+                encoding="utf-8",
+            )
+            with load, album, client, uploader_cls:
+                self._capture(
+                    cli.batch_upload_files(
+                        directory,
+                        ["mp4"],
+                        None,
+                        False,
+                        False,
+                    )
+                )
+            self.assertFalse(media_path.exists())
+            self.assertFalse(sidecar.exists())
 
     def test_upload_url_command_is_removed(self):
         error = StringIO()

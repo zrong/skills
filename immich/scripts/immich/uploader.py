@@ -10,6 +10,7 @@ from immich.config import (
     get_default_album,
     get_public_album_url,
 )
+from immich.metadata import format_video_description, load_video_metadata
 
 
 class ImmichUploader:
@@ -36,8 +37,13 @@ class ImmichUploader:
         path: Path,
         album_name: str | None = None,
         description: str | None = None,
+        metadata_path: Path | None = None,
     ) -> dict:
         """Upload a local file to Immich, optionally to an album."""
+        if description is None:
+            metadata = load_video_metadata(path, metadata_path)
+            if metadata:
+                description = format_video_description(metadata) or None
         upload_time = None
         if self.asset_time_source == "upload":
             upload_time = datetime.now().astimezone()

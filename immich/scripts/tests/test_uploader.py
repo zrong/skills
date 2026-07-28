@@ -1,8 +1,11 @@
 import asyncio
+import json
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+from immich.metadata import VIDEO_METADATA_SCHEMA, metadata_sidecar_path
 from immich.uploader import ImmichUploader
 
 
@@ -115,6 +118,52 @@ class AssetMetadataTests(unittest.TestCase):
             date_time_original=None,
             description=description,
         )
+
+    def test_adjacent_video_metadata_is_used_when_description_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "asset.mp4"
+            path.write_bytes(b"video")
+            metadata_sidecar_path(path).write_text(
+                json.dumps(
+                    {
+                        "schema": VIDEO_METADATA_SCHEMA,
+                        "title": "标题",
+                        "description": "完整描述 #话题",
+                        "author_name": "作者",
+                        "platform": "抖音",
+                        "media_id": "123",
+                        "source_url": "https://www.douyin.com/video/123",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            client = self._client()
+            uploader = ImmichUploader(client, asset_time_source="source")
+
+            asyncio.run(uploader.upload_file(path))
+
+            description = client.update_asset.await_args.kwargs["description"]
+            self.assertIn("标题：标题", description)
+            self.assertIn("作者：作者", description)
+            self.assertIn("平台：抖音", description)
+            self.assertIn("原始描述：\n完整描述 #话题", description)
+            self.assertIn("来源：https://www.douyin.com/video/123", description)
+
+    def test_explicit_description_overrides_adjacent_metadata(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "asset.mp4"
+            metadata_sidecar_path(path).write_text("not json", encoding="utf-8")
+            client = self._client()
+            uploader = ImmichUploader(client, asset_time_source="source")
+
+            asyncio.run(uploader.upload_file(path, description="显式描述"))
+
+            client.update_asset.assert_awaited_once_with(
+                "asset-uuid",
+                date_time_original=None,
+                description="显式描述",
+            )
 
 
 if __name__ == "__main__":
