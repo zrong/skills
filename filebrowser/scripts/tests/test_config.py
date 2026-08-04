@@ -49,6 +49,7 @@ def test_loads_multiple_s3_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert config.default_target == "archive"
     assert list(config.targets) == ["archive", "secondary"]
     assert config.source().token.resolve("token") == "fb-secret"
+    assert config.source().upload_chunk_bytes == 16 * 1024 * 1024
     assert config.target("secondary").bucket == "secondary-bucket"
     assert "fb-secret" not in repr(config)
 
@@ -129,3 +130,24 @@ def test_rejects_ambiguous_s3_credentials(
     config_path.write_text(config_text, encoding="utf-8")
     with pytest.raises(ConfigError, match=message):
         load_skill_config(config_path)
+
+
+def test_supports_source_only_config_for_filebrowser_put(tmp_path: Path) -> None:
+    config_path = tmp_path / "agent_config.toml"
+    config_path.write_text(
+        """
+[filebrowser]
+
+[filebrowser.sources.main]
+base_url = "https://files.example.test"
+token_env = "TEST_FILEBROWSER_TOKEN"
+source = "projects"
+upload_chunk_bytes = 4194304
+""",
+        encoding="utf-8",
+    )
+    config, _ = load_skill_config(config_path)
+
+    assert config.default_source == "main"
+    assert config.default_target == ""
+    assert config.source().upload_chunk_bytes == 4 * 1024 * 1024

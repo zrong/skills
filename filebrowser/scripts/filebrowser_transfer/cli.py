@@ -20,7 +20,7 @@ from .transfer import TransferService
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fb-transfer",
-        description="Transfer FileBrowser files to configured upload targets",
+        description="Transfer files between FileBrowser and configured upload targets",
     )
     parser.add_argument("--config", help="Explicit agent_config.toml path")
     parser.add_argument(
@@ -44,6 +44,14 @@ def _parser() -> argparse.ArgumentParser:
     upload.add_argument("--overwrite", action="store_true")
     upload.add_argument("--dry-run", action="store_true")
     upload.add_argument("--json", action="store_true")
+
+    put = subparsers.add_parser("put", help="Upload one local file to FileBrowser")
+    put.add_argument("local_path", help="Existing local file path")
+    put.add_argument("remote_path", help="Absolute FileBrowser destination file path")
+    put.add_argument("--source", help="Configured FileBrowser source name")
+    put.add_argument("--overwrite", action="store_true")
+    put.add_argument("--dry-run", action="store_true")
+    put.add_argument("--json", action="store_true")
     return parser
 
 
@@ -114,6 +122,25 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         service = TransferService(config)
+        if command == "put":
+            local_path = cast(str, args.local_path)
+            remote_path = cast(str, args.remote_path)
+            source_name = _optional_string(args, "source")
+            if bool(args.dry_run):
+                plan = service.put_plan(local_path, remote_path, source_name=source_name)
+                payload = cast(dict[str, object], asdict(plan))
+                payload["dry_run"] = True
+                _print_payload(payload, as_json=as_json)
+                return 0
+            result = service.put(
+                local_path,
+                remote_path,
+                source_name=source_name,
+                overwrite=bool(args.overwrite),
+            )
+            _print_payload(cast(dict[str, object], asdict(result)), as_json=as_json)
+            return 0
+
         remote_path = cast(str, args.remote_path)
         source_name = _optional_string(args, "source")
         target_name = _optional_string(args, "target")

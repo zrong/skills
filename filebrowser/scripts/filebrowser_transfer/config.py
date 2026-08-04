@@ -115,6 +115,12 @@ def _parse_source(name: str, value: TomlValue) -> FileBrowserSourceConfig:
         verify_tls=_bool(table, "verify_tls", default=True),
         timeout_seconds=_float(table, "timeout_seconds", default=600.0, minimum=1.0),
         max_transfer_bytes=_int(table, "max_transfer_bytes", default=0),
+        upload_chunk_bytes=_int(
+            table,
+            "upload_chunk_bytes",
+            default=16 * 1024 * 1024,
+            minimum=1,
+        ),
     )
 
 
@@ -182,19 +188,19 @@ def _parse_target(name: str, value: TomlValue) -> S3TargetConfig:
 def parse_skill_config(document: TomlTable) -> SkillConfig:
     root = _table(document.get(CONFIG_SECTION), f"[{CONFIG_SECTION}]")
     source_values = _table(root.get("sources"), "[filebrowser.sources]")
-    target_values = _table(root.get("targets"), "[filebrowser.targets]")
+    target_values = _table(root.get("targets", {}), "[filebrowser.targets]")
     sources = {name: _parse_source(name, value) for name, value in source_values.items()}
     targets = {name: _parse_target(name, value) for name, value in target_values.items()}
     if not sources:
         raise ConfigError("At least one [filebrowser.sources.<name>] is required")
-    if not targets:
-        raise ConfigError("At least one [filebrowser.targets.<name>] is required")
 
     default_source = _string(root, "default_source") or next(iter(sources))
-    default_target = _string(root, "default_target") or next(iter(targets))
+    default_target = _string(root, "default_target")
+    if not default_target and targets:
+        default_target = next(iter(targets))
     if default_source not in sources:
         raise ConfigError(f"default_source does not exist: {default_source}")
-    if default_target not in targets:
+    if default_target and default_target not in targets:
         raise ConfigError(f"default_target does not exist: {default_target}")
 
     staging_value = _string(root, "staging_dir")

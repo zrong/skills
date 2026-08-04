@@ -35,6 +35,18 @@ class FakeSource:
         destination.write_bytes(b"video")
         return 5
 
+    def upload_file(
+        self,
+        local_path: Path,
+        remote_path: str,
+        *,
+        overwrite: bool = False,
+    ) -> RemoteFile:
+        assert local_path.read_bytes() == b"video"
+        assert remote_path == "/shows/demo/output.mp4"
+        assert overwrite is False
+        return RemoteFile("projects", remote_path, "output.mp4", 5, "video/mp4")
+
 
 class FakeTarget:
     name = "archive"
@@ -134,4 +146,61 @@ secret_access_key_env = "MISSING_SECRET_IS_OK_FOR_DRY_RUN"
     payload = json.loads(capsys.readouterr().out)
     assert result == 0
     assert payload["object_key"] == "backup/shows/demo/video.mp4"
+    assert payload["dry_run"] is True
+
+
+def test_put_uploads_to_filebrowser_and_checks_reported_size(tmp_path: Path) -> None:
+    local = tmp_path / "output.mp4"
+    local.write_bytes(b"video")
+    source = FakeSource()
+    service = TransferService(
+        _skill_config(),
+        source_factory=lambda _config: source,
+    )
+
+    result = service.put(local, "/shows/demo/output.mp4")
+
+    assert result.source_name == "main"
+    assert result.remote_path == "/shows/demo/output.mp4"
+    assert result.size == 5
+    assert source.closed is True
+
+
+def test_cli_put_dry_run_works_with_source_only_config(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    local = tmp_path / "output.mp4"
+    local.write_bytes(b"video")
+    config_path = tmp_path / "agent_config.toml"
+    config_path.write_text(
+        """
+[filebrowser]
+default_source = "main"
+
+[filebrowser.sources.main]
+base_url = "https://files.example.test"
+token_env = "MISSING_TOKEN_IS_OK_FOR_DRY_RUN"
+source = "projects"
+""",
+        encoding="utf-8",
+    )
+
+    result = main(
+        [
+            "--config",
+            str(config_path),
+            "--non-interactive",
+            "put",
+            str(local),
+            "/shows/demo/output.mp4",
+            "--dry-run",
+            "--json",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert result == 0
+    assert payload["source_name"] == "main"
+    assert payload["size"] == 5
     assert payload["dry_run"] is True

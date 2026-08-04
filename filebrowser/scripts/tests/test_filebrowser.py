@@ -13,13 +13,18 @@ from filebrowser_transfer.filebrowser import (
 from filebrowser_transfer.models import FileBrowserSourceConfig, SecretValue
 
 
-def _config(*, max_bytes: int = 0) -> FileBrowserSourceConfig:
+def _config(
+    *,
+    max_bytes: int = 0,
+    upload_chunk_bytes: int = 16 * 1024 * 1024,
+) -> FileBrowserSourceConfig:
     return FileBrowserSourceConfig(
         name="main",
         base_url="https://files.example.test",
         token=SecretValue(direct="secret-token"),
         source="projects",
         max_transfer_bytes=max_bytes,
+        upload_chunk_bytes=upload_chunk_bytes,
     )
 
 
@@ -114,3 +119,72 @@ def test_size_mismatch_removes_partial_file(tmp_path: Path) -> None:
             client.download(remote, output)
     assert not output.exists()
     assert not output.with_suffix(".txt.part").exists()
+
+
+def test_upload_streams_file_and_verifies_remote_size(tmp_path: Path) -> None:
+    requests: list[httpx.Request] = []
+    local = tmp_path / "output.mp4"
+    local.write_bytes(b"branded")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.method == "GET":
+            if len([item for item in requests if item.method == "GET"]) == 1:
+                return httpx.Response(404)
+            return httpx.Response(200, json={"type": "video/mp4", "size": 7})
+        assert request.method == "POST"
+        assert request.content == b"branded"
+        return httpx.Response(200)
+
+    with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
+        remote = client.upload_file(local, "/shows/output.mp4")
+
+    assert remote.size == 7
+    post = next(request for request in requests if request.method == "POST")
+    assert post.url.path == "/api/resources"
+    assert post.url.params["source"] == "projects"
+    assert post.url.params["path"] == "/shows/output.mp4"
+    assert post.url.params["override"] == "false"
+    assert post.headers["authorization"] == "Bearer secret-token"
+
+
+def test_upload_rejects_existing_destination_without_overwrite(tmp_path: Path) -> None:
+    local = tmp_path / "output.mp4"
+    local.write_bytes(b"video")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        return httpx.Response(200, json={"type": "video/mp4", "size": 5})
+
+    with (
+        FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client,
+        pytest.raises(FileBrowserError, match="already exists"),
+    ):
+        client.upload_file(local, "/shows/output.mp4")
+
+
+def test_upload_uses_sequential_chunks(tmp_path: Path) -> None:
+    chunks: list[tuple[str, str, bytes]] = []
+    local = tmp_path / "output.mp4"
+    local.write_bytes(b"abcdefg")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            if not chunks:
+                return httpx.Response(404)
+            return httpx.Response(200, json={"type": "video/mp4", "size": 7})
+        chunks.append(
+            (
+                request.headers["x-file-chunk-offset"],
+                request.headers["x-file-total-size"],
+                request.content,
+            )
+        )
+        return httpx.Response(200)
+
+    with FileBrowserClient(
+        _config(upload_chunk_bytes=3), transport=httpx.MockTransport(handler)
+    ) as client:
+        client.upload_file(local, "/shows/output.mp4")
+
+    assert chunks == [("0", "7", b"abc"), ("3", "7", b"def"), ("6", "7", b"g")]

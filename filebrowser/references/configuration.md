@@ -19,6 +19,7 @@ source = "项目"
 verify_tls = true
 timeout_seconds = 600
 max_transfer_bytes = 0
+upload_chunk_bytes = 16777216
 
 [filebrowser.targets.archive]
 adapter = "s3"
@@ -88,3 +89,7 @@ verify_tls = true
 - `--key` 覆盖 FileBrowser 派生部分，但仍会添加 target `prefix`。
 - multipart 参数由 boto3 `TransferConfig` 使用；上传完成后通过 `head_object` 校验对象大小。
 - skill 优先使用 `/api/resources/download`，服务器返回 404/405 时兼容回退 `/api/raw`。
+- `put` 直接将本地文件流式上传至 FileBrowser；大于 `upload_chunk_bytes` 的文件使用
+  `X-File-Chunk-Offset` / `X-File-Total-Size` 顺序分块上传。
+- `put` 默认拒绝同名远端文件；只有显式传 `--overwrite` 才会替换。上传成功后读取远端
+  元数据并校验文件大小。

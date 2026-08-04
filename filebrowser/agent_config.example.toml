@@ -28,6 +28,9 @@ timeout_seconds = 600
 # 单文件最大字节数；0 表示不设置 skill 级上限。
 max_transfer_bytes = 0
 
+# 上传到 FileBrowser 时的分块大小。大视频以固定块流式上传；需不小于 1 字节。
+upload_chunk_bytes = 16777216
+
 # 第一个 S3 target。支持 AWS S3、COS、OSS、TOS、MinIO 等 S3 兼容服务。
 [filebrowser.targets.archive]
 adapter = "s3"

@@ -45,7 +45,7 @@ def _non_negative_int(value: object) -> int | None:
 
 
 class FileBrowserClient:
-    """Minimal synchronous client for downloading one FileBrowser file."""
+    """Synchronous client for streaming FileBrowser downloads and uploads."""
 
     def __init__(
         self,
@@ -124,6 +124,105 @@ class FileBrowserClient:
             partial.unlink(missing_ok=True)
             raise
 
+    def upload_file(
+        self,
+        local_path: Path,
+        remote_path: str,
+        *,
+        overwrite: bool = False,
+    ) -> RemoteFile:
+        """Stream a local file to FileBrowser and verify its remote size."""
+        if not local_path.is_file():
+            raise FileBrowserError(f"Local path is not a file: {local_path}")
+        size = local_path.stat().st_size
+        self._check_size(size)
+        destination = normalize_remote_path(remote_path)
+        self._ensure_destination_writable(destination, overwrite=overwrite)
+
+        if size == 0 or size <= self.config.upload_chunk_bytes:
+            self._upload_one(local_path, destination, overwrite=overwrite)
+        else:
+            self._upload_chunks(local_path, destination, size, overwrite=overwrite)
+
+        remote = self.metadata(destination)
+        if remote.size != size:
+            raise FileBrowserError(
+                f"FileBrowser size mismatch after upload: expected {size} bytes, got {remote.size}"
+            )
+        return remote
+
+    def _ensure_destination_writable(self, path: str, *, overwrite: bool) -> None:
+        response = self._client.get(
+            "/api/resources",
+            params={
+                "source": self.config.source,
+                "path": path,
+                "skipExtendedAttrs": "true",
+                "metadata": "false",
+                "content": "false",
+            },
+        )
+        if response.status_code == 404:
+            return
+        self._raise_for_status(response, "read FileBrowser destination metadata")
+        try:
+            value: object = response.json()
+        except ValueError as exc:
+            raise FileBrowserError(
+                "FileBrowser returned invalid destination metadata JSON"
+            ) from exc
+        if not isinstance(value, dict):
+            raise FileBrowserError("FileBrowser returned unexpected destination metadata")
+        payload = cast(dict[str, object], value)
+        if payload.get("type") == "directory":
+            raise FileBrowserError("FileBrowser destination path is a directory")
+        if not overwrite:
+            raise FileBrowserError(
+                "FileBrowser destination already exists; pass --overwrite to replace it"
+            )
+
+    def _upload_one(self, local_path: Path, destination: str, *, overwrite: bool) -> None:
+        with local_path.open("rb") as stream:
+            response = self._client.post(
+                "/api/resources",
+                params={
+                    "source": self.config.source,
+                    "path": destination,
+                    "override": str(overwrite).lower(),
+                },
+                content=stream,
+                headers={"content-type": "application/octet-stream"},
+            )
+        self._raise_for_status(response, "upload FileBrowser file")
+
+    def _upload_chunks(
+        self,
+        local_path: Path,
+        destination: str,
+        size: int,
+        *,
+        overwrite: bool,
+    ) -> None:
+        offset = 0
+        with local_path.open("rb") as stream:
+            while chunk := stream.read(self.config.upload_chunk_bytes):
+                response = self._client.post(
+                    "/api/resources",
+                    params={
+                        "source": self.config.source,
+                        "path": destination,
+                        "override": str(overwrite).lower(),
+                    },
+                    content=chunk,
+                    headers={
+                        "content-type": "application/octet-stream",
+                        "X-File-Chunk-Offset": str(offset),
+                        "X-File-Total-Size": str(size),
+                    },
+                )
+                self._raise_for_status(response, "upload FileBrowser file chunk")
+                offset += len(chunk)
+
     def _download_modern(self, remote: RemoteFile, destination: Path) -> int:
         with self._client.stream(
             "GET",
@@ -176,9 +275,11 @@ class FileBrowserClient:
         if response.is_success:
             return
         message = {
+            400: "FileBrowser rejected the request",
             401: "FileBrowser token is invalid",
             403: "FileBrowser denied access to the resource",
             404: "FileBrowser resource does not exist",
             409: "FileBrowser reported a resource conflict",
+            413: "FileBrowser rejected the file because it is too large",
         }.get(response.status_code, f"Failed to {operation}: HTTP {response.status_code}")
         raise FileBrowserError(message)

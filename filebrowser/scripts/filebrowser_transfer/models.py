@@ -42,6 +42,7 @@ class FileBrowserSourceConfig:
     verify_tls: bool = True
     timeout_seconds: float = 600.0
     max_transfer_bytes: int = 0
+    upload_chunk_bytes: int = 16 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,3 +117,19 @@ class UploadResult:
     etag: str
     version_id: str
     public_url: str
+
+
+@dataclass(frozen=True, slots=True)
+class PutPlan:
+    source_name: str
+    local_path: str
+    remote_path: str
+    size: int
+
+
+@dataclass(frozen=True, slots=True)
+class PutResult:
+    source_name: str
+    local_path: str
+    remote_path: str
+    size: int

@@ -7,9 +7,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from .filebrowser import FileBrowserClient, normalize_remote_path
+from .filebrowser import FileBrowserClient, FileBrowserError, normalize_remote_path
 from .models import (
     FileBrowserSourceConfig,
+    PutPlan,
+    PutResult,
     RemoteFile,
     SkillConfig,
     TargetConfig,
@@ -32,6 +34,14 @@ class FileSource(Protocol):
     def metadata(self, remote_path: str) -> RemoteFile: ...
 
     def download(self, remote: RemoteFile, destination: Path) -> int: ...
+
+    def upload_file(
+        self,
+        local_path: Path,
+        remote_path: str,
+        *,
+        overwrite: bool = False,
+    ) -> RemoteFile: ...
 
 
 type SourceFactory = Callable[[FileBrowserSourceConfig], FileSource]
@@ -67,6 +77,56 @@ class TransferService:
             remote_path=normalized_remote,
             target_name=target_config.name,
             object_key=resolve_target_key(target_config, relative_key),
+        )
+
+    def put_plan(
+        self,
+        local_path: str | Path,
+        remote_path: str,
+        *,
+        source_name: str | None = None,
+    ) -> PutPlan:
+        local = Path(local_path).expanduser().resolve()
+        if not local.is_file():
+            raise FileBrowserError(f"Local path is not a file: {local}")
+        source = self.config.source(source_name)
+        size = local.stat().st_size
+        if source.max_transfer_bytes > 0 and size > source.max_transfer_bytes:
+            raise FileBrowserError(
+                f"Local file exceeds max_transfer_bytes ({size} > {source.max_transfer_bytes})"
+            )
+        return PutPlan(
+            source_name=source.name,
+            local_path=str(local),
+            remote_path=normalize_remote_path(remote_path),
+            size=size,
+        )
+
+    def put(
+        self,
+        local_path: str | Path,
+        remote_path: str,
+        *,
+        source_name: str | None = None,
+        overwrite: bool = False,
+    ) -> PutResult:
+        plan = self.put_plan(local_path, remote_path, source_name=source_name)
+        source_config = self.config.source(plan.source_name)
+        with self._source_factory(source_config) as source:
+            remote = source.upload_file(
+                Path(plan.local_path),
+                plan.remote_path,
+                overwrite=overwrite,
+            )
+        if remote.size != plan.size:
+            raise RuntimeError(
+                f"Uploaded file size mismatch: expected {plan.size}, uploaded {remote.size}"
+            )
+        return PutResult(
+            source_name=plan.source_name,
+            local_path=plan.local_path,
+            remote_path=plan.remote_path,
+            size=plan.size,
         )
 
     def upload(
