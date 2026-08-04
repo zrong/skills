@@ -10,6 +10,8 @@ from typing import Protocol
 from .filebrowser import FileBrowserClient, FileBrowserError, normalize_remote_path
 from .models import (
     FileBrowserSourceConfig,
+    GetPlan,
+    GetResult,
     PutPlan,
     PutResult,
     RemoteFile,
@@ -102,6 +104,42 @@ class TransferService:
             size=size,
         )
 
+    def get_plan(
+        self,
+        remote_path: str,
+        local_path: str | Path,
+        *,
+        source_name: str | None = None,
+    ) -> GetPlan:
+        local = Path(local_path).expanduser().resolve()
+        if local.exists():
+            raise FileBrowserError(f"Local destination already exists: {local}")
+        source = self.config.source(source_name)
+        return GetPlan(
+            source_name=source.name,
+            remote_path=normalize_remote_path(remote_path),
+            local_path=str(local),
+        )
+
+    def get(
+        self,
+        remote_path: str,
+        local_path: str | Path,
+        *,
+        source_name: str | None = None,
+    ) -> GetResult:
+        plan = self.get_plan(remote_path, local_path, source_name=source_name)
+        source_config = self.config.source(plan.source_name)
+        with self._source_factory(source_config) as source:
+            remote = source.metadata(plan.remote_path)
+            written = source.download(remote, Path(plan.local_path))
+        return GetResult(
+            source_name=plan.source_name,
+            remote_path=plan.remote_path,
+            local_path=plan.local_path,
+            size=written,
+        )
+
     def put(
         self,
         local_path: str | Path,
@@ -159,11 +197,7 @@ class TransferService:
             local_path = Path(temporary_dir) / "payload"
             with self._source_factory(source_config) as source:
                 remote = source.metadata(plan.remote_path)
-                written = source.download(remote, local_path)
-            if remote.size is not None and written != remote.size:
-                raise RuntimeError(
-                    f"Staged file size mismatch: expected {remote.size}, downloaded {written}"
-                )
+                source.download(remote, local_path)
             return target.upload(
                 local_path,
                 plan.object_key,

@@ -166,6 +166,22 @@ def test_put_uploads_to_filebrowser_and_checks_reported_size(tmp_path: Path) -> 
     assert source.closed is True
 
 
+def test_get_downloads_filebrowser_file_to_new_local_path(tmp_path: Path) -> None:
+    source = FakeSource()
+    service = TransferService(
+        _skill_config(),
+        source_factory=lambda _config: source,
+    )
+    local = tmp_path / "downloaded.mp4"
+
+    result = service.get("/shows/demo/video.mp4", local)
+
+    assert local.read_bytes() == b"video"
+    assert result.remote_path == "/shows/demo/video.mp4"
+    assert result.size == 5
+    assert source.closed is True
+
+
 def test_cli_put_dry_run_works_with_source_only_config(
     tmp_path: Path,
     capsys: CaptureFixture[str],
@@ -204,3 +220,39 @@ source = "projects"
     assert payload["source_name"] == "main"
     assert payload["size"] == 5
     assert payload["dry_run"] is True
+
+
+def test_cli_get_dry_run_rejects_existing_destination(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    local = tmp_path / "output.mp4"
+    local.write_bytes(b"existing")
+    config_path = tmp_path / "agent_config.toml"
+    config_path.write_text(
+        """
+[filebrowser]
+
+[filebrowser.sources.main]
+base_url = "https://files.example.test"
+token_env = "MISSING_TOKEN_IS_OK_FOR_DRY_RUN"
+source = "projects"
+""",
+        encoding="utf-8",
+    )
+
+    result = main(
+        [
+            "--config",
+            str(config_path),
+            "--non-interactive",
+            "get",
+            "/shows/demo/video.mp4",
+            str(local),
+            "--dry-run",
+            "--json",
+        ]
+    )
+
+    assert result == 1
+    assert "already exists" in capsys.readouterr().err

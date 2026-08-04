@@ -65,6 +65,17 @@ uv run --project {SKILL_DIR}/scripts fb-transfer --config /path/agent_config.tom
 大文件按 `upload_chunk_bytes` 流式分块发送，上传后读取远端元数据并校验字节数。默认
 拒绝覆盖，只有用户明确要求替换既有文件时才添加 `--overwrite`。
 
+### 下载 FileBrowser 文件到本地
+
+`get` 将单个远端文件流式下载至一个不存在的本地路径，完成后校验下载字节数。适合在
+品牌视频处理前取回主视频、Logo 与片尾：
+
+```bash
+uv run --project {SKILL_DIR}/scripts fb-transfer --config /path/agent_config.toml \
+  --non-interactive get "/项目/成片/demo.mp4" /local/demo.mp4 \
+  --source production --json
+```
+
 ### 品牌视频回传流程
 
 主视频、Logo、片尾先下载到本地临时目录；使用 `media-use` 的 `ffmpeg_brand` 输出成片，
@@ -76,11 +87,13 @@ uv run --project {SKILL_DIR}/scripts fb-transfer --config /path/agent_config.tom
 - 一次只上传一个文件；目录会被拒绝。
 - S3 已存在同 key 对象时默认拒绝。只有用户明确要求覆盖时才添加 `--overwrite`。
 - `put` 的远端路径必须是绝对路径且不能包含 `..`；若目标已存在，默认拒绝覆盖。
+- `get` 的本地目标路径必须不存在，避免无意覆盖已有文件。
 - FileBrowser 路径必须是绝对路径且不能包含 `..`；S3 key 必须是相对路径且不能包含 `..`。
-- 下载采用流式写入临时文件，不把大文件完整载入内存；无论成功或失败都会清理临时目录。
+- 下载采用流式写入临时文件，不把大文件完整载入内存；优先使用下载响应的
+  `Content-Length` 校验字节数，缺失时才回退至资源元数据；无论成功或失败都会清理临时目录。
 - `max_transfer_bytes = 0` 表示不设 skill 级大小上限；生产配置建议设置明确上限。
 - dry-run 只验证配置和路径，不连接 FileBrowser 或 S3，也不解析凭据链。
 
 ## 结果
 
-转存 S3 成功时报告 source、FileBrowser 路径、target、bucket、object key、字节数和可用的公开 URL。`put` 成功时报告 source、本地路径、FileBrowser 路径和字节数。不要声称上传成功，除非 S3 `head_object` 或 FileBrowser 回读元数据的大小与本地文件一致。
+转存 S3 成功时报告 source、FileBrowser 路径、target、bucket、object key、字节数和可用的公开 URL。`put` 成功时报告 source、本地路径、FileBrowser 路径和字节数。不要声称上传成功，除非 S3 `head_object` 或 FileBrowser 下载端点的 `Content-Length` 与本地文件一致；缺失该响应头时才回退至资源元数据。

@@ -45,6 +45,13 @@ def _parser() -> argparse.ArgumentParser:
     upload.add_argument("--dry-run", action="store_true")
     upload.add_argument("--json", action="store_true")
 
+    get = subparsers.add_parser("get", help="Download one FileBrowser file to a local path")
+    get.add_argument("remote_path", help="Absolute FileBrowser file path")
+    get.add_argument("local_path", help="New local destination file path")
+    get.add_argument("--source", help="Configured FileBrowser source name")
+    get.add_argument("--dry-run", action="store_true")
+    get.add_argument("--json", action="store_true")
+
     put = subparsers.add_parser("put", help="Upload one local file to FileBrowser")
     put.add_argument("local_path", help="Existing local file path")
     put.add_argument("remote_path", help="Absolute FileBrowser destination file path")
@@ -122,6 +129,20 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         service = TransferService(config)
+        if command == "get":
+            remote_path = cast(str, args.remote_path)
+            local_path = cast(str, args.local_path)
+            source_name = _optional_string(args, "source")
+            if bool(args.dry_run):
+                plan = service.get_plan(remote_path, local_path, source_name=source_name)
+                payload = cast(dict[str, object], asdict(plan))
+                payload["dry_run"] = True
+                _print_payload(payload, as_json=as_json)
+                return 0
+            result = service.get(remote_path, local_path, source_name=source_name)
+            _print_payload(cast(dict[str, object], asdict(result)), as_json=as_json)
+            return 0
+
         if command == "put":
             local_path = cast(str, args.local_path)
             remote_path = cast(str, args.remote_path)

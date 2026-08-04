@@ -133,3 +133,18 @@ class PutResult:
     local_path: str
     remote_path: str
     size: int
+
+
+@dataclass(frozen=True, slots=True)
+class GetPlan:
+    source_name: str
+    remote_path: str
+    local_path: str
+
+
+@dataclass(frozen=True, slots=True)
+class GetResult:
+    source_name: str
+    remote_path: str
+    local_path: str
+    size: int

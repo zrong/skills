@@ -145,11 +145,20 @@ class FileBrowserClient:
             self._upload_chunks(local_path, destination, size, overwrite=overwrite)
 
         remote = self.metadata(destination)
-        if remote.size != size:
+        downloaded_size = self._download_response_size(remote)
+        verified_size = downloaded_size if downloaded_size is not None else remote.size
+        if verified_size != size:
             raise FileBrowserError(
-                f"FileBrowser size mismatch after upload: expected {size} bytes, got {remote.size}"
+                "FileBrowser size mismatch after upload: "
+                f"expected {size} bytes, got {verified_size}"
             )
-        return remote
+        return RemoteFile(
+            source=remote.source,
+            path=remote.path,
+            name=remote.name,
+            size=verified_size,
+            content_type=remote.content_type,
+        )
 
     def _ensure_destination_writable(self, path: str, *, overwrite: bool) -> None:
         response = self._client.get(
@@ -234,6 +243,26 @@ class FileBrowserClient:
             self._raise_for_status(response, "download FileBrowser file")
             return self._write_stream(response, remote, destination)
 
+    def _download_response_size(self, remote: RemoteFile) -> int | None:
+        with self._client.stream(
+            "GET",
+            "/api/resources/download",
+            params={"source": remote.source, "file": remote.path},
+        ) as response:
+            if response.status_code in {404, 405}:
+                return self._legacy_download_response_size(remote)
+            self._raise_for_status(response, "verify FileBrowser upload")
+            return _non_negative_int(response.headers.get("content-length"))
+
+    def _legacy_download_response_size(self, remote: RemoteFile) -> int | None:
+        with self._client.stream(
+            "GET",
+            "/api/raw",
+            params={"files": f"{remote.source}::{remote.path}", "inline": "true"},
+        ) as response:
+            self._raise_for_status(response, "verify FileBrowser upload through legacy API")
+            return _non_negative_int(response.headers.get("content-length"))
+
     def _download_legacy(self, remote: RemoteFile, destination: Path) -> int:
         with self._client.stream(
             "GET",
@@ -257,7 +286,12 @@ class FileBrowserClient:
                 written += len(chunk)
                 self._check_size(written)
                 output.write(chunk)
-        if remote.size is not None and written != remote.size:
+        if header_size is not None and written != header_size:
+            raise FileBrowserError(
+                "FileBrowser download response size mismatch: "
+                f"expected {header_size} bytes, downloaded {written}"
+            )
+        if header_size is None and remote.size is not None and written != remote.size:
             raise FileBrowserError(
                 f"FileBrowser size mismatch: expected {remote.size} bytes, downloaded {written}"
             )

@@ -41,7 +41,7 @@ def test_modern_metadata_and_stream_download(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal seen_authorization
         seen_authorization = request.headers.get("authorization", "")
-        if request.url.path == "/api/resources":
+        if request.url.path == "/api/resources" and request.method == "GET":
             return httpx.Response(
                 200,
                 json={"type": "video/mp4", "size": 7},
@@ -70,7 +70,7 @@ def test_falls_back_to_legacy_raw_download(tmp_path: Path) -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         requested_paths.append(request.url.path)
-        if request.url.path == "/api/resources":
+        if request.url.path == "/api/resources" and request.method == "GET":
             return httpx.Response(200, json={"type": "text/plain", "size": 3})
         if request.url.path == "/api/resources/download":
             return httpx.Response(405)
@@ -110,7 +110,7 @@ def test_size_mismatch_removes_partial_file(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/resources":
             return httpx.Response(200, json={"type": "text/plain", "size": 5})
-        return httpx.Response(200, content=b"bad")
+        return httpx.Response(200, content=b"bad", headers={"content-length": "4"})
 
     output = tmp_path / "bad.txt"
     with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
@@ -121,6 +121,21 @@ def test_size_mismatch_removes_partial_file(tmp_path: Path) -> None:
     assert not output.with_suffix(".txt.part").exists()
 
 
+def test_download_uses_response_content_length_when_metadata_is_stale(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/resources":
+            return httpx.Response(200, json={"type": "video/mp4", "size": 8})
+        return httpx.Response(200, content=b"content", headers={"content-length": "7"})
+
+    output = tmp_path / "video.mp4"
+    with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
+        remote = client.metadata("/video.mp4")
+        written = client.download(remote, output)
+
+    assert written == 7
+    assert output.read_bytes() == b"content"
+
+
 def test_upload_streams_file_and_verifies_remote_size(tmp_path: Path) -> None:
     requests: list[httpx.Request] = []
     local = tmp_path / "output.mp4"
@@ -128,10 +143,12 @@ def test_upload_streams_file_and_verifies_remote_size(tmp_path: Path) -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
-        if request.method == "GET":
+        if request.url.path == "/api/resources" and request.method == "GET":
             if len([item for item in requests if item.method == "GET"]) == 1:
                 return httpx.Response(404)
             return httpx.Response(200, json={"type": "video/mp4", "size": 7})
+        if request.url.path == "/api/resources/download":
+            return httpx.Response(200, headers={"content-length": "7"})
         assert request.method == "POST"
         assert request.content == b"branded"
         return httpx.Response(200)
@@ -169,10 +186,12 @@ def test_upload_uses_sequential_chunks(tmp_path: Path) -> None:
     local.write_bytes(b"abcdefg")
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "GET":
+        if request.url.path == "/api/resources" and request.method == "GET":
             if not chunks:
                 return httpx.Response(404)
             return httpx.Response(200, json={"type": "video/mp4", "size": 7})
+        if request.url.path == "/api/resources/download":
+            return httpx.Response(200, headers={"content-length": "7"})
         chunks.append(
             (
                 request.headers["x-file-chunk-offset"],
@@ -188,3 +207,25 @@ def test_upload_uses_sequential_chunks(tmp_path: Path) -> None:
         client.upload_file(local, "/shows/output.mp4")
 
     assert chunks == [("0", "7", b"abc"), ("3", "7", b"def"), ("6", "7", b"g")]
+
+
+def test_upload_prefers_download_response_size_over_stale_metadata(tmp_path: Path) -> None:
+    local = tmp_path / "output.mp4"
+    local.write_bytes(b"content")
+    metadata_requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal metadata_requests
+        if request.url.path == "/api/resources":
+            metadata_requests += 1
+            if metadata_requests == 1:
+                return httpx.Response(404)
+            return httpx.Response(200, json={"type": "video/mp4", "size": 8})
+        if request.url.path == "/api/resources/download":
+            return httpx.Response(200, headers={"content-length": "7"})
+        return httpx.Response(200)
+
+    with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
+        remote = client.upload_file(local, "/shows/output.mp4")
+
+    assert remote.size == 7
