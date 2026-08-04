@@ -39,7 +39,7 @@ uv run ffmpeg_batch --list-codecs
 
 ### ffmpeg_brand —— 水印、片尾与目标体积压缩
 
-为单个视频添加图片水印、追加片尾，并统一输出尺寸、帧率和编码。设置
+为单个视频添加图片或文字水印、追加片尾，并统一输出尺寸、帧率和编码。设置
 `--target-mb` 时自动按主视频与片尾总时长计算码率，使用 H.264 两遍编码并预留
 5% 封装余量；若第一次结果仍超出目标，会自动降低视频码率重试一次。
 
@@ -50,8 +50,9 @@ uv run ffmpeg_brand input.mp4 \
   --outro outro.mp4 \
   --height 480 --fps 30 \
   --watermark-position bottom-left \
-  --watermark-width 15% \
+  --watermark-width 35% \
   --watermark-opacity 0.45 \
+  --text-watermark "胡扯AI" \
   -o output.mp4
 
 # 控制在 20MB 内；长视频可降低帧率与音频码率
@@ -69,10 +70,21 @@ uv run ffmpeg_brand input.mp4 \
 `-vb/--video-bitrate`、`-ab/--audio-bitrate`、`--height`、`--width`、`--fps`、
 `--watermark-width`（像素或百分比）、`--watermark-opacity`、
 `--watermark-position`、`--watermark-scope main|all`、`--margin`、`--preset`、
-`--dry-run`、`--non-interactive`。
+`--text-watermark`、`--text-watermark-coverage`、`--text-watermark-opacity`、
+`--text-watermark-font`、`--dry-run`、`--non-interactive`。
 
 - 默认 `--watermark-scope main`，水印只覆盖主视频，追加的片尾保持原样；使用
   `--watermark-scope all` 可覆盖完整成片。
+- Logo 默认宽度为输出画面宽度的 `35%`；可通过 `--watermark-width` 覆盖。
+- `--text-watermark` 可选；启用后仅覆盖主视频，默认按画面对角线的 `80%` 计算字号、
+  居中并沿左下至右上方向旋转，默认不透明度为 `45%`，带低透明黑色描边以提升可读性。
+  可通过覆盖比例、透明度和字体
+  参数调整；中文默认固定使用 skill 附带的 Source Han Sans SC Regular，不依赖系统字体。
+  使用 `--text-watermark-font` 可显式覆盖。
+
+字体文件位于 `assets/fonts/SourceHanSansSC-Regular.otf`，来自 Adobe 官方 Source Han Sans
+2.005R 发布分支，按 SIL Open Font License 1.1 分发；许可证随文件保存在
+`assets/fonts/LICENSE-SourceHanSans.txt`。
 - 推荐使用透明背景 PNG。JPG 或带实色背景的图片调整透明度时，背景也会一起变淡。
 - 若目标体积导致视频码率低于 100kbps，命令会拒绝执行，避免生成不可用成片。
 - 主视频或片尾缺少音轨时，拼接段会自动补静音，避免 concat 失败或音画错位。

@@ -8,6 +8,7 @@ import math
 import re
 import subprocess
 import tempfile
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +33,12 @@ _PRESETS = {
     "veryslow",
 }
 _TARGET_RESERVE = 0.95
+_BUNDLED_CJK_FONT = (
+    Path(__file__).resolve().parents[2]
+    / "assets"
+    / "fonts"
+    / "SourceHanSansSC-Regular.otf"
+)
 
 
 @dataclass(frozen=True)
@@ -179,6 +186,61 @@ def _overlay_position(position: str, margin: int) -> tuple[str, str]:
     return positions[position]
 
 
+def _text_watermark_units(text: str) -> float:
+    """估算文本视觉宽度，供按对角线覆盖比例计算字号。"""
+    return sum(
+        1.0 if unicodedata.east_asian_width(character) in {"W", "F"} else 0.6
+        for character in text
+    )
+
+
+def _contains_cjk(text: str) -> bool:
+    """判断文本是否需要显式选择 CJK 字体。"""
+    return any(unicodedata.east_asian_width(character) in {"W", "F"} for character in text)
+
+
+def resolve_text_watermark_font(font: Path | None, text: str | None) -> Path | None:
+    """为 CJK 文字固定选择 skill 附带字体，避免依赖系统字库。"""
+    if font is not None or text is None or not _contains_cjk(text):
+        return font
+    if _BUNDLED_CJK_FONT.is_file():
+        return _BUNDLED_CJK_FONT
+    raise ValueError(f"技能附带的中文字体缺失：{_BUNDLED_CJK_FONT}")
+
+
+def _escape_drawtext_value(value: str) -> str:
+    """转义 drawtext 过滤器的文本和字体路径值。"""
+    return value.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+
+def _text_watermark_filter(
+    text: str,
+    *,
+    width: int,
+    height: int,
+    fps: int,
+    coverage: float,
+    opacity: float,
+    font: Path | None,
+) -> str:
+    """生成居中、沿画面对角线旋转的半透明文字水印。"""
+    diagonal = math.hypot(width, height)
+    font_size = max(12, round(diagonal * coverage / _text_watermark_units(text)))
+    canvas_width = math.ceil(diagonal)
+    canvas_height = font_size * 2
+    angle = -math.atan2(height, width)
+    font_option = f"fontfile='{_escape_drawtext_value(str(font))}':" if font else ""
+    return (
+        f"color=c=black@0.0:s={canvas_width}x{canvas_height}:r={fps},format=rgba,"
+        f"drawtext={font_option}text='{_escape_drawtext_value(text)}':"
+        f"fontcolor=white@{opacity:.4f}:fontsize={font_size}:"
+        f"borderw=2:bordercolor=black@{opacity * 0.7:.4f}:"
+        "x=(w-text_w)/2:y=(h-text_h)/2,"
+        f"rotate={angle:.8f}:ow=rotw({angle:.8f}):oh=roth({angle:.8f}):c=none"
+        "[text_watermark]"
+    )
+
+
 def build_filter_graph(
     main_info: BrandMediaInfo,
     *,
@@ -192,6 +254,10 @@ def build_filter_graph(
     watermark_position: str = "bottom-left",
     watermark_scope: str = "main",
     margin: int = 20,
+    text_watermark: str | None = None,
+    text_watermark_coverage: float = 0.8,
+    text_watermark_opacity: float = 0.45,
+    text_watermark_font: Path | None = None,
     include_audio: bool = True,
 ) -> tuple[str, str, str | None]:
     """构建滤镜图，返回滤镜、视频标签和可选音频标签。"""
@@ -215,6 +281,24 @@ def build_filter_graph(
             f"{main_label}{logo_label}overlay=x={x}:y={y}:shortest=1[main_marked]"
         )
         main_label = "[main_marked]"
+
+    if text_watermark is not None:
+        filters.append(
+            _text_watermark_filter(
+                text_watermark,
+                width=width,
+                height=height,
+                fps=fps,
+                coverage=text_watermark_coverage,
+                opacity=text_watermark_opacity,
+                font=text_watermark_font,
+            )
+        )
+        filters.append(
+            f"{main_label}[text_watermark]overlay=x=(W-w)/2:y=(H-h)/2:shortest=1"
+            "[main_text_marked]"
+        )
+        main_label = "[main_text_marked]"
 
     audio_label = None
     video_label = main_label
@@ -265,6 +349,10 @@ def _encode(
     watermark_position: str,
     watermark_scope: str,
     margin: int,
+    text_watermark: str | None,
+    text_watermark_coverage: float,
+    text_watermark_opacity: float,
+    text_watermark_font: Path | None,
     video_kbps: int,
     audio_bitrate: str,
     preset: str,
@@ -290,6 +378,10 @@ def _encode(
             watermark_position=watermark_position,
             watermark_scope=watermark_scope,
             margin=margin,
+            text_watermark=text_watermark,
+            text_watermark_coverage=text_watermark_coverage,
+            text_watermark_opacity=text_watermark_opacity,
+            text_watermark_font=text_watermark_font,
             include_audio=include_audio,
         )
         args = [*inputs, "-filter_complex", graph, "-map", video_label]
@@ -398,9 +490,9 @@ def main(
     ),
     fps: int = typer.Option(30, "--fps", help="输出帧率，默认 30"),
     watermark_width: str = typer.Option(
-        "15%",
+        "35%",
         "--watermark-width",
-        help="水印宽度，支持像素或相对画面宽度，如 140、15%",
+        help="水印宽度，支持像素或相对画面宽度，如 140、35%",
     ),
     watermark_opacity: float = typer.Option(
         0.45,
@@ -418,6 +510,30 @@ def main(
         help="main 仅主视频；all 覆盖含片尾的完整视频",
     ),
     margin: int = typer.Option(20, "--margin", help="水印距画面边缘的像素数"),
+    text_watermark: str | None = typer.Option(
+        None,
+        "--text-watermark",
+        help="剧中居中对角线文字水印；省略则不添加",
+    ),
+    text_watermark_coverage: float = typer.Option(
+        0.8,
+        "--text-watermark-coverage",
+        help="文字沿画面对角线的覆盖比例，范围 0～1，默认 0.8",
+    ),
+    text_watermark_opacity: float = typer.Option(
+        0.45,
+        "--text-watermark-opacity",
+        help="文字水印不透明度，范围 0～1，默认 0.45",
+    ),
+    text_watermark_font: Path | None = typer.Option(
+        None,
+        "--text-watermark-font",
+        help="文字水印字体文件；中文默认使用 skill 附带的 Source Han Sans SC",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+    ),
     preset: str = typer.Option(
         "medium",
         "--preset",
@@ -434,8 +550,8 @@ def main(
     del non_interactive
     ensure_ffmpeg()
 
-    if watermark is None and outro is None:
-        console.print("[red]错误：--watermark 和 --outro 至少指定一个[/red]")
+    if watermark is None and outro is None and text_watermark is None:
+        console.print("[red]错误：至少指定图片水印、文字水印或片尾之一[/red]")
         raise typer.Exit(1)
     if target_mb is not None and video_bitrate is not None:
         console.print("[red]错误：--target-mb 与 --video-bitrate 不能同时使用[/red]")
@@ -445,6 +561,15 @@ def main(
         raise typer.Exit(1)
     if not 0 < watermark_opacity <= 1:
         console.print("[red]错误：水印不透明度必须在 0～1 之间[/red]")
+        raise typer.Exit(1)
+    if text_watermark is not None and not text_watermark.strip():
+        console.print("[red]错误：文字水印不能为空[/red]")
+        raise typer.Exit(1)
+    if not 0 < text_watermark_coverage <= 1:
+        console.print("[red]错误：文字水印覆盖比例必须在 0～1 之间[/red]")
+        raise typer.Exit(1)
+    if not 0 < text_watermark_opacity <= 1:
+        console.print("[red]错误：文字水印不透明度必须在 0～1 之间[/red]")
         raise typer.Exit(1)
     if watermark_position not in _POSITIONS:
         console.print(f"[red]错误：未知水印位置 {watermark_position}[/red]")
@@ -462,6 +587,7 @@ def main(
         raise typer.Exit(1)
 
     try:
+        resolved_text_font = resolve_text_watermark_font(text_watermark_font, text_watermark)
         main_info = probe_brand_media(source)
         outro_info = probe_brand_media(outro) if outro is not None else None
         canvas_width = calculate_canvas_width(main_info, height, width)
@@ -506,6 +632,10 @@ def main(
         watermark_position=watermark_position,
         watermark_scope=watermark_scope,
         margin=margin,
+        text_watermark=text_watermark.strip() if text_watermark is not None else None,
+        text_watermark_coverage=text_watermark_coverage,
+        text_watermark_opacity=text_watermark_opacity,
+        text_watermark_font=resolved_text_font,
         audio_bitrate=normalised_audio_bitrate,
         preset=preset,
         two_pass=target_mb is not None,

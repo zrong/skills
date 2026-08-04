@@ -27,7 +27,7 @@ uv run ffmpeg_batch --list-codecs
 `-ab/--audio-bitrate`、`--hwaccel-decode`、`-s/--suffix`、`-r/--recursive`、
 `-e/--ext`、`-j/--jobs`、`--dry-run`、`--list-codecs`。
 
-### ffmpeg_brand —— 水印、片尾与目标体积压缩
+### ffmpeg_brand —— 图片/文字水印、片尾与目标体积压缩
 
 ```bash
 # 左下角 Logo + 片尾，输出 480P / 30fps
@@ -35,8 +35,9 @@ uv run ffmpeg_brand input.mp4 \
   --watermark logo.png \
   --outro outro.mp4 \
   --height 480 --fps 30 \
-  --watermark-width 15% \
+  --watermark-width 35% \
   --watermark-opacity 0.45 \
+  --text-watermark "胡扯AI" \
   -o output.mp4
 
 # 目标小于 20MB，自动计算视频码率并执行两遍编码
@@ -53,11 +54,19 @@ uv run ffmpeg_brand input.mp4 \
 常用参数：`-w/--watermark`、`--outro`、`-o/--output`、`--target-mb`、
 `-vb/--video-bitrate`、`-ab/--audio-bitrate`、`--height`、`--width`、`--fps`、
 `--watermark-width`、`--watermark-opacity`、`--watermark-position`、
-`--watermark-scope main|all`、`--margin`、`--preset`、`--dry-run`、
-`--non-interactive`。
+`--watermark-scope main|all`、`--margin`、`--text-watermark`、
+`--text-watermark-coverage`、`--text-watermark-opacity`、`--text-watermark-font`、
+`--preset`、`--dry-run`、`--non-interactive`。
 
 `--target-mb` 使用十进制 MB，自动预留 5% 封装余量。默认只给主视频加水印；
 `--watermark-scope all` 会让水印覆盖追加片尾。片尾没有音轨时会自动补静音。
+Logo 默认宽度为输出画面宽度的 `35%`；可通过 `--watermark-width` 覆盖。
+`--text-watermark` 可选；启用后仅覆盖主视频，默认按画面对角线的 `80%` 计算字号、
+居中并沿左下至右上方向旋转，默认不透明度为 `45%`，带低透明黑色描边以提升可读性。
+中文默认固定使用 skill 附带的 Source Han Sans SC Regular，不依赖系统字体；使用
+`--text-watermark-font` 可显式覆盖。字体文件位于
+`../assets/fonts/SourceHanSansSC-Regular.otf`，许可证见
+`../assets/fonts/LICENSE-SourceHanSans.txt`。
 
 ### ffmpeg_cut —— 无损裁剪
 

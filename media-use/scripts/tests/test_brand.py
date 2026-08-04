@@ -1,4 +1,5 @@
 import json
+import inspect
 import shutil
 import subprocess
 import sys
@@ -9,11 +10,14 @@ from unittest import skipUnless
 
 from media_use.brand import (
     BrandMediaInfo,
+    _BUNDLED_CJK_FONT,
     build_filter_graph,
     calculate_canvas_width,
     calculate_video_bitrate_kbps,
+    main,
     parse_bitrate_kbps,
     parse_watermark_width,
+    resolve_text_watermark_font,
 )
 
 
@@ -36,6 +40,20 @@ class BrandHelpersTest(TestCase):
         self.assertEqual(width, 854)
         self.assertEqual(parse_watermark_width("15%", width), 128)
         self.assertEqual(parse_watermark_width("140", width), 140)
+
+    def test_cli_default_watermark_width(self) -> None:
+        parameters = inspect.signature(main).parameters
+        self.assertEqual(parameters["watermark_width"].default.default, "35%")
+        self.assertEqual(parameters["text_watermark_coverage"].default.default, 0.8)
+        self.assertEqual(parameters["text_watermark_opacity"].default.default, 0.45)
+
+    def test_explicit_text_watermark_font_is_preserved(self) -> None:
+        font = Path("/tmp/cjk-font.ttf")
+        self.assertEqual(resolve_text_watermark_font(font, "虎澈AI"), font)
+
+    def test_cjk_text_uses_bundled_font(self) -> None:
+        self.assertTrue(_BUNDLED_CJK_FONT.is_file())
+        self.assertEqual(resolve_text_watermark_font(None, "虎澈AI"), _BUNDLED_CJK_FONT)
 
     def test_filter_graph_adds_watermark_outro_and_silent_audio(self) -> None:
         graph, video_label, audio_label = build_filter_graph(
@@ -69,6 +87,19 @@ class BrandHelpersTest(TestCase):
         self.assertIn("[joinedv][logo]overlay=", graph)
         self.assertEqual(video_label, "[outv]")
 
+    def test_filter_graph_adds_optional_diagonal_text_watermark(self) -> None:
+        graph, video_label, _ = build_filter_graph(
+            self.main,
+            width=854,
+            height=480,
+            fps=30,
+            text_watermark="虎澈AI",
+        )
+        self.assertIn("drawtext=text='虎澈AI'", graph)
+        self.assertIn("rotate=-0.512", graph)
+        self.assertIn("[main][text_watermark]overlay=x=(W-w)/2:y=(H-h)/2", graph)
+        self.assertEqual(video_label, "[main_text_marked]")
+
 
 @skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "需要 ffmpeg / ffprobe")
 class BrandCliIntegrationTest(TestCase):
@@ -79,6 +110,7 @@ class BrandCliIntegrationTest(TestCase):
             outro = root / "outro.mp4"
             logo = root / "logo.png"
             output = root / "output.mp4"
+            text_only_output = root / "text_only.mp4"
 
             subprocess.run(
                 [
@@ -154,6 +186,8 @@ class BrandCliIntegrationTest(TestCase):
                     str(main),
                     "--watermark",
                     str(logo),
+                    "--text-watermark",
+                    "虎澈AI",
                     "--outro",
                     str(outro),
                     "--target-mb",
@@ -169,6 +203,29 @@ class BrandCliIntegrationTest(TestCase):
                     "--non-interactive",
                     "-o",
                     str(output),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "media_use.brand",
+                    str(main),
+                    "--text-watermark",
+                    "Demo",
+                    "--height",
+                    "90",
+                    "--fps",
+                    "10",
+                    "--video-bitrate",
+                    "300k",
+                    "--non-interactive",
+                    "-o",
+                    str(text_only_output),
                 ],
                 check=True,
                 capture_output=True,
@@ -198,3 +255,4 @@ class BrandCliIntegrationTest(TestCase):
             self.assertEqual((video["width"], video["height"]), (160, 90))
             self.assertEqual(video["r_frame_rate"], "10/1")
             self.assertTrue(any(stream["codec_type"] == "audio" for stream in data["streams"]))
+            self.assertTrue(text_only_output.is_file())
