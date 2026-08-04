@@ -98,6 +98,15 @@ AI 图片生成与编辑工具，通过独立 OpenAI、Gemini 原生和 Seedream
 - 支持生成、mask/多参考图编辑、JSONL 并发、downscale、chroma-key 和防覆盖输出
 - 支持 Seedream 5.0 Pro 点选/框选坐标协议与可恢复的连续编辑 session
 
+### filebrowser
+
+将 FileBrowser Quantum 中的远程文件上传到 S3 兼容对象存储。
+
+- 支持多个 FileBrowser source 和多个命名 S3 target
+- 支持 AWS S3、腾讯云 COS、阿里云 OSS、火山 TOS、MinIO 等兼容端点
+- 提供 dry-run、对象 key 映射、默认拒绝覆盖、流式暂存和上传后大小校验
+- 使用可扩展 target adapter，后续可增加更多上传目标
+
 ### joplin
 
 用于调用 Joplin REST API 读写笔记、查询笔记本、搜索内容等。
@@ -157,6 +166,9 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - [`shared/agent-config`](shared/agent-config/README.md)：`agent_config.toml` 的跨平台查找、全局兜底、显式路径、配置示例和测试模板。创建新 skill 时复制实现，运行时不依赖仓库共享目录。
 
 ## 更新记录
+
+### 2026-08-03
+- 新增 filebrowser skill：将 FileBrowser Quantum 文件安全转存到多个 S3 兼容 bucket，支持环境变量凭据、覆盖保护、临时文件清理和新旧下载接口兼容
 
 ### 2026-07-28
 - 统一视频下载到 Immich 的元数据交接：video-downloader 为抖音、微信视频号和 yt-dlp 视频生成公开字段白名单侧车，Immich 自动将标题、作者、平台、发布时间、时长、视频 ID、原始文案、话题和来源页写入 Description

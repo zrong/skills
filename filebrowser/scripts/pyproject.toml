@@ -1,0 +1,36 @@
+[project]
+name = "filebrowser-transfer"
+version = "0.1.0"
+description = "Transfer FileBrowser Quantum files to configurable upload targets"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "boto3>=1.39,<2",
+    "httpx>=0.28,<1",
+]
+
+[project.scripts]
+fb-transfer = "filebrowser_transfer.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "boto3-stubs[s3]>=1.39,<2",
+    "pyright>=1.1.403",
+    "pytest>=8.4,<9",
+    "ruff>=0.12,<1",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"
+include = ["filebrowser_transfer", "tests"]
