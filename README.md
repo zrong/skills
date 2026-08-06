@@ -169,6 +169,7 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 
 ### 2026-08-06
 - 修复 media-use 的 `ffmpeg_brand` 在 Windows 使用 `--target-mb` 时将两遍编码第一遍输出写入 `/dev/null` 的问题，改用 Python 跨平台空设备。
+- 调整 media-use 的 `ffmpeg_brand` 默认 Logo 尺寸：自动取输出画面短边的 30%，并保留 `--watermark-width` 显式覆盖。
 
 ### 2026-08-03
 - 新增 filebrowser skill：将 FileBrowser Quantum 文件安全转存到多个 S3 兼容 bucket，支持环境变量凭据、覆盖保护、临时文件清理和新旧下载接口兼容

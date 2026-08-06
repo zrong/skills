@@ -1,18 +1,18 @@
-import json
 import inspect
+import json
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from unittest import TestCase
-from unittest import skipUnless
+from unittest import TestCase, skipUnless
 
 from media_use.brand import (
-    BrandMediaInfo,
     _BUNDLED_CJK_FONT,
+    BrandMediaInfo,
     build_filter_graph,
     calculate_canvas_width,
+    calculate_default_watermark_width,
     calculate_video_bitrate_kbps,
     main,
     parse_bitrate_kbps,
@@ -41,9 +41,14 @@ class BrandHelpersTest(TestCase):
         self.assertEqual(parse_watermark_width("15%", width), 128)
         self.assertEqual(parse_watermark_width("140", width), 140)
 
+    def test_default_logo_width_uses_output_short_edge(self) -> None:
+        self.assertEqual(calculate_default_watermark_width(854, 480), 144)
+        self.assertEqual(calculate_default_watermark_width(1920, 1080), 324)
+        self.assertEqual(calculate_default_watermark_width(1080, 1920), 324)
+
     def test_cli_default_watermark_width(self) -> None:
         parameters = inspect.signature(main).parameters
-        self.assertEqual(parameters["watermark_width"].default.default, "35%")
+        self.assertIsNone(parameters["watermark_width"].default.default)
         self.assertEqual(parameters["text_watermark_coverage"].default.default, 0.8)
         self.assertEqual(parameters["text_watermark_opacity"].default.default, 0.45)
 

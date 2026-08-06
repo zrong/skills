@@ -34,6 +34,7 @@ _PRESETS = {
     "veryslow",
 }
 _TARGET_RESERVE = 0.95
+_DEFAULT_WATERMARK_SHORT_EDGE_RATIO = 0.30
 _BUNDLED_CJK_FONT = (
     Path(__file__).resolve().parents[2]
     / "assets"
@@ -132,6 +133,13 @@ def calculate_canvas_width(info: BrandMediaInfo, height: int, width: int | None 
     if candidate <= 0:
         raise ValueError("输出宽度必须大于 0")
     return candidate if candidate % 2 == 0 else candidate + 1
+
+
+def calculate_default_watermark_width(width: int, height: int) -> int:
+    """Use 30% of the output's shorter edge for a stable logo size."""
+    if width <= 0 or height <= 0:
+        raise ValueError("输出尺寸必须大于 0")
+    return max(1, round(min(width, height) * _DEFAULT_WATERMARK_SHORT_EDGE_RATIO))
 
 
 def parse_watermark_width(value: str, canvas_width: int) -> int:
@@ -490,10 +498,10 @@ def main(
         help="输出宽度；默认按主视频比例自动计算",
     ),
     fps: int = typer.Option(30, "--fps", help="输出帧率，默认 30"),
-    watermark_width: str = typer.Option(
-        "35%",
+    watermark_width: str | None = typer.Option(
+        None,
         "--watermark-width",
-        help="水印宽度，支持像素或相对画面宽度，如 140、35%",
+        help="可选的水印宽度覆盖值，支持像素或相对画面宽度，如 140、35%",
     ),
     watermark_opacity: float = typer.Option(
         0.45,
@@ -592,7 +600,11 @@ def main(
         main_info = probe_brand_media(source)
         outro_info = probe_brand_media(outro) if outro is not None else None
         canvas_width = calculate_canvas_width(main_info, height, width)
-        logo_width = parse_watermark_width(watermark_width, canvas_width)
+        logo_width = (
+            parse_watermark_width(watermark_width, canvas_width)
+            if watermark_width is not None
+            else calculate_default_watermark_width(canvas_width, height)
+        )
         audio_kbps = parse_bitrate_kbps(audio_bitrate)
         normalised_audio_bitrate = f"{audio_kbps:g}k"
         total_duration = main_info.duration + (outro_info.duration if outro_info else 0)

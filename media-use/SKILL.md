@@ -52,7 +52,6 @@ uv run ffmpeg_brand input.mp4 \
   --outro outro.mp4 \
   --height 480 --fps 30 \
   --watermark-position bottom-left \
-  --watermark-width 35% \
   --watermark-opacity 0.45 \
   --text-watermark "胡扯AI" \
   -o output.mp4
@@ -77,7 +76,8 @@ uv run ffmpeg_brand input.mp4 \
 
 - 默认 `--watermark-scope main`，水印只覆盖主视频，追加的片尾保持原样；使用
   `--watermark-scope all` 可覆盖完整成片。
-- Logo 默认宽度为输出画面宽度的 `35%`；可通过 `--watermark-width` 覆盖。
+- Logo 默认宽度自动取输出画面短边的 `30%`，横屏与竖屏都会保持稳定的视觉占比。
+  可通过 `--watermark-width` 覆盖为像素值，或输出画面宽度的百分比。
 - `--text-watermark` 可选；启用后仅覆盖主视频，默认按画面对角线的 `80%` 计算字号、
   居中并沿左下至右上方向旋转，默认不透明度为 `45%`，带低透明黑色描边以提升可读性。
   可通过覆盖比例、透明度和字体
