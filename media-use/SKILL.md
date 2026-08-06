@@ -42,6 +42,8 @@ uv run ffmpeg_batch --list-codecs
 为单个视频添加图片或文字水印、追加片尾，并统一输出尺寸、帧率和编码。设置
 `--target-mb` 时自动按主视频与片尾总时长计算码率，使用 H.264 两遍编码并预留
 5% 封装余量；若第一次结果仍超出目标，会自动降低视频码率重试一次。
+第一遍编码通过 Python 的 `os.devnull` 使用系统空设备（Windows 为 `NUL`），因此
+Windows 可直接使用 `--target-mb`。
 
 ```bash
 # 480P / 30fps，左下角半透明 Logo，并追加片尾

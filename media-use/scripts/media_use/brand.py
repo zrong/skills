@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import subprocess
 import tempfile
@@ -407,7 +408,7 @@ def _encode(
         if pass_number is not None and passlog is not None:
             args.extend(["-pass", str(pass_number), "-passlogfile", passlog])
         if pass_number == 1:
-            args.extend(["-f", "mp4", "/dev/null"])
+            args.extend(["-f", "mp4", os.devnull])
         else:
             if outro_info is not None or main_info.has_audio:
                 args.extend(["-c:a", "aac", "-b:a", audio_bitrate])
