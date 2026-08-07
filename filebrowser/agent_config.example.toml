@@ -65,6 +65,9 @@ multipart_chunksize_bytes = 8388608
 max_concurrency = 4
 verify_tls = true
 
+# S3 Target 会自动只计算协议强制要求的请求校验和，避免 botocore 对可选校验和使用
+# aws-chunked 编码，从而兼容腾讯 COS 的 multipart UploadPart 请求。
+
 # 第二个 S3 target，演示多个独立配置。
 [filebrowser.targets.aws-backup]
 adapter = "s3"

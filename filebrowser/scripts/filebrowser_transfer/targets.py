@@ -5,7 +5,7 @@ from __future__ import annotations
 import mimetypes
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
-from typing import Protocol, cast
+from typing import Any, Literal, Protocol, TypedDict, cast
 from urllib.parse import quote
 
 import boto3
@@ -31,6 +31,14 @@ class S3ClientProtocol(Protocol):
         ExtraArgs: dict[str, str],
         Config: TransferConfig,
     ) -> None: ...
+
+
+class S3ClientOptions(TypedDict):
+    signature_version: str
+    s3: dict[str, str]
+    retries: dict[str, int | str]
+    request_checksum_calculation: Literal["when_required"]
+    response_checksum_validation: Literal["when_required"]
 
 
 class UploadTarget(Protocol):
@@ -62,6 +70,19 @@ def resolve_target_key(config: TargetConfig, relative_key: str) -> str:
     match config:
         case S3TargetConfig(prefix=prefix):
             return f"{prefix}/{key}" if prefix else key
+
+
+def s3_client_options(config: S3TargetConfig) -> S3ClientOptions:
+    """Return Boto3 client options compatible with S3 API endpoints."""
+    return {
+        "signature_version": "s3v4",
+        "s3": {"addressing_style": config.addressing_style},
+        "retries": {"max_attempts": 3, "mode": "standard"},
+        # Avoid optional CRC checksums, which botocore sends as aws-chunked
+        # requests that Tencent COS rejects for multipart UploadPart calls.
+        "request_checksum_calculation": "when_required",
+        "response_checksum_validation": "when_required",
+    }
 
 
 class S3Target:
@@ -112,11 +133,7 @@ class S3Target:
                 "s3",
                 endpoint_url=config.endpoint_url or None,
                 verify=config.verify_tls,
-                config=BotoConfig(
-                    signature_version="s3v4",
-                    s3={"addressing_style": config.addressing_style},
-                    retries={"max_attempts": 3, "mode": "standard"},
-                ),
+                config=BotoConfig(**cast(Any, s3_client_options(config))),
             ),
         )
         return client

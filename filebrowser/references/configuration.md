@@ -88,6 +88,9 @@ verify_tls = true
 - 默认 object key 为 FileBrowser 文件路径去掉开头 `/` 后的值，再添加 S3 target `prefix`。
 - `--key` 覆盖 FileBrowser 派生部分，但仍会添加 target `prefix`。
 - multipart 参数由 boto3 `TransferConfig` 使用；上传完成后通过 `head_object` 校验对象大小。
+- S3 Target 仅启用协议强制要求的请求校验和，避免 botocore 为可选校验和使用
+  `aws-chunked` 编码；这保证腾讯 COS 的 multipart `UploadPart` 请求带普通
+  `Content-Length`。
 - skill 优先使用 `/api/resources/download`，服务器返回 404/405 时兼容回退 `/api/raw`。
 - `put` 直接将本地文件流式上传至 FileBrowser；大于 `upload_chunk_bytes` 的文件使用
   `X-File-Chunk-Offset` / `X-File-Total-Size` 顺序分块上传。

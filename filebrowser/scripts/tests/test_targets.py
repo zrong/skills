@@ -8,7 +8,12 @@ from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError
 
 from filebrowser_transfer.models import ConfigurationError, S3TargetConfig, SecretValue
-from filebrowser_transfer.targets import S3Target, TargetError, normalize_object_key
+from filebrowser_transfer.targets import (
+    S3Target,
+    TargetError,
+    normalize_object_key,
+    s3_client_options,
+)
 
 
 class FakeS3Client:
@@ -65,6 +70,16 @@ def test_normalize_object_key() -> None:
     assert normalize_object_key("/folder\\video.mp4") == "folder/video.mp4"
     with pytest.raises(TargetError):
         normalize_object_key("../secret")
+
+
+def test_s3_client_config_avoids_optional_aws_chunked_checksums() -> None:
+    client_options = s3_client_options(
+        S3TargetConfig(name="cos", bucket="bucket", addressing_style="virtual")
+    )
+
+    assert client_options["s3"] == {"addressing_style": "virtual"}
+    assert client_options["request_checksum_calculation"] == "when_required"
+    assert client_options["response_checksum_validation"] == "when_required"
 
 
 def test_refuses_overwrite_by_default() -> None:
