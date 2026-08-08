@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import mimetypes
 from collections.abc import Mapping
+from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, cast
 from urllib.parse import quote
@@ -44,6 +45,9 @@ class TargetError(RuntimeError):
     """Raised when an upload target rejects or fails a transfer."""
 
 
+CONTENT_SHA256_METADATA_KEY = "content-sha256"
+
+
 class S3ClientProtocol(Protocol):
     def head_object(self, *, Bucket: str, Key: str) -> Mapping[str, object]: ...
 
@@ -52,7 +56,7 @@ class S3ClientProtocol(Protocol):
         Filename: str,
         Bucket: str,
         Key: str,
-        ExtraArgs: dict[str, str],
+        ExtraArgs: dict[str, object],
         Config: TransferConfig,
     ) -> None: ...
 
@@ -78,6 +82,7 @@ class UploadTarget(Protocol):
         object_key: str,
         *,
         content_type: str,
+        if_changed: bool = False,
     ) -> UploadResult: ...
 
 
@@ -107,6 +112,15 @@ def s3_client_options(config: S3TargetConfig) -> S3ClientOptions:
         "request_checksum_calculation": "when_required",
         "response_checksum_validation": "when_required",
     }
+
+
+def calculate_file_sha256(path: Path) -> str:
+    """Return the SHA-256 of a staged file without loading it into memory."""
+    digest = sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 class S3Target:
@@ -205,35 +219,26 @@ class S3Target:
                 "use --overwrite to replace it"
             )
 
-    def upload(
+    @staticmethod
+    def _metadata_content_sha256(metadata: Mapping[str, object]) -> str:
+        raw_metadata = metadata.get("Metadata")
+        if not isinstance(raw_metadata, Mapping):
+            return ""
+        typed_metadata = cast(Mapping[object, object], raw_metadata)
+        for key, value in typed_metadata.items():
+            if str(key).lower() == CONTENT_SHA256_METADATA_KEY and isinstance(value, str):
+                return value.lower()
+        return ""
+
+    def _result_from_metadata(
         self,
-        local_path: Path,
         object_key: str,
         *,
-        content_type: str,
+        local_size: int,
+        content_sha256: str,
+        metadata: Mapping[str, object],
+        skipped_unchanged: bool,
     ) -> UploadResult:
-        extra_args = {
-            "ContentType": content_type
-            or mimetypes.guess_type(local_path.name)[0]
-            or "application/octet-stream"
-        }
-        if self.config.storage_class:
-            extra_args["StorageClass"] = self.config.storage_class
-        try:
-            self._client.upload_file(
-                Filename=str(local_path),
-                Bucket=self.config.bucket,
-                Key=object_key,
-                ExtraArgs=extra_args,
-                Config=self._transfer_config,
-            )
-            metadata = self._head(object_key)
-        except (BotoCoreError, ClientError) as exc:
-            raise TargetError(f"S3 upload failed for target {self.name}") from exc
-        if metadata is None:
-            raise TargetError("S3 upload completed but head_object could not find the object")
-
-        local_size = local_path.stat().st_size
         remote_size = metadata.get("ContentLength")
         if not isinstance(remote_size, int) or remote_size != local_size:
             raise TargetError(
@@ -254,6 +259,63 @@ class S3Target:
             etag=str(etag_value).strip('"'),
             version_id=str(version_value),
             public_url=public_url,
+            skipped_unchanged=skipped_unchanged,
+            content_sha256=content_sha256,
+        )
+
+    def upload(
+        self,
+        local_path: Path,
+        object_key: str,
+        *,
+        content_type: str,
+        if_changed: bool = False,
+    ) -> UploadResult:
+        local_size = local_path.stat().st_size
+        content_sha256 = calculate_file_sha256(local_path)
+        if if_changed:
+            existing = self._head(object_key)
+            if (
+                existing is not None
+                and existing.get("ContentLength") == local_size
+                and self._metadata_content_sha256(existing) == content_sha256
+            ):
+                return self._result_from_metadata(
+                    object_key,
+                    local_size=local_size,
+                    content_sha256=content_sha256,
+                    metadata=existing,
+                    skipped_unchanged=True,
+                )
+
+        extra_args: dict[str, object] = {
+            "ContentType": content_type
+            or mimetypes.guess_type(local_path.name)[0]
+            or "application/octet-stream",
+            "Metadata": {CONTENT_SHA256_METADATA_KEY: content_sha256},
+        }
+        if self.config.storage_class:
+            extra_args["StorageClass"] = self.config.storage_class
+        try:
+            self._client.upload_file(
+                Filename=str(local_path),
+                Bucket=self.config.bucket,
+                Key=object_key,
+                ExtraArgs=extra_args,
+                Config=self._transfer_config,
+            )
+            metadata = self._head(object_key)
+        except (BotoCoreError, ClientError) as exc:
+            raise TargetError(f"S3 upload failed for target {self.name}") from exc
+        if metadata is None:
+            raise TargetError("S3 upload completed but head_object could not find the object")
+
+        return self._result_from_metadata(
+            object_key,
+            local_size=local_size,
+            content_sha256=content_sha256,
+            metadata=metadata,
+            skipped_unchanged=False,
         )
 
 

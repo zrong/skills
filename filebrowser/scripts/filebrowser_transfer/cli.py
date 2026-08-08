@@ -43,6 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
     upload.add_argument("--target", help="Configured upload target name")
     upload.add_argument("--key", help="Override the relative target object key")
     upload.add_argument("--overwrite", action="store_true")
+    upload.add_argument(
+        "--if-changed",
+        action="store_true",
+        help="With --overwrite, skip when the existing S3 object has the same SHA-256",
+    )
     upload.add_argument("--dry-run", action="store_true")
     upload.add_argument("--json", action="store_true")
 
@@ -450,6 +455,8 @@ def main(argv: list[str] | None = None) -> int:
         source_name = _optional_string(args, "source")
         target_name = _optional_string(args, "target")
         object_key = _optional_string(args, "key")
+        if bool(args.if_changed) and not bool(args.overwrite):
+            raise FileBrowserError("--if-changed requires --overwrite")
         if bool(args.dry_run):
             plan = service.plan(
                 remote_path,
@@ -459,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             payload = cast(dict[str, object], asdict(plan))
             payload["dry_run"] = True
+            payload["if_changed"] = bool(args.if_changed)
             _print_payload(payload, as_json=as_json)
             return 0
 
@@ -468,6 +476,7 @@ def main(argv: list[str] | None = None) -> int:
             target_name=target_name,
             object_key=object_key,
             overwrite=bool(args.overwrite),
+            if_changed=bool(args.if_changed),
         )
         _print_payload(cast(dict[str, object], asdict(result)), as_json=as_json)
         return 0

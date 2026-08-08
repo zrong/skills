@@ -22,6 +22,7 @@ from .models import (
     SkillConfig,
     TargetConfig,
     TransferPlan,
+    UnchangedFile,
     UploadResult,
 )
 from .targets import UploadTarget, build_target, normalize_object_key, resolve_target_key
@@ -244,7 +245,10 @@ class TransferService:
         target_name: str | None = None,
         object_key: str | None = None,
         overwrite: bool = False,
+        if_changed: bool = False,
     ) -> UploadResult:
+        if if_changed and not overwrite:
+            raise FileBrowserError("--if-changed requires --overwrite")
         source_config = self.config.source(source_name)
         target_config = self.config.target(target_name)
         target = self._target_factory(target_config)
@@ -271,6 +275,19 @@ class TransferService:
                 local_path,
                 plan.object_key,
                 content_type=remote.content_type,
+                if_changed=if_changed,
+            )
+        if result.skipped_unchanged:
+            result = replace(
+                result,
+                unchanged_files=[
+                    UnchangedFile(
+                        source_path=plan.remote_path,
+                        object_key=plan.object_key,
+                        size=result.size,
+                        content_sha256=result.content_sha256,
+                    )
+                ],
             )
         return self._with_cdn_task(target_config, plan.object_key, result)
 
@@ -280,6 +297,8 @@ class TransferService:
         object_key: str,
         result: UploadResult,
     ) -> UploadResult:
+        if result.skipped_unchanged:
+            return result
         cdn_config = target_config.cdn
         if cdn_config is None or not cdn_config.purge_on_upload:
             return result

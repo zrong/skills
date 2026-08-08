@@ -129,6 +129,18 @@ class CdnTaskResult:
 
 
 @dataclass(frozen=True, slots=True)
+class UnchangedFile:
+    source_path: str
+    object_key: str
+    size: int
+    content_sha256: str
+
+
+def _empty_unchanged_files() -> list[UnchangedFile]:
+    return []
+
+
+@dataclass(frozen=True, slots=True)
 class UploadResult:
     target_name: str
     bucket: str
@@ -138,6 +150,9 @@ class UploadResult:
     version_id: str
     public_url: str
     cdn_task: CdnTaskResult | None = None
+    skipped_unchanged: bool = False
+    content_sha256: str = ""
+    unchanged_files: list[UnchangedFile] = field(default_factory=_empty_unchanged_files)
 
 
 @dataclass(frozen=True, slots=True)
