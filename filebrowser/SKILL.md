@@ -5,7 +5,7 @@ description: |
     1) 文件管理：浏览（info/list-dir）、读写（update）、创建目录（mkdir）、删除（delete）、
        移动/重命名/复制（move）、搜索（search）、预览（preview）、多文件打包下载（download-files）。
     2) 传输分发：FileBrowser ↔ 本地（get/put）、FileBrowser → S3 兼容 bucket（upload，AWS S3 /
-       腾讯云 COS / 阿里云 OSS / 火山 TOS）、对象 key 映射、分块上传、覆盖保护和 dry-run。
+       腾讯云 COS / 阿里云 OSS / 火山 TOS）、对象 key 映射、分块上传、覆盖保护、内容去重和 dry-run。
        支持腾讯云 CDN 缓存管理：刷新 URL/目录、预热，上传后可自动刷新。
 
   支持多 FileBrowser source。所有 HTTP 访问都走共享 FileBrowserClient；下游 skill 不应自行
@@ -105,7 +105,15 @@ filebrowser move --source 项目 --from /虎澈漫剧/B06/old.mp4 --destination 
      --source production --target archive --json
    ```
 
-4. 默认保留 FileBrowser 完整相对路径作为 S3 key，并在前面添加 target 的 `prefix`。需要改 key 时使用 `--key`。
+4. 要覆盖但只在内容变化时写入，使用 `--overwrite --if-changed`。相同文件会跳过上传，
+   `--json` 输出中的 `unchanged_files` 会列出每个相同文件的源路径、对象 key、大小和 SHA-256：
+
+   ```bash
+   filebrowser upload "/项目/成片/demo.mp4" \
+     --source production --target archive --overwrite --if-changed --json
+   ```
+
+5. 默认保留 FileBrowser 完整相对路径作为 S3 key，并在前面添加 target 的 `prefix`。需要改 key 时使用 `--key`。
 
 ### 上传本地文件回 FileBrowser
 
@@ -147,6 +155,9 @@ filebrowser get "/项目/成片/demo.mp4" /local/demo.mp4 \
 
 - 一次只上传一个文件；目录会被拒绝。
 - S3 已存在同 key 对象时默认拒绝。只有用户明确要求覆盖时才添加 `--overwrite`。
+- `--if-changed` 必须与 `--overwrite` 同时使用。上传对象带 SHA-256 元数据；启用后只有大小和
+  SHA-256 都一致才跳过，并在结果的 `unchanged_files` 明确列出相同文件。旧对象缺少该元数据时会
+  上传一次以补齐，不以 ETag 判断内容。跳过上传时不会执行 CDN 刷新。
 - `put` 的远端路径必须是绝对路径且不能包含 `..`；若目标已存在，默认拒绝覆盖。
 - `get` 的本地目标路径必须不存在，避免无意覆盖已有文件。
 - FileBrowser 路径必须是绝对路径且不能包含 `..`；S3 key 必须是相对路径且不能包含 `..`。
@@ -176,4 +187,4 @@ filebrowser cdn prefetch --target archive --urls "https://cdn.example.com/path/f
 
 ## 结果
 
-转存 S3 成功时报告 source、FileBrowser 路径、target、bucket、object key、字节数和可用的公开 URL。`put` 成功时报告 source、本地路径、FileBrowser 路径和字节数。不要声称上传成功，除非 S3 `head_object` 或 FileBrowser 下载端点的 `Content-Length` 与本地文件一致；缺失该响应头时才回退至资源元数据。
+转存 S3 成功时报告 source、FileBrowser 路径、target、bucket、object key、字节数、SHA-256 和可用的公开 URL。内容相同而跳过时，`skipped_unchanged` 为 `true`，且 `unchanged_files` 必须逐项列出相同文件；不要把该情况表述为已重新上传。`put` 成功时报告 source、本地路径、FileBrowser 路径和字节数。不要声称上传成功，除非 S3 `head_object` 或 FileBrowser 下载端点的 `Content-Length` 与本地文件一致；缺失该响应头时才回退至资源元数据。

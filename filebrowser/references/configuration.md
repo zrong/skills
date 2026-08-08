@@ -88,6 +88,12 @@ verify_tls = true
 - 默认 object key 为 FileBrowser 文件路径去掉开头 `/` 后的值，再添加 S3 target `prefix`。
 - `--key` 覆盖 FileBrowser 派生部分，但仍会添加 target `prefix`。
 - multipart 参数由 boto3 `TransferConfig` 使用；上传完成后通过 `head_object` 校验对象大小。
+- 每次 S3 上传会在对象 metadata 写入 `content-sha256`。使用 `upload --overwrite --if-changed`
+  时，skill 比对远端 `ContentLength` 与该 SHA-256；两者相同才跳过写入。结果中的
+  `unchanged_files` 会逐项给出相同文件的 FileBrowser 路径、object key、大小和 SHA-256，供
+  agent 明确说明。旧对象没有该 metadata 时会重新上传并补写摘要；不使用 ETag 作为内容判断依据。
+- `--if-changed` 只能与 `--overwrite` 同时使用。内容未变化而跳过时，不执行
+  `purge_on_upload` 的 CDN 刷新。
 - S3 Target 仅启用协议强制要求的请求校验和，避免 botocore 为可选校验和使用
   `aws-chunked` 编码；这保证腾讯 COS 的 multipart `UploadPart` 请求带普通
   `Content-Length`。
