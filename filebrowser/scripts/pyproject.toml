@@ -1,16 +1,29 @@
 [project]
 name = "filebrowser-transfer"
 version = "0.1.0"
-description = "Transfer FileBrowser Quantum files to configurable upload targets"
+description = "FileBrowser Quantum CLI: file management, transfer to S3-compatible targets, and CDN cache control"
 requires-python = ">=3.13,<3.14"
 dependencies = [
-    "boto3>=1.39,<2",
     "httpx>=0.28,<1",
+]
+
+[project.optional-dependencies]
+# Install via ``uv sync --extra transfer`` (or ``--all-extras``) to enable
+# the ``upload`` (FileBrowser -> S3) command. Skills that only need file
+# management (``info``/``mkdir``/``update``/``delete``/``move``/``search``/
+# ``preview``/``download-files``/``sources``) and ``put``/``get`` work without
+# boto3 installed.
+transfer = [
+    "boto3>=1.39,<2",
+]
+# Install via ``uv sync --extra cdn`` for ``cdn purge-url``/``purge-path``/
+# ``prefetch`` (Tencent Cloud cache control).
+cdn = [
     "tencentcloud-sdk-python-cdn>=3.0,<4",
 ]
 
 [project.scripts]
-fb-transfer = "filebrowser_transfer.cli:main"
+filebrowser = "filebrowser_transfer.cli:main"
 
 [build-system]
 requires = ["hatchling"]

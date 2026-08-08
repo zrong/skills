@@ -1,6 +1,7 @@
-"""FileBrowser transfer skill runtime."""
+"""FileBrowser transfer skill runtime.
 
-from .config import ConfigError, load_skill_config
-from .transfer import TransferService
-
-__all__ = ["ConfigError", "TransferService", "load_skill_config"]
+Import submodules directly (e.g. ``filebrowser_transfer.filebrowser``,
+``filebrowser_transfer.config``); pulling symbols up here would force
+``boto3`` to load on every ``import filebrowser_transfer``, which is
+unnecessary for skills that only need the file-management client.
+"""

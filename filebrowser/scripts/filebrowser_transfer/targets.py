@@ -5,15 +5,39 @@ from __future__ import annotations
 import mimetypes
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, cast
 from urllib.parse import quote
 
-import boto3
-from boto3.s3.transfer import TransferConfig
-from botocore.config import Config as BotoConfig
-from botocore.exceptions import BotoCoreError, ClientError
-
 from .models import ConfigurationError, S3TargetConfig, TargetConfig, UploadResult
+
+# boto3/botocore are optional: only needed for the ``upload`` (FileBrowser ->
+# S3) command. The file-management surface (``info``/``mkdir``/``update``/
+# ``delete``/``move``/``search``/``preview``/``download-files``/``sources``) and
+# ``get``/``put`` work without boto3 installed. Install the ``transfer`` extra
+# (``uv sync --extra transfer`` or ``pip install filebrowser-transfer[transfer]``)
+# to enable S3 transfer.
+if TYPE_CHECKING:
+    import boto3
+    from boto3.s3.transfer import TransferConfig
+    from botocore.config import Config as BotoConfig
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    _boto3_available = True
+else:
+    try:
+        import boto3
+        from boto3.s3.transfer import TransferConfig
+        from botocore.config import Config as BotoConfig
+        from botocore.exceptions import BotoCoreError, ClientError
+
+        _boto3_available = True
+    except ImportError:  # pragma: no cover - exercised when extras are absent
+        boto3 = None  # type: ignore[assignment]
+        TransferConfig = None  # type: ignore[assignment,misc]
+        BotoConfig = None  # type: ignore[assignment,misc]
+        BotoCoreError = Exception
+        ClientError = Exception
+        _boto3_available = False
 
 
 class TargetError(RuntimeError):
@@ -94,6 +118,12 @@ class S3Target:
         *,
         client: S3ClientProtocol | None = None,
     ) -> None:
+        if not _boto3_available:
+            raise TargetError(
+                "S3 transfer requires boto3; install with "
+                "`uv sync --extra transfer` (or "
+                "`pip install filebrowser-transfer[transfer]`)"
+            )
         self.config = config
         self.name = config.name
         self._client = client or self._build_client(config)
@@ -230,5 +260,11 @@ class S3Target:
 def build_target(config: TargetConfig) -> UploadTarget:
     match config:
         case S3TargetConfig():
+            if not _boto3_available:
+                raise TargetError(
+                    "S3 transfer requires boto3; install with "
+                    "`uv sync --extra transfer` (or "
+                    "`pip install filebrowser-transfer[transfer]`)"
+                )
             return S3Target(config)
     raise ConfigurationError(f"Unsupported target configuration: {type(config).__name__}")
