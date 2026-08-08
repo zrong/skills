@@ -46,6 +46,16 @@ class FileBrowserSourceConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class CdnTargetConfig:
+    name: str
+    provider: str
+    base_url: str
+    purge_on_upload: bool = False
+    access_key_id: SecretValue = field(default_factory=SecretValue, repr=False)
+    secret_access_key: SecretValue = field(default_factory=SecretValue, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
 class S3TargetConfig:
     name: str
     bucket: str
@@ -63,6 +73,7 @@ class S3TargetConfig:
     multipart_chunksize_bytes: int = 8 * 1024 * 1024
     max_concurrency: int = 4
     verify_tls: bool = True
+    cdn: CdnTargetConfig | None = None
 
 
 type TargetConfig = S3TargetConfig
@@ -109,6 +120,15 @@ class TransferPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class CdnTaskResult:
+    operation: str
+    status: str
+    task_id: str
+    targets: list[str]
+    error: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class UploadResult:
     target_name: str
     bucket: str
@@ -117,6 +137,7 @@ class UploadResult:
     etag: str
     version_id: str
     public_url: str
+    cdn_task: CdnTaskResult | None = None
 
 
 @dataclass(frozen=True, slots=True)

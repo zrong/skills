@@ -1,6 +1,6 @@
 ---
 name: filebrowser
-description: 从 FileBrowser Quantum 下载远程文件、上传本地文件回 FileBrowser，或转存到 S3 兼容 bucket。支持多个 FileBrowser source、多个 S3 target、AWS S3/腾讯云 COS/阿里云 OSS/火山 TOS、对象 key 映射、分块上传、覆盖保护和 dry-run。当用户提到 FileBrowser 上传下载、回传视频、文件转存 S3、对象存储备份或跨存储传输时使用。
+description: 从 FileBrowser Quantum 下载远程文件、上传本地文件回 FileBrowser，或转存到 S3 兼容 bucket。支持多个 FileBrowser source、多个 S3 target、AWS S3/腾讯云 COS/阿里云 OSS/火山 TOS、对象 key 映射、分块上传、覆盖保护和 dry-run。支持腾讯云 CDN 缓存管理：刷新 URL/目录、预热，上传后可自动刷新。当用户提到 FileBrowser 上传下载、回传视频、文件转存 S3、对象存储备份、跨存储传输、CDN 刷新或预热时使用。
 ---
 
 # FileBrowser Transfer
@@ -93,6 +93,25 @@ uv run --project {SKILL_DIR}/scripts fb-transfer --config /path/agent_config.tom
   `Content-Length` 校验字节数，缺失时才回退至资源元数据；无论成功或失败都会清理临时目录。
 - `max_transfer_bytes = 0` 表示不设 skill 级大小上限；生产配置建议设置明确上限。
 - dry-run 只验证配置和路径，不连接 FileBrowser 或 S3，也不解析凭据链。
+
+## CDN 缓存管理
+
+为 target 配置可选的 `[filebrowser.targets.<name>.cdn]` 子表（`provider = "tencent"`）后，
+可管理腾讯云 CDN 缓存，三个独立功能：
+
+```bash
+uv run --project {SKILL_DIR}/scripts fb-transfer --non-interactive cdn purge-url \
+  --target archive --keys "path/file.mp4"
+uv run --project {SKILL_DIR}/scripts fb-transfer --non-interactive cdn purge-path \
+  --target archive --paths "https://cdn.example.com/path/" --flush-type flush
+uv run --project {SKILL_DIR}/scripts fb-transfer --non-interactive cdn prefetch \
+  --target archive --urls "https://cdn.example.com/path/file.mp4" --area mainland
+```
+
+设 `purge_on_upload = true` 时 `upload` 成功后自动刷新该文件 URL（失败不影响上传）。
+凭据复用 target 的 AK/SK，但需在腾讯云 CAM 授予 `cdn:PurgeUrlsCache`/`PurgePathCache`/
+`PushUrlsCache` 权限。`cdn.base_url` 是 CDN 域名，与源站域名 `public_base_url` 不同。详见
+[references/configuration.md](references/configuration.md)。
 
 ## 结果
 

@@ -6,6 +6,7 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
     "boto3>=1.39,<2",
     "httpx>=0.28,<1",
+    "tencentcloud-sdk-python-cdn>=3.0,<4",
 ]
 
 [project.scripts]

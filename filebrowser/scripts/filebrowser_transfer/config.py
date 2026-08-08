@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from .agent_config import TomlTable, TomlValue, load_config
 from .models import (
+    CdnTargetConfig,
     ConfigurationError,
     FileBrowserSourceConfig,
     S3TargetConfig,
@@ -182,6 +183,54 @@ def _parse_target(name: str, value: TomlValue) -> S3TargetConfig:
         ),
         max_concurrency=_int(table, "max_concurrency", default=4, minimum=1),
         verify_tls=_bool(table, "verify_tls", default=True),
+        cdn=_parse_cdn(name, table, access_key_id, secret_access_key),
+    )
+
+
+def _parse_cdn(
+    name: str,
+    table: Mapping[str, TomlValue],
+    target_access_key_id: SecretValue,
+    target_secret_access_key: SecretValue,
+) -> CdnTargetConfig | None:
+    if "cdn" not in table:
+        return None
+    cdn_table = _table(table["cdn"], f"[filebrowser.targets.{name}.cdn]")
+    provider = _string(cdn_table, "provider")
+    if provider != "tencent":
+        raise ConfigError(
+            f"Unsupported CDN provider for target {name}: {provider or '(missing)'}"
+        )
+    base_url = _http_url(
+        _required_string(
+            cdn_table, "base_url", f"filebrowser.targets.{name}.cdn.base_url"
+        ),
+        f"filebrowser.targets.{name}.cdn.base_url",
+        required=True,
+    )
+    purge_on_upload = _bool(cdn_table, "purge_on_upload", default=False)
+    access_key_id = _secret(cdn_table, "access_key_id")
+    secret_access_key = _secret(cdn_table, "secret_access_key")
+    if access_key_id.declared != secret_access_key.declared:
+        raise ConfigError(
+            f"CDN target {name} must declare both access_key_id and secret_access_key"
+        )
+    if not access_key_id.declared:
+        if not target_access_key_id.declared:
+            raise ConfigError(
+                f"CDN target {name} has no credentials: target {name} uses a profile/"
+                "default chain and the [cdn] subtable did not declare "
+                "access_key_id/secret_access_key"
+            )
+        access_key_id = target_access_key_id
+        secret_access_key = target_secret_access_key
+    return CdnTargetConfig(
+        name=name,
+        provider=provider,
+        base_url=base_url,
+        purge_on_upload=purge_on_upload,
+        access_key_id=access_key_id,
+        secret_access_key=secret_access_key,
     )
 
 

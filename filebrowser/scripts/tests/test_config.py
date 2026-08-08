@@ -151,3 +151,88 @@ upload_chunk_bytes = 4194304
     assert config.default_source == "main"
     assert config.default_target == ""
     assert config.source().upload_chunk_bytes == 4 * 1024 * 1024
+
+
+CDN_CONFIG = """
+[filebrowser]
+default_source = "main"
+default_target = "archive"
+
+[filebrowser.sources.main]
+adapter = "filebrowser"
+base_url = "https://files.example.test"
+token_env = "TEST_FILEBROWSER_TOKEN"
+source = "projects"
+
+[filebrowser.targets.archive]
+adapter = "s3"
+bucket = "archive-bucket"
+endpoint_url = "https://cos.example.test"
+public_base_url = "https://cos.example.test"
+prefix = "backups"
+access_key_id_env = "TEST_S3_ACCESS_KEY"
+secret_access_key_env = "TEST_S3_SECRET_KEY"
+
+[filebrowser.targets.archive.cdn]
+provider = "tencent"
+base_url = "https://cdn.example.test"
+purge_on_upload = true
+"""
+
+
+def test_parses_cdn_subtable_and_reuses_target_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "agent_config.toml"
+    config_path.write_text(CDN_CONFIG, encoding="utf-8")
+    monkeypatch.setenv("TEST_FILEBROWSER_TOKEN", "fb-secret")
+    config, _ = load_skill_config(config_path)
+
+    cdn = config.target("archive").cdn
+    assert cdn is not None
+    assert cdn.provider == "tencent"
+    assert cdn.base_url == "https://cdn.example.test"
+    assert cdn.purge_on_upload is True
+    assert cdn.access_key_id.env_var == "TEST_S3_ACCESS_KEY"
+
+
+def test_rejects_unknown_cdn_provider(tmp_path: Path) -> None:
+    config_path = tmp_path / "agent_config.toml"
+    config_path.write_text(
+        CDN_CONFIG.replace('provider = "tencent"', 'provider = "aws"'),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="Unsupported CDN provider"):
+        load_skill_config(config_path)
+
+
+def test_rejects_cdn_without_credentials_when_target_uses_profile(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "agent_config.toml"
+    config_path.write_text(
+        """
+[filebrowser]
+default_source = "main"
+default_target = "archive"
+
+[filebrowser.sources.main]
+adapter = "filebrowser"
+base_url = "https://files.example.test"
+token_env = "TEST_FILEBROWSER_TOKEN"
+source = "projects"
+
+[filebrowser.targets.archive]
+adapter = "s3"
+bucket = "archive-bucket"
+profile = "archive"
+
+[filebrowser.targets.archive.cdn]
+provider = "tencent"
+base_url = "https://cdn.example.test"
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="has no credentials"):
+        load_skill_config(config_path)

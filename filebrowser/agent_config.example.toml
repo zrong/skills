@@ -68,6 +68,20 @@ verify_tls = true
 # S3 Target 会自动只计算协议强制要求的请求校验和，避免 botocore 对可选校验和使用
 # aws-chunked 编码，从而兼容腾讯 COS 的 multipart UploadPart 请求。
 
+# 可选：腾讯云 CDN 缓存管理。配置 [cdn] 子表后可用 `fb-transfer cdn` 手动刷新
+# URL/目录或预热；设 purge_on_upload = true 时每次 upload 成功后自动刷新该文件 URL。
+# 凭据默认复用 target 的 access_key_id/secret_access_key（同一组腾讯云 CAM AK/SK），
+# 但需在 CAM 授予 cdn:PurgeUrlsCache/PurgePathCache/PushUrlsCache 权限。
+# 若 target 用 profile 模式（无明文 AK/SK），则必须在 [cdn] 子表显式配置凭据。
+[filebrowser.targets.archive.cdn]
+provider = "tencent"
+base_url = "https://cdn.example.com"
+purge_on_upload = false
+# access_key_id = ""            # 留空则复用 target 凭据
+# access_key_id_env = "ARCHIVE_CDN_ACCESS_KEY_ID"
+# secret_access_key = ""
+# secret_access_key_env = "ARCHIVE_CDN_SECRET_ACCESS_KEY"
+
 # 第二个 S3 target，演示多个独立配置。
 [filebrowser.targets.aws-backup]
 adapter = "s3"

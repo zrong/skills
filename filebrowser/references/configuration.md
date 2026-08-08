@@ -96,3 +96,46 @@ verify_tls = true
   `X-File-Chunk-Offset` / `X-File-Total-Size` 顺序分块上传。
 - `put` 默认拒绝同名远端文件；只有显式传 `--overwrite` 才会替换。上传成功后读取远端
   元数据并校验文件大小。
+
+## CDN 缓存管理
+
+可选的 `[filebrowser.targets.<name>.cdn]` 子表为 target 启用腾讯云 CDN 缓存管理，提供
+三个独立功能：
+
+| 功能 | CLI 子命令 | 腾讯云 API | 说明 |
+|------|-----------|-----------|------|
+| 刷新 URL | `cdn purge-url` | `PurgeUrlsCache` | 清除指定 URL 的 CDN 缓存（覆盖上传后让旧缓存失效） |
+| 刷新目录 | `cdn purge-path` | `PurgePathCache` | 清除目录下资源缓存（`--flush-type flush\|delete`） |
+| 预热 | `cdn prefetch` | `PushUrlsCache` | 主动把资源拉到边缘节点（`--area mainland\|overseas`） |
+
+```toml
+[filebrowser.targets.archive]
+adapter = "s3"
+public_base_url = "https://cos.example.com"   # 源站域名，与 CDN 无关
+
+  [filebrowser.targets.archive.cdn]
+  provider = "tencent"
+  base_url = "https://cdn.example.com"        # CDN 加速域名（必需，刷新/预热目标）
+  purge_on_upload = false                      # true 时 upload 成功后自动 purge_url
+```
+
+- `public_base_url` 是 bucket 自定义/源站域名；`cdn.base_url` 才是 CDN 域名，二者不同，
+  不可互相替代。`cdn.base_url` 必需、不可回退到 `public_base_url`。
+- `cdn purge-url` 支持 `--keys`（对象 key，自动用 `base_url` 拼 URL）或 `--urls`（完整 URL）。
+- `cdn purge-path` 的路径不以 `/` 结尾时自动补 `/`。
+- 提交后返回 `TaskId`，不轮询等待生效；CDN 通常约 5 分钟内生效，请自行访问测试。
+- 上传后自动刷新（`purge_on_upload`）失败不影响上传结果（退出码仍为 0），状态只在
+  `--json` 的 `cdn_task` 字段与 stderr 中体现；独立 `cdn` 子命令失败则退出码为 1。
+
+### 凭据与权限
+
+腾讯云 CDN 与 COS 共用 CAM 账号体系，target 的 AK/SK 可直接复用，但该子用户须在 CAM
+被授予 `cdn:PurgeUrlsCache`、`cdn:PurgePathCache`、`cdn:PushUrlsCache` 权限。若 target
+使用 `profile` 模式（无明文 AK/SK），`[cdn]` 子表必须显式声明 `access_key_id`/
+`secret_access_key`（或对应 `*_env`），否则配置解析失败。
+
+### 额度
+
+- `purge-url`：单次最多 1000 条 URL。
+- `purge-path`：单次最多 10 条目录，每日 100 条/加速区域。
+- `prefetch`：单次最多 500 条 URL，每日 1000 条/加速区域。

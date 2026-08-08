@@ -105,6 +105,7 @@ AI 图片生成与编辑工具，通过独立 OpenAI、Gemini 原生和 Seedream
 - 支持多个 FileBrowser source 和多个命名 S3 target
 - 支持 AWS S3、腾讯云 COS、阿里云 OSS、火山 TOS、MinIO 等兼容端点
 - 提供 dry-run、对象 key 映射、默认拒绝覆盖、流式暂存和上传后大小校验
+- 支持腾讯云 CDN 缓存管理：刷新 URL/目录、预热，上传后可自动刷新
 - 使用可扩展 target adapter，后续可增加更多上传目标
 
 ### joplin
@@ -166,6 +167,9 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - [`shared/agent-config`](shared/agent-config/README.md)：`agent_config.toml` 的跨平台查找、全局兜底、显式路径、配置示例和测试模板。创建新 skill 时复制实现，运行时不依赖仓库共享目录。
 
 ## 更新记录
+
+### 2026-08-08
+- 新增 filebrowser skill 的腾讯云 CDN 缓存管理能力：支持刷新 URL（PurgeUrlsCache）、刷新目录（PurgePathCache）和预热（PushUrlsCache）三个独立功能，提供 `cdn purge-url`/`purge-path`/`prefetch` 子命令，可选在 upload 成功后自动刷新（`purge_on_upload`，失败不阻断上传）；凭据复用 target 的 AK/SK（需 CAM 授权），新增 `tencentcloud-sdk-python-cdn` 依赖（lazy import）
 
 ### 2026-08-06
 - 修复 media-use 的 `ffmpeg_brand` 在 Windows 使用 `--target-mb` 时将两遍编码第一遍输出写入 `/dev/null` 的问题，改用 Python 跨平台空设备。

@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import tempfile
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Protocol
 
+from .cdn import CdnCacheManager, build_cdn_cache_manager, build_cdn_url
 from .filebrowser import FileBrowserClient, FileBrowserError, normalize_remote_path
 from .models import (
+    CdnTaskResult,
     FileBrowserSourceConfig,
     GetPlan,
     GetResult,
     PutPlan,
     PutResult,
     RemoteFile,
+    S3TargetConfig,
     SkillConfig,
     TargetConfig,
     TransferPlan,
@@ -48,6 +52,7 @@ class FileSource(Protocol):
 
 type SourceFactory = Callable[[FileBrowserSourceConfig], FileSource]
 type TargetFactory = Callable[[TargetConfig], UploadTarget]
+type CdnFactory = Callable[[S3TargetConfig], CdnCacheManager | None]
 
 
 class TransferService:
@@ -57,10 +62,12 @@ class TransferService:
         *,
         source_factory: SourceFactory = FileBrowserClient,
         target_factory: TargetFactory = build_target,
+        cdn_factory: CdnFactory = build_cdn_cache_manager,
     ) -> None:
         self.config = config
         self._source_factory = source_factory
         self._target_factory = target_factory
+        self._cdn_factory = cdn_factory
 
     def plan(
         self,
@@ -198,8 +205,34 @@ class TransferService:
             with self._source_factory(source_config) as source:
                 remote = source.metadata(plan.remote_path)
                 source.download(remote, local_path)
-            return target.upload(
+            result = target.upload(
                 local_path,
                 plan.object_key,
                 content_type=remote.content_type,
             )
+        return self._with_cdn_task(target_config, plan.object_key, result)
+
+    def _with_cdn_task(
+        self,
+        target_config: TargetConfig,
+        object_key: str,
+        result: UploadResult,
+    ) -> UploadResult:
+        cdn_config = target_config.cdn
+        if cdn_config is None or not cdn_config.purge_on_upload:
+            return result
+        url = build_cdn_url(cdn_config.base_url, object_key)
+        try:
+            manager = self._cdn_factory(target_config)
+            if manager is None:
+                return result
+            task = manager.purge_url([url])
+        except Exception as exc:
+            task = CdnTaskResult(
+                operation="purge_url",
+                status="failed",
+                task_id="",
+                targets=[url],
+                error=str(exc),
+            )
+        return replace(result, cdn_task=task)

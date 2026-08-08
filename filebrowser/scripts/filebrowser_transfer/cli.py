@@ -7,12 +7,13 @@ import json
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 from .agent_config import ConfigNotFoundError
+from .cdn import build_cdn_cache_manager
 from .config import ConfigError, load_skill_config
 from .filebrowser import FileBrowserError
-from .models import ConfigurationError, S3TargetConfig, SkillConfig
+from .models import CdnTaskResult, ConfigurationError, S3TargetConfig, SkillConfig
 from .targets import TargetError
 from .transfer import TransferService
 
@@ -59,6 +60,45 @@ def _parser() -> argparse.ArgumentParser:
     put.add_argument("--overwrite", action="store_true")
     put.add_argument("--dry-run", action="store_true")
     put.add_argument("--json", action="store_true")
+
+    cdn = subparsers.add_parser(
+        "cdn", help="Manage CDN cache (purge URL/path, prefetch)"
+    )
+    cdn_sub = cdn.add_subparsers(dest="cdn_command", required=True)
+
+    purge_url = cdn_sub.add_parser("purge-url", help="Purge cached CDN URLs")
+    purge_url.add_argument("--target", help="Configured upload target name")
+    purge_url_urls = purge_url.add_mutually_exclusive_group(required=True)
+    purge_url_urls.add_argument("--urls", nargs="+", help="Full CDN URLs to purge")
+    purge_url_urls.add_argument(
+        "--keys", nargs="+", help="Object keys joined with the cdn base_url"
+    )
+    purge_url.add_argument("--dry-run", action="store_true")
+    purge_url.add_argument("--json", action="store_true")
+
+    purge_path = cdn_sub.add_parser(
+        "purge-path", help="Purge CDN cache under directories"
+    )
+    purge_path.add_argument("--target", help="Configured upload target name")
+    purge_path.add_argument(
+        "--paths", nargs="+", required=True, help="Directory paths to purge"
+    )
+    purge_path.add_argument(
+        "--flush-type", choices=["flush", "delete"], default="flush"
+    )
+    purge_path.add_argument("--dry-run", action="store_true")
+    purge_path.add_argument("--json", action="store_true")
+
+    prefetch = cdn_sub.add_parser(
+        "prefetch", help="Prefetch CDN URLs to edge nodes"
+    )
+    prefetch.add_argument("--target", help="Configured upload target name")
+    prefetch.add_argument(
+        "--urls", nargs="+", required=True, help="CDN URLs to prefetch"
+    )
+    prefetch.add_argument("--area", choices=["mainland", "overseas"], default="")
+    prefetch.add_argument("--dry-run", action="store_true")
+    prefetch.add_argument("--json", action="store_true")
     return parser
 
 
@@ -94,6 +134,10 @@ def _summary(config: SkillConfig, config_path: Path) -> dict[str, object]:
                 "endpoint_url": target.endpoint_url,
                 "prefix": target.prefix,
                 "credential_mode": _credential_mode(target),
+                "cdn_provider": target.cdn.provider if target.cdn else "",
+                "cdn_purge_on_upload": bool(target.cdn.purge_on_upload)
+                if target.cdn
+                else False,
             }
         )
     return {
@@ -118,6 +162,76 @@ def _optional_string(args: argparse.Namespace, name: str) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def _print_cdn_dry_run(operation: str, targets: list[str], as_json: bool) -> int:
+    payload: dict[str, object] = {
+        "operation": operation,
+        "dry_run": True,
+        "targets": targets,
+    }
+    _print_payload(payload, as_json=as_json)
+    return 0
+
+
+def _print_cdn_task(task: CdnTaskResult, as_json: bool) -> int:
+    _print_payload(cast(dict[str, object], asdict(task)), as_json=as_json)
+    if not as_json:
+        print(
+            f"{task.operation} 已提交。TaskId: {task.task_id or '-'}。"
+            "CDN 约 5 分钟内生效。请稍后自行访问测试。"
+        )
+    return 0 if task.status == "submitted" else 1
+
+
+def _run_cdn_command(
+    args: argparse.Namespace,
+    config: SkillConfig,
+    as_json: bool,
+) -> int:
+    cdn_command = cast(str, args.cdn_command)
+    target_config = config.target(_optional_string(args, "target"))
+    if target_config.cdn is None:
+        print(
+            f"ERROR: target {target_config.name} has no [cdn] subtable",
+            file=sys.stderr,
+        )
+        return 1
+    manager = build_cdn_cache_manager(target_config)
+    if manager is None:
+        print(
+            f"ERROR: target {target_config.name} has no CDN configuration",
+            file=sys.stderr,
+        )
+        return 1
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    if cdn_command == "purge-url":
+        raw_urls = cast(list[str] | None, args.urls)
+        raw_keys = cast(list[str] | None, args.keys)
+        targets = (
+            list(raw_urls)
+            if raw_urls
+            else [manager.build_url(key) for key in (raw_keys or [])]
+        )
+        if dry_run:
+            return _print_cdn_dry_run("purge_url", targets, as_json)
+        task = manager.purge_url(targets)
+    elif cdn_command == "purge-path":
+        paths = cast(list[str], args.paths)
+        targets = [path if path.endswith("/") else f"{path}/" for path in paths]
+        if dry_run:
+            return _print_cdn_dry_run("purge_path", targets, as_json)
+        task = manager.purge_path(
+            targets, flush_type=cast(Literal["flush", "delete"], args.flush_type)
+        )
+    else:  # prefetch
+        targets = cast(list[str], args.urls)
+        area = cast(str, args.area)
+        if dry_run:
+            return _print_cdn_dry_run("prefetch", targets, as_json)
+        task = manager.prefetch(targets, area=area)
+    return _print_cdn_task(task, as_json)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
@@ -127,6 +241,9 @@ def main(argv: list[str] | None = None) -> int:
         if command in {"doctor", "list"}:
             _print_payload(_summary(config, config_path), as_json=as_json)
             return 0
+
+        if command == "cdn":
+            return _run_cdn_command(args, config, as_json)
 
         service = TransferService(config)
         if command == "get":
