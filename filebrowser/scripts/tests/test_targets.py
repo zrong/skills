@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from typing import cast
 
 import pytest
 from boto3.s3.transfer import TransferConfig
@@ -9,8 +10,10 @@ from botocore.exceptions import ClientError
 
 from filebrowser_transfer.models import ConfigurationError, S3TargetConfig, SecretValue
 from filebrowser_transfer.targets import (
+    CONTENT_SHA256_METADATA_KEY,
     S3Target,
     TargetError,
+    calculate_file_sha256,
     normalize_object_key,
     s3_client_options,
 )
@@ -19,7 +22,9 @@ from filebrowser_transfer.targets import (
 class FakeS3Client:
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
-        self.extra_args: dict[str, str] = {}
+        self.metadata: dict[tuple[str, str], dict[str, str]] = {}
+        self.extra_args: dict[str, object] = {}
+        self.upload_calls = 0
 
     def head_object(self, *, Bucket: str, Key: str) -> Mapping[str, object]:
         try:
@@ -38,18 +43,32 @@ class FakeS3Client:
                 },
                 "HeadObject",
             ) from exc
-        return {"ContentLength": len(content), "ETag": '"etag-value"'}
+        return {
+            "ContentLength": len(content),
+            "ETag": '"etag-value"',
+            "Metadata": self.metadata.get((Bucket, Key), {}),
+        }
 
     def upload_file(
         self,
         Filename: str,
         Bucket: str,
         Key: str,
-        ExtraArgs: dict[str, str],
+        ExtraArgs: dict[str, object],
         Config: TransferConfig,
     ) -> None:
         del Config
+        self.upload_calls += 1
         self.objects[(Bucket, Key)] = Path(Filename).read_bytes()
+        raw_metadata = ExtraArgs.get("Metadata")
+        self.metadata[(Bucket, Key)] = (
+            {
+                str(key): str(value)
+                for key, value in cast(Mapping[object, object], raw_metadata).items()
+            }
+            if isinstance(raw_metadata, Mapping)
+            else {}
+        )
         self.extra_args = ExtraArgs
 
 
@@ -104,9 +123,47 @@ def test_upload_verifies_size_and_builds_public_url(tmp_path: Path) -> None:
     assert result.size == 5
     assert result.etag == "etag-value"
     assert result.public_url == "https://cdn.example.test/backup/docs/hello%20world.txt"
+    assert result.content_sha256 == calculate_file_sha256(local_path)
+    assert result.skipped_unchanged is False
     assert client.extra_args == {
         "ContentType": "text/plain",
         "StorageClass": "STANDARD_IA",
+        "Metadata": {CONTENT_SHA256_METADATA_KEY: calculate_file_sha256(local_path)},
+    }
+
+
+def test_upload_skips_identical_existing_object_when_if_changed(tmp_path: Path) -> None:
+    client = FakeS3Client()
+    target = _target(client)
+    local_path = tmp_path / "hello.txt"
+    local_path.write_bytes(b"hello")
+    key = target.resolve_key("docs/hello.txt")
+    client.objects[("bucket", key)] = b"hello"
+    client.metadata[("bucket", key)] = {
+        CONTENT_SHA256_METADATA_KEY: calculate_file_sha256(local_path)
+    }
+
+    result = target.upload(local_path, key, content_type="text/plain", if_changed=True)
+
+    assert result.skipped_unchanged is True
+    assert result.content_sha256 == calculate_file_sha256(local_path)
+    assert client.upload_calls == 0
+
+
+def test_upload_replaces_legacy_object_without_content_digest(tmp_path: Path) -> None:
+    client = FakeS3Client()
+    target = _target(client)
+    local_path = tmp_path / "hello.txt"
+    local_path.write_bytes(b"hello")
+    key = target.resolve_key("docs/hello.txt")
+    client.objects[("bucket", key)] = b"hello"
+
+    result = target.upload(local_path, key, content_type="text/plain", if_changed=True)
+
+    assert result.skipped_unchanged is False
+    assert client.upload_calls == 1
+    assert client.metadata[("bucket", key)] == {
+        CONTENT_SHA256_METADATA_KEY: calculate_file_sha256(local_path)
     }
 
 

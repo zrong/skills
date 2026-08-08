@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from pytest import CaptureFixture
 
 from filebrowser_transfer.cli import main
+from filebrowser_transfer.filebrowser import FileBrowserError
 from filebrowser_transfer.models import (
     CdnTargetConfig,
     CdnTaskResult,
@@ -14,6 +16,7 @@ from filebrowser_transfer.models import (
     S3TargetConfig,
     SecretValue,
     SkillConfig,
+    UnchangedFile,
     UploadResult,
 )
 from filebrowser_transfer.transfer import TransferService
@@ -56,6 +59,8 @@ class FakeTarget:
     def __init__(self) -> None:
         self.local_existed_during_upload = False
         self.preflight: tuple[str, bool] | None = None
+        self.if_changed = False
+        self.skip_unchanged = False
 
     def resolve_key(self, relative_key: str) -> str:
         return f"backup/{relative_key}"
@@ -69,10 +74,22 @@ class FakeTarget:
         object_key: str,
         *,
         content_type: str,
+        if_changed: bool = False,
     ) -> UploadResult:
         assert content_type == "video/mp4"
         self.local_existed_during_upload = local_path.exists()
-        return UploadResult("archive", "bucket", object_key, 5, "etag", "", "")
+        self.if_changed = if_changed
+        return UploadResult(
+            "archive",
+            "bucket",
+            object_key,
+            5,
+            "etag",
+            "",
+            "",
+            skipped_unchanged=self.skip_unchanged,
+            content_sha256="sha256-value",
+        )
 
 
 def _skill_config(staging_dir: Path | None = None) -> SkillConfig:
@@ -109,6 +126,41 @@ def test_transfer_preserves_remote_path_and_cleans_staging(tmp_path: Path) -> No
     assert list(tmp_path.iterdir()) == []
 
 
+def test_transfer_reports_explicit_unchanged_file_list() -> None:
+    source = FakeSource()
+    target = FakeTarget()
+    target.skip_unchanged = True
+    service = TransferService(
+        _skill_config(),
+        source_factory=lambda _config: source,
+        target_factory=lambda _config: target,
+    )
+
+    result = service.upload(
+        "/shows/demo/video.mp4",
+        overwrite=True,
+        if_changed=True,
+    )
+
+    assert target.if_changed is True
+    assert result.skipped_unchanged is True
+    assert result.unchanged_files == [
+        UnchangedFile(
+            source_path="/shows/demo/video.mp4",
+            object_key="backup/shows/demo/video.mp4",
+            size=5,
+            content_sha256="sha256-value",
+        )
+    ]
+
+
+def test_transfer_rejects_if_changed_without_overwrite() -> None:
+    service = TransferService(_skill_config())
+
+    with pytest.raises(FileBrowserError, match="requires --overwrite"):
+        service.upload("/shows/demo/video.mp4", if_changed=True)
+
+
 def test_cli_dry_run_uses_multiple_target_config_without_credentials(
     tmp_path: Path,
     capsys: CaptureFixture[str],
@@ -142,6 +194,8 @@ secret_access_key_env = "MISSING_SECRET_IS_OK_FOR_DRY_RUN"
             "upload",
             "/shows/demo/video.mp4",
             "--dry-run",
+            "--overwrite",
+            "--if-changed",
             "--json",
         ]
     )
@@ -149,6 +203,7 @@ secret_access_key_env = "MISSING_SECRET_IS_OK_FOR_DRY_RUN"
     assert result == 0
     assert payload["object_key"] == "backup/shows/demo/video.mp4"
     assert payload["dry_run"] is True
+    assert payload["if_changed"] is True
 
 
 def test_put_uploads_to_filebrowser_and_checks_reported_size(tmp_path: Path) -> None:
@@ -358,6 +413,29 @@ def test_upload_skips_cdn_when_purge_on_upload_disabled() -> None:
     )
     result = service.upload("/shows/demo/video.mp4")
 
+    assert result.cdn_task is None
+    assert cdn.purged == []
+
+
+def test_unchanged_upload_skips_cdn_purge() -> None:
+    source = FakeSource()
+    target = FakeTarget()
+    target.skip_unchanged = True
+    cdn = FakeCdnManager()
+    service = TransferService(
+        _cdn_skill_config(),
+        source_factory=lambda _c: source,
+        target_factory=lambda _c: target,
+        cdn_factory=lambda _c: cdn,
+    )
+
+    result = service.upload(
+        "/shows/demo/video.mp4",
+        overwrite=True,
+        if_changed=True,
+    )
+
+    assert result.skipped_unchanged is True
     assert result.cdn_task is None
     assert cdn.purged == []
 
