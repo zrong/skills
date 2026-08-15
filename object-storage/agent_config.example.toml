@@ -1,0 +1,65 @@
+# Object Storage 配置模板。将 [object-storage] 及其子表合并到 agent_config.toml。
+# 推荐用 *_env 引用环境变量，不要提交真实 access key、secret key 或 session token。
+
+[object-storage]
+# 未传 --target 时使用；支持配置多个 target。
+default_target = "archive"
+
+[object-storage.targets.archive]
+adapter = "s3"
+bucket = "archive-bucket"
+region = "ap-guangzhou"
+
+# AWS S3 可留空；S3 兼容厂商填写其 endpoint。
+endpoint_url = "https://cos.ap-guangzhou.myqcloud.com"
+
+# 仅用于生成上传结果中的访问 URL，不作为 API endpoint。
+public_base_url = "https://static.example.com"
+
+# 自动添加到所有对象 key 前；必须是相对路径且不能包含 ".."。
+prefix = "uploads"
+
+# 显式凭据必须成对声明；推荐通过环境变量提供。
+access_key_id = ""
+access_key_id_env = "ARCHIVE_S3_ACCESS_KEY_ID"
+secret_access_key = ""
+secret_access_key_env = "ARCHIVE_S3_SECRET_ACCESS_KEY"
+session_token = ""
+session_token_env = ""
+
+# profile 不能与显式凭据并用。二者都未配置时使用 boto3 默认凭据链。
+profile = ""
+
+# auto | path | virtual；按 S3 兼容厂商要求选择。
+addressing_style = "virtual"
+storage_class = ""
+multipart_threshold_bytes = 8388608
+multipart_chunksize_bytes = 8388608
+max_concurrency = 4
+verify_tls = true
+
+# 可选腾讯云 CDN。purge_on_upload=true 时，真实上传成功后自动刷新文件 URL；
+# 内容未变化而跳过上传时不会刷新。
+[object-storage.targets.archive.cdn]
+provider = "tencent"
+base_url = "https://cdn.example.com"
+purge_on_upload = false
+
+# 留空时复用 target 的显式 AK/SK。若 target 使用 profile 或默认凭据链，
+# CDN 子表必须单独声明凭据。
+# access_key_id = ""
+# access_key_id_env = "ARCHIVE_CDN_ACCESS_KEY_ID"
+# secret_access_key = ""
+# secret_access_key_env = "ARCHIVE_CDN_SECRET_ACCESS_KEY"
+
+# 第二个 target 示例。
+[object-storage.targets.aws-backup]
+adapter = "s3"
+bucket = "company-backup"
+region = "ap-southeast-1"
+endpoint_url = ""
+public_base_url = ""
+prefix = "uploads"
+profile = "company-backup"
+addressing_style = "auto"
+verify_tls = true

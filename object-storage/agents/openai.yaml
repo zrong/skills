@@ -1,0 +1,4 @@
+interface:
+  display_name: "Object Storage"
+  short_description: "管理 S3 兼容对象存储的文件传输、校验与 CDN 缓存刷新"
+  default_prompt: "使用 $object-storage 上传本地文件到配置的对象存储，并按需刷新 CDN。"
