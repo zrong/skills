@@ -98,15 +98,23 @@ AI 图片生成与编辑工具，通过独立 OpenAI、Gemini 原生和 Seedream
 - 支持生成、mask/多参考图编辑、JSONL 并发、downscale、chroma-key 和防覆盖输出
 - 支持 Seedream 5.0 Pro 点选/框选坐标协议与可恢复的连续编辑 session
 
+### object-storage
+
+独立的 S3 兼容对象存储与 CDN 管理工具。
+
+- 支持多个命名 target，以及 AWS S3、腾讯云 COS、阿里云 OSS、火山 TOS、MinIO 等兼容端点
+- 上传本地文件，提供 dry-run、key/prefix 映射、默认拒绝覆盖与上传后大小校验
+- 使用 `content-sha256` metadata 实现条件覆盖，并明确报告内容相同的文件列表
+- 支持腾讯云 CDN URL/目录刷新、预热和上传后自动刷新
+
 ### filebrowser
 
-将 FileBrowser Quantum 中的远程文件上传到 S3 兼容对象存储。
+FileBrowser Quantum 文件管理与传输工具。
 
-- 支持多个 FileBrowser source 和多个命名 S3 target
-- 支持 AWS S3、腾讯云 COS、阿里云 OSS、火山 TOS、MinIO 等兼容端点
-- 提供 dry-run、对象 key 映射、默认拒绝覆盖、流式暂存和上传后大小校验
-- 支持腾讯云 CDN 缓存管理：刷新 URL/目录、预热，上传后可自动刷新
-- 使用可扩展 target adapter，后续可增加更多上传目标
+- 支持多个 FileBrowser source、远程文件管理，以及 FileBrowser 与本地之间的 get/put
+- `upload` 把远端文件流式暂存后委托给独立 object-storage，S3/CDN 配置不再重复维护
+- 保留原有 target、覆盖、内容去重、CDN 和 JSON 命令接口，便于下游 Skill 平滑迁移
+- 纯 FileBrowser 命令不依赖 object-storage
 
 ### joplin
 
@@ -167,6 +175,9 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - [`shared/agent-config`](shared/agent-config/README.md)：`agent_config.toml` 的跨平台查找、全局兜底、显式路径、配置示例和测试模板。创建新 skill 时复制实现，运行时不依赖仓库共享目录。
 
 ## 更新记录
+
+### 2026-08-14
+- 新增独立 object-storage skill：统一管理多个 S3 兼容 target、本地文件上传、SHA-256 条件覆盖与腾讯云 CDN；filebrowser 移除 boto3/CDN SDK 和 target 配置，改用稳定 CLI/JSON 接口委托 object-storage。
 
 ### 2026-08-08
 - 新增 filebrowser skill 的腾讯云 CDN 缓存管理能力：支持刷新 URL（PurgeUrlsCache）、刷新目录（PurgePathCache）和预热（PushUrlsCache）三个独立功能，提供 `cdn purge-url`/`purge-path`/`prefetch` 子命令，可选在 upload 成功后自动刷新（`purge_on_upload`，失败不阻断上传）；凭据复用 target 的 AK/SK（需 CAM 授权），新增 `tencentcloud-sdk-python-cdn` 依赖（lazy import）
