@@ -1,95 +1,30 @@
-# FileBrowser 到上传目标的传输配置示例。
-# 可复制为 agent_config.toml，或将 [filebrowser] 及其子表合并到
-# 当前工作目录、skill 目录、Git 项目根目录或 ~/.agents/agent_config.toml。
-# 不要提交真实 token、access key 或 secret key。
+# FileBrowser 配置模板。只包含 FileBrowser 自身连接与暂存设置。
+# S3/CDN target 请使用相邻 object-storage/agent_config.example.toml 的
+# [object-storage] section，并合并到同一个 agent_config.toml。
 
 [filebrowser]
-# 未在命令行传 --source / --target 时使用的配置名称。
 default_source = "production"
-default_target = "archive"
 
-# 临时下载目录。为空时使用操作系统临时目录；传输结束后自动清理。
+# FileBrowser -> object-storage 转存时使用的本地临时目录；为空时使用系统临时目录。
 staging_dir = ""
 
-# 一个 FileBrowser source；可按相同结构增加多个命名 source。
 [filebrowser.sources.production]
 adapter = "filebrowser"
 base_url = "https://files.example.com"
 
-# token 可直接配置或从 token_env 指定的环境变量读取；推荐环境变量。
+# 推荐通过环境变量提供 token；不要提交真实 token。
 token = ""
 token_env = "FILEBROWSER_TOKEN"
 
-# FileBrowser Quantum 的 source 名称，不是本配置表名称。
+# FileBrowser Quantum 内部的 source 名称，不是本配置表名称。
 source = "项目"
 verify_tls = true
 timeout_seconds = 600
 
-# 单文件最大字节数；0 表示不设置 skill 级上限。
+# 单文件最大字节数；0 表示不设置 Skill 级上限。
 max_transfer_bytes = 0
 
-# 上传到 FileBrowser 时的分块大小。大视频以固定块流式上传；需不小于 1 字节。
+# 本地文件上传到 FileBrowser 时的流式分块大小。
 upload_chunk_bytes = 16777216
 
-# 第一个 S3 target。支持 AWS S3、COS、OSS、TOS、MinIO 等 S3 兼容服务。
-[filebrowser.targets.archive]
-adapter = "s3"
-bucket = "archive-bucket"
-region = "ap-guangzhou"
-
-# S3 API endpoint；AWS S3 可留空。public_base_url 仅用于返回公开访问 URL。
-endpoint_url = "https://cos.ap-guangzhou.myqcloud.com"
-public_base_url = "https://cdn.example.com"
-
-# 所有上传对象的 key 前缀；必须是相对路径且不能包含 ".."。
-prefix = "filebrowser"
-
-# 可直接配置凭据或指定环境变量名。access/secret 必须成对声明；只要声明了
-# 显式凭据，运行时缺少对应环境变量就会失败，不会退回默认凭据链。
-access_key_id = ""
-access_key_id_env = "ARCHIVE_S3_ACCESS_KEY_ID"
-secret_access_key = ""
-secret_access_key_env = "ARCHIVE_S3_SECRET_ACCESS_KEY"
-session_token = ""
-session_token_env = ""
-
-# 也可使用 AWS profile；不能与显式 access/secret 同时使用。profile 和显式
-# 凭据均未声明时，才使用 boto3 默认凭据链。
-profile = ""
-
-# auto | path | virtual。S3 兼容服务通常需要按厂商要求选择。
-addressing_style = "virtual"
-storage_class = ""
-multipart_threshold_bytes = 8388608
-multipart_chunksize_bytes = 8388608
-max_concurrency = 4
-verify_tls = true
-
-# S3 Target 会自动只计算协议强制要求的请求校验和，避免 botocore 对可选校验和使用
-# aws-chunked 编码，从而兼容腾讯 COS 的 multipart UploadPart 请求。
-
-# 可选：腾讯云 CDN 缓存管理。配置 [cdn] 子表后可用 `fb-transfer cdn` 手动刷新
-# URL/目录或预热；设 purge_on_upload = true 时每次 upload 成功后自动刷新该文件 URL。
-# 凭据默认复用 target 的 access_key_id/secret_access_key（同一组腾讯云 CAM AK/SK），
-# 但需在 CAM 授予 cdn:PurgeUrlsCache/PurgePathCache/PushUrlsCache 权限。
-# 若 target 用 profile 模式（无明文 AK/SK），则必须在 [cdn] 子表显式配置凭据。
-[filebrowser.targets.archive.cdn]
-provider = "tencent"
-base_url = "https://cdn.example.com"
-purge_on_upload = false
-# access_key_id = ""            # 留空则复用 target 凭据
-# access_key_id_env = "ARCHIVE_CDN_ACCESS_KEY_ID"
-# secret_access_key = ""
-# secret_access_key_env = "ARCHIVE_CDN_SECRET_ACCESS_KEY"
-
-# 第二个 S3 target，演示多个独立配置。
-[filebrowser.targets.aws-backup]
-adapter = "s3"
-bucket = "company-backup"
-region = "ap-southeast-1"
-endpoint_url = ""
-public_base_url = ""
-prefix = "filebrowser"
-profile = "company-backup"
-addressing_style = "auto"
-verify_tls = true
+# 可继续增加 [filebrowser.sources.<name>] 以配置多个独立实例/source。

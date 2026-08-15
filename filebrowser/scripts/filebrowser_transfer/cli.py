@@ -10,11 +10,10 @@ from pathlib import Path
 from typing import Literal, cast
 
 from .agent_config import ConfigNotFoundError
-from .cdn import build_cdn_cache_manager
 from .config import ConfigError, load_skill_config
 from .filebrowser import FileBrowserError, normalize_remote_path
-from .models import CdnTaskResult, ConfigurationError, S3TargetConfig, SkillConfig
-from .targets import TargetError
+from .models import ConfigurationError, SkillConfig
+from .object_storage import CliObjectStorageGateway, ObjectStorageError, ObjectStorageGateway
 from .transfer import TransferService
 
 
@@ -173,17 +172,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _credential_mode(target: S3TargetConfig) -> str:
-    if target.profile:
-        return "profile"
-    if target.access_key_id.direct or target.secret_access_key.direct:
-        return "config"
-    if target.access_key_id.env_var or target.secret_access_key.env_var:
-        return "environment"
-    return "default-chain"
-
-
-def _summary(config: SkillConfig, config_path: Path) -> dict[str, object]:
+def _summary(
+    config: SkillConfig,
+    config_path: Path,
+    object_storage: ObjectStorageGateway,
+) -> dict[str, object]:
     sources: list[dict[str, object]] = []
     for source in config.sources.values():
         sources.append(
@@ -194,27 +187,16 @@ def _summary(config: SkillConfig, config_path: Path) -> dict[str, object]:
                 "token_configured": source.token.configured,
             }
         )
-    targets: list[dict[str, object]] = []
-    for target in config.targets.values():
-        targets.append(
-            {
-                "name": target.name,
-                "adapter": "s3",
-                "bucket": target.bucket,
-                "region": target.region,
-                "endpoint_url": target.endpoint_url,
-                "prefix": target.prefix,
-                "credential_mode": _credential_mode(target),
-                "cdn_provider": target.cdn.provider if target.cdn else "",
-                "cdn_purge_on_upload": bool(target.cdn.purge_on_upload) if target.cdn else False,
-            }
-        )
+    storage_summary = object_storage.summary()
+    raw_targets = storage_summary.get("targets", [])
+    targets: list[object] = cast(list[object], raw_targets) if isinstance(raw_targets, list) else []
     return {
         "config_path": str(config_path),
         "default_source": config.default_source,
-        "default_target": config.default_target,
+        "default_target": storage_summary.get("default_target", ""),
         "sources": sources,
         "targets": targets,
+        "object_storage_config_path": storage_summary.get("config_path", ""),
     }
 
 
@@ -231,72 +213,32 @@ def _optional_string(args: argparse.Namespace, name: str) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _print_cdn_dry_run(operation: str, targets: list[str], as_json: bool) -> int:
-    payload: dict[str, object] = {
-        "operation": operation,
-        "dry_run": True,
-        "targets": targets,
-    }
-    _print_payload(payload, as_json=as_json)
-    return 0
-
-
-def _print_cdn_task(task: CdnTaskResult, as_json: bool) -> int:
-    _print_payload(cast(dict[str, object], asdict(task)), as_json=as_json)
-    if not as_json:
-        print(
-            f"{task.operation} 已提交。TaskId: {task.task_id or '-'}。"
-            "CDN 约 5 分钟内生效。请稍后自行访问测试。"
-        )
-    return 0 if task.status == "submitted" else 1
-
-
 def _run_cdn_command(
     args: argparse.Namespace,
-    config: SkillConfig,
+    object_storage: ObjectStorageGateway,
     as_json: bool,
 ) -> int:
     cdn_command = cast(str, args.cdn_command)
-    target_config = config.target(_optional_string(args, "target"))
-    if target_config.cdn is None:
-        print(
-            f"ERROR: target {target_config.name} has no [cdn] subtable",
-            file=sys.stderr,
-        )
-        return 1
-    manager = build_cdn_cache_manager(target_config)
-    if manager is None:
-        print(
-            f"ERROR: target {target_config.name} has no CDN configuration",
-            file=sys.stderr,
-        )
-        return 1
-
-    dry_run = bool(getattr(args, "dry_run", False))
+    urls: list[str] | None = None
+    keys: list[str] | None = None
     if cdn_command == "purge-url":
-        raw_urls = cast(list[str] | None, args.urls)
-        raw_keys = cast(list[str] | None, args.keys)
-        targets = (
-            list(raw_urls) if raw_urls else [manager.build_url(key) for key in (raw_keys or [])]
-        )
-        if dry_run:
-            return _print_cdn_dry_run("purge_url", targets, as_json)
-        task = manager.purge_url(targets)
+        urls = cast(list[str] | None, args.urls)
+        keys = cast(list[str] | None, args.keys)
     elif cdn_command == "purge-path":
-        paths = cast(list[str], args.paths)
-        targets = [path if path.endswith("/") else f"{path}/" for path in paths]
-        if dry_run:
-            return _print_cdn_dry_run("purge_path", targets, as_json)
-        task = manager.purge_path(
-            targets, flush_type=cast(Literal["flush", "delete"], args.flush_type)
-        )
-    else:  # prefetch
-        targets = cast(list[str], args.urls)
-        area = cast(str, args.area)
-        if dry_run:
-            return _print_cdn_dry_run("prefetch", targets, as_json)
-        task = manager.prefetch(targets, area=area)
-    return _print_cdn_task(task, as_json)
+        urls = cast(list[str], args.paths)
+    else:
+        urls = cast(list[str], args.urls)
+    payload = object_storage.cdn(
+        cdn_command,
+        target_name=_optional_string(args, "target"),
+        urls=urls,
+        keys=keys,
+        flush_type=cast(str, getattr(args, "flush_type", "flush")),
+        area=cast(str, getattr(args, "area", "")),
+        dry_run=bool(getattr(args, "dry_run", False)),
+    )
+    _print_payload(payload, as_json=as_json)
+    return 0 if payload.get("status", "submitted") == "submitted" else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -306,13 +248,15 @@ def main(argv: list[str] | None = None) -> int:
         command = cast(str, args.command)
         as_json = bool(getattr(args, "json", False))
         if command in {"doctor", "list"}:
-            _print_payload(_summary(config, config_path), as_json=as_json)
+            object_storage = CliObjectStorageGateway(config_path)
+            _print_payload(_summary(config, config_path, object_storage), as_json=as_json)
             return 0
 
         if command == "cdn":
-            return _run_cdn_command(args, config, as_json)
+            object_storage = CliObjectStorageGateway(config_path)
+            return _run_cdn_command(args, object_storage, as_json)
 
-        service = TransferService(config)
+        service = TransferService(config, config_path=config_path)
         if command == "get":
             remote_path = cast(str, args.remote_path)
             local_path = cast(str, args.local_path)
@@ -485,7 +429,7 @@ def main(argv: list[str] | None = None) -> int:
         ConfigError,
         ConfigurationError,
         FileBrowserError,
-        TargetError,
+        ObjectStorageError,
     ) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

@@ -345,7 +345,6 @@ def test_download_files_requires_at_least_one_path() -> None:
 def _skill_config_with_two_sources() -> SkillConfig:
     return SkillConfig(
         default_source="main",
-        default_target="",
         sources={
             "main": _config(),
             "staging": FileBrowserSourceConfig(
@@ -355,7 +354,6 @@ def _skill_config_with_two_sources() -> SkillConfig:
                 source="drafts",
             ),
         },
-        targets={},
     )
 
 

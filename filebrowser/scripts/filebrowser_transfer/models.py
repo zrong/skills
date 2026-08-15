@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
 
 
 class ConfigurationError(ValueError):
@@ -46,45 +45,9 @@ class FileBrowserSourceConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class CdnTargetConfig:
-    name: str
-    provider: str
-    base_url: str
-    purge_on_upload: bool = False
-    access_key_id: SecretValue = field(default_factory=SecretValue, repr=False)
-    secret_access_key: SecretValue = field(default_factory=SecretValue, repr=False)
-
-
-@dataclass(frozen=True, slots=True)
-class S3TargetConfig:
-    name: str
-    bucket: str
-    region: str = ""
-    endpoint_url: str = ""
-    public_base_url: str = ""
-    prefix: str = ""
-    profile: str = ""
-    access_key_id: SecretValue = field(default_factory=SecretValue, repr=False)
-    secret_access_key: SecretValue = field(default_factory=SecretValue, repr=False)
-    session_token: SecretValue = field(default_factory=SecretValue, repr=False)
-    addressing_style: Literal["auto", "path", "virtual"] = "auto"
-    storage_class: str = ""
-    multipart_threshold_bytes: int = 8 * 1024 * 1024
-    multipart_chunksize_bytes: int = 8 * 1024 * 1024
-    max_concurrency: int = 4
-    verify_tls: bool = True
-    cdn: CdnTargetConfig | None = None
-
-
-type TargetConfig = S3TargetConfig
-
-
-@dataclass(frozen=True, slots=True)
 class SkillConfig:
     sources: dict[str, FileBrowserSourceConfig]
-    targets: dict[str, TargetConfig]
     default_source: str
-    default_target: str
     staging_dir: Path | None = None
 
     def source(self, name: str | None = None) -> FileBrowserSourceConfig:
@@ -93,13 +56,6 @@ class SkillConfig:
             return self.sources[selected]
         except KeyError as exc:
             raise ConfigurationError(f"Unknown FileBrowser source: {selected}") from exc
-
-    def target(self, name: str | None = None) -> TargetConfig:
-        selected = name or self.default_target
-        try:
-            return self.targets[selected]
-        except KeyError as exc:
-            raise ConfigurationError(f"Unknown upload target: {selected}") from exc
 
 
 @dataclass(frozen=True, slots=True)

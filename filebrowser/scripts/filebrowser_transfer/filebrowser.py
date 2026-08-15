@@ -55,7 +55,14 @@ class FileBrowserClient:
         token = config.token.resolve(f"FileBrowser token for source {config.name}")
         self._client = httpx.Client(
             base_url=config.base_url,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                # FileBrowser may gzip resource downloads while preserving a
+                # compressed Content-Length.  httpx transparently decodes the
+                # body, so request the identity representation to keep the
+                # transport length usable for upload/download verification.
+                "Accept-Encoding": "identity",
+            },
             timeout=httpx.Timeout(config.timeout_seconds, connect=30.0),
             verify=config.verify_tls,
             transport=transport,

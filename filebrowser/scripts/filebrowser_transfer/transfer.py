@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import tempfile
 from collections.abc import Callable
-from dataclasses import replace
 from pathlib import Path
 from typing import Literal, Protocol, cast
 
-from .cdn import CdnCacheManager, build_cdn_cache_manager, build_cdn_url
 from .filebrowser import FileBrowserClient, FileBrowserError, normalize_remote_path
 from .models import (
     CdnTaskResult,
@@ -18,14 +16,18 @@ from .models import (
     PutPlan,
     PutResult,
     RemoteFile,
-    S3TargetConfig,
     SkillConfig,
-    TargetConfig,
     TransferPlan,
     UnchangedFile,
     UploadResult,
 )
-from .targets import UploadTarget, build_target, normalize_object_key, resolve_target_key
+from .object_storage import (
+    CliObjectStorageGateway,
+    ObjectStorageGateway,
+    payload_bool,
+    payload_int,
+    payload_string,
+)
 
 
 class FileSource(Protocol):
@@ -52,8 +54,7 @@ class FileSource(Protocol):
 
 
 type SourceFactory = Callable[[FileBrowserSourceConfig], FileSource]
-type TargetFactory = Callable[[TargetConfig], UploadTarget]
-type CdnFactory = Callable[[S3TargetConfig], CdnCacheManager | None]
+type ObjectStorageFactory = Callable[[Path | None], ObjectStorageGateway]
 
 
 class FileManagementSource(Protocol):
@@ -118,14 +119,21 @@ class TransferService:
         self,
         config: SkillConfig,
         *,
+        config_path: Path | None = None,
         source_factory: SourceFactory = FileBrowserClient,
-        target_factory: TargetFactory = build_target,
-        cdn_factory: CdnFactory = build_cdn_cache_manager,
+        object_storage_factory: ObjectStorageFactory = CliObjectStorageGateway,
     ) -> None:
         self.config = config
+        self.config_path = config_path
         self._source_factory = source_factory
-        self._target_factory = target_factory
-        self._cdn_factory = cdn_factory
+        self._object_storage_factory = object_storage_factory
+        self._object_storage_instance: ObjectStorageGateway | None = None
+
+    @property
+    def _object_storage(self) -> ObjectStorageGateway:
+        if self._object_storage_instance is None:
+            self._object_storage_instance = self._object_storage_factory(self.config_path)
+        return self._object_storage_instance
 
     @staticmethod
     def _management_source(source: FileSource) -> FileManagementSource:
@@ -141,14 +149,16 @@ class TransferService:
         object_key: str | None = None,
     ) -> TransferPlan:
         source = self.config.source(source_name)
-        target_config = self.config.target(target_name)
         normalized_remote = normalize_remote_path(remote_path)
-        relative_key = normalize_object_key(object_key or normalized_remote.lstrip("/"))
+        resolved = self._object_storage.resolve_key(
+            object_key or normalized_remote.lstrip("/"),
+            target_name=target_name,
+        )
         return TransferPlan(
             source_name=source.name,
             remote_path=normalized_remote,
-            target_name=target_config.name,
-            object_key=resolve_target_key(target_config, relative_key),
+            target_name=payload_string(resolved, "target_name"),
+            object_key=payload_string(resolved, "object_key"),
         )
 
     def put_plan(
@@ -250,15 +260,12 @@ class TransferService:
         if if_changed and not overwrite:
             raise FileBrowserError("--if-changed requires --overwrite")
         source_config = self.config.source(source_name)
-        target_config = self.config.target(target_name)
-        target = self._target_factory(target_config)
         plan = self.plan(
             remote_path,
             source_name=source_config.name,
-            target_name=target_config.name,
+            target_name=target_name,
             object_key=object_key,
         )
-        target.ensure_writable(plan.object_key, overwrite=overwrite)
 
         staging_root = self.config.staging_dir
         if staging_root is not None:
@@ -271,52 +278,58 @@ class TransferService:
             with self._source_factory(source_config) as source:
                 remote = source.metadata(plan.remote_path)
                 source.download(remote, local_path)
-            result = target.upload(
+            payload = self._object_storage.upload(
                 local_path,
-                plan.object_key,
-                content_type=remote.content_type,
+                target_name=plan.target_name,
+                object_key=object_key or plan.remote_path.lstrip("/"),
+                overwrite=overwrite,
                 if_changed=if_changed,
+                content_type=remote.content_type,
             )
-        if result.skipped_unchanged:
-            result = replace(
-                result,
-                unchanged_files=[
-                    UnchangedFile(
-                        source_path=plan.remote_path,
-                        object_key=plan.object_key,
-                        size=result.size,
-                        content_sha256=result.content_sha256,
-                    )
-                ],
-            )
-        return self._with_cdn_task(target_config, plan.object_key, result)
+        return self._upload_result(payload, source_path=plan.remote_path)
 
-    def _with_cdn_task(
-        self,
-        target_config: TargetConfig,
-        object_key: str,
-        result: UploadResult,
-    ) -> UploadResult:
-        if result.skipped_unchanged:
-            return result
-        cdn_config = target_config.cdn
-        if cdn_config is None or not cdn_config.purge_on_upload:
-            return result
-        url = build_cdn_url(cdn_config.base_url, object_key)
-        try:
-            manager = self._cdn_factory(target_config)
-            if manager is None:
-                return result
-            task = manager.purge_url([url])
-        except Exception as exc:
-            task = CdnTaskResult(
-                operation="purge_url",
-                status="failed",
-                task_id="",
-                targets=[url],
-                error=str(exc),
+    @staticmethod
+    def _upload_result(payload: dict[str, object], *, source_path: str) -> UploadResult:
+        cdn_task: CdnTaskResult | None = None
+        raw_cdn = payload.get("cdn_task")
+        if isinstance(raw_cdn, dict):
+            typed_cdn = cast(dict[str, object], raw_cdn)
+            raw_targets = typed_cdn.get("targets", [])
+            typed_targets = cast(list[object], raw_targets) if isinstance(raw_targets, list) else []
+            targets = [str(value) for value in typed_targets]
+            cdn_task = CdnTaskResult(
+                operation=payload_string(typed_cdn, "operation"),
+                status=payload_string(typed_cdn, "status"),
+                task_id=payload_string(typed_cdn, "task_id"),
+                targets=targets,
+                error=payload_string(typed_cdn, "error"),
             )
-        return replace(result, cdn_task=task)
+        skipped = payload_bool(payload, "skipped_unchanged")
+        unchanged = (
+            [
+                UnchangedFile(
+                    source_path=source_path,
+                    object_key=payload_string(payload, "object_key"),
+                    size=payload_int(payload, "size"),
+                    content_sha256=payload_string(payload, "content_sha256"),
+                )
+            ]
+            if skipped
+            else []
+        )
+        return UploadResult(
+            target_name=payload_string(payload, "target_name"),
+            bucket=payload_string(payload, "bucket"),
+            object_key=payload_string(payload, "object_key"),
+            size=payload_int(payload, "size"),
+            etag=payload_string(payload, "etag"),
+            version_id=payload_string(payload, "version_id"),
+            public_url=payload_string(payload, "public_url"),
+            cdn_task=cdn_task,
+            skipped_unchanged=skipped,
+            content_sha256=payload_string(payload, "content_sha256"),
+            unchanged_files=unchanged,
+        )
 
     # ------------------------------------------------------------------
     # File management operations. These are pure pass-throughs to the

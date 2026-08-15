@@ -4,9 +4,9 @@ description: |
   FileBrowser Quantum 一体化 CLI。包含两类操作：
     1) 文件管理：浏览（info/list-dir）、读写（update）、创建目录（mkdir）、删除（delete）、
        移动/重命名/复制（move）、搜索（search）、预览（preview）、多文件打包下载（download-files）。
-    2) 传输分发：FileBrowser ↔ 本地（get/put）、FileBrowser → S3 兼容 bucket（upload，AWS S3 /
-       腾讯云 COS / 阿里云 OSS / 火山 TOS）、对象 key 映射、分块上传、覆盖保护、内容去重和 dry-run。
-       支持腾讯云 CDN 缓存管理：刷新 URL/目录、预热，上传后可自动刷新。
+    2) 传输分发：FileBrowser ↔ 本地（get/put），以及通过独立 object-storage Skill 将
+       FileBrowser 文件上传到 S3 兼容 bucket。兼容命令仍提供对象 key、覆盖保护、内容去重、
+       dry-run 和腾讯云 CDN 刷新/预热，但 S3/CDN 配置与实现由 object-storage 统一管理。
 
   支持多 FileBrowser source。所有 HTTP 访问都走共享 FileBrowserClient；下游 skill 不应自行
   实现 FileBrowser 请求。`filebrowser-quantum` skill 已合并到本 skill，请使用 `filebrowser`。
@@ -25,7 +25,12 @@ uv run --project {SKILL_DIR}/scripts filebrowser --non-interactive <command>
 
 配置查找顺序为：当前工作目录、skill 目录、当前 Git 项目根目录、`~/.agents/agent_config.toml`。也可以用全局 `--config PATH` 显式指定；显式路径不存在时直接停止。
 
-完整配置结构和多 S3 示例见 [references/configuration.md](references/configuration.md)。不要输出 FileBrowser token、S3 secret 或包含它们的异常详情。
+FileBrowser 配置见 [references/configuration.md](references/configuration.md)。S3/CDN 配置与上传
+语义见相邻 `object-storage` Skill。不要输出 FileBrowser token、S3 secret 或包含它们的异常详情。
+
+`upload`、`list`、`doctor` 和 `cdn` 会查找独立 `object-storage` Skill。优先读取
+`OBJECT_STORAGE_SKILL_DIR`，否则查找项目或用户 Skills 目录以及当前 Skills 仓库中的相邻目录。
+未安装时停止并说明安装位置；纯 FileBrowser 的 `get`、`put` 和文件管理命令不依赖它。
 
 ## 子命令总览
 
@@ -113,7 +118,8 @@ filebrowser move --source 项目 --from /虎澈漫剧/B06/old.mp4 --destination 
      --source production --target archive --overwrite --if-changed --json
    ```
 
-5. 默认保留 FileBrowser 完整相对路径作为 S3 key，并在前面添加 target 的 `prefix`。需要改 key 时使用 `--key`。
+5. 默认保留 FileBrowser 完整相对路径作为 S3 key，并由 object-storage 添加 target 的
+   `prefix`。需要改 key 时使用 `--key`。
 
 ### 上传本地文件回 FileBrowser
 
@@ -167,12 +173,13 @@ filebrowser get "/项目/成片/demo.mp4" /local/demo.mp4 \
 - 下载采用流式写入临时文件，不把大文件完整载入内存；优先使用下载响应的
   `Content-Length` 校验字节数，缺失时才回退至资源元数据；无论成功或失败都会清理临时目录。
 - `max_transfer_bytes = 0` 表示不设 skill 级大小上限；生产配置建议设置明确上限。
-- dry-run 只验证配置和路径，不连接 FileBrowser 或 S3，也不解析凭据链。
+- dry-run 只验证配置和路径，不连接 FileBrowser 或 S3，也不解析凭据链；key 解析委托给
+  object-storage。
 
 ## CDN 缓存管理
 
-为 target 配置可选的 `[filebrowser.targets.<name>.cdn]` 子表（`provider = "tencent"`）后，
-可管理腾讯云 CDN 缓存，三个独立功能：
+为 object-storage target 配置可选的 `[object-storage.targets.<name>.cdn]` 子表后，可通过
+FileBrowser 兼容命令管理腾讯云 CDN 缓存：
 
 ```bash
 filebrowser cdn purge-url --target archive --keys "path/file.mp4"
@@ -183,8 +190,11 @@ filebrowser cdn prefetch --target archive --urls "https://cdn.example.com/path/f
 设 `purge_on_upload = true` 时 `upload` 成功后自动刷新该文件 URL（失败不影响上传）。
 凭据复用 target 的 AK/SK，但需在腾讯云 CAM 授予 `cdn:PurgeUrlsCache`/`PurgePathCache`/
 `PushUrlsCache` 权限。`cdn.base_url` 是 CDN 域名，与源站域名 `public_base_url` 不同。详见
-[references/configuration.md](references/configuration.md)。
+相邻 `object-storage/references/configuration.md`。
 
 ## 结果
 
-转存 S3 成功时报告 source、FileBrowser 路径、target、bucket、object key、字节数、SHA-256 和可用的公开 URL。内容相同而跳过时，`skipped_unchanged` 为 `true`，且 `unchanged_files` 必须逐项列出相同文件；不要把该情况表述为已重新上传。`put` 成功时报告 source、本地路径、FileBrowser 路径和字节数。不要声称上传成功，除非 S3 `head_object` 或 FileBrowser 下载端点的 `Content-Length` 与本地文件一致；缺失该响应头时才回退至资源元数据。
+转存 S3 成功时报告 source、FileBrowser 路径、target、bucket、object key、字节数、SHA-256
+和可用的公开 URL。内容相同而跳过时，`skipped_unchanged` 为 `true`，且
+`unchanged_files` 必须逐项列出相同文件；不要把该情况表述为已重新上传。S3 上传校验由
+object-storage 完成。`put` 成功时报告 source、本地路径、FileBrowser 路径和字节数。
