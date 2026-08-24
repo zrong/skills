@@ -36,6 +36,23 @@ verify_tls = true
 - `session_token` 只能与显式 access/secret 一起使用。
 - 示例与仓库配置不得包含真实 secret。
 
+## 寻址风格（addressing_style）
+
+决定 bucket 名在请求 URL 中的位置，原样传给 boto3
+`Config(s3={"addressing_style": ...})`，语义以 botocore 文档为准。
+
+| 取值 | 请求形态 | 适用场景 |
+|---|---|---|
+| `virtual` | `https://{bucket}.{endpoint_host}/{key}` | AWS S3，或网关已配置泛域名解析与证书 |
+| `path` | `https://{endpoint_host}/{bucket}/{key}` | 任何 S3 兼容存储；自建服务首选 |
+| `auto` | 由 botocore 判断 | endpoint 为 IP 时等价 `path`；自定义域名时可能选 `virtual`，行为随 SDK 版本变化，不建议依赖 |
+
+自建 S3 兼容存储（MinIO、RustFS、Garage 等）通常没有 `*.{endpoint}` 泛域名 DNS，
+`virtual`（或 `auto` 落到 virtual）会把 bucket 拼进主机名导致解析失败。实测案例：
+endpoint `https://s3.example.games` + bucket `public` 实际请求
+`public.s3.example.games`，报 `nodename nor servname provided`。此类 target 应显式
+配置 `addressing_style = "path"`。
+
 ## Key 与上传
 
 - `prefix` 与 `--key` 都必须是相对 POSIX key，禁止 `..`。

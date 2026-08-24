@@ -30,7 +30,15 @@ session_token_env = ""
 # profile 不能与显式凭据并用。二者都未配置时使用 boto3 默认凭据链。
 profile = ""
 
-# auto | path | virtual；按 S3 兼容厂商要求选择。
+# bucket 寻址风格，原样传给 boto3：
+#   virtual —— bucket 拼进主机名（https://{bucket}.{endpoint_host}/{key}），
+#              需要泛域名 DNS 解析与证书，仅 AWS S3 或网关专门配置过泛域名时可用。
+#   path    —— bucket 走 URL 路径（https://{endpoint_host}/{bucket}/{key}），
+#              任何 S3 兼容存储都可用。
+#   auto    —— botocore 自动判断：endpoint 为 IP 时用 path，自定义域名时可能选 virtual，
+#              行为随 SDK 版本变化，不建议依赖。
+# 自建 S3 兼容存储（MinIO、RustFS 等）通常没有泛域名解析，应显式配置 "path"，
+# 否则可能请求 {bucket}.{endpoint} 导致 DNS 解析失败。
 addressing_style = "virtual"
 storage_class = ""
 multipart_threshold_bytes = 8388608
@@ -61,5 +69,6 @@ endpoint_url = ""
 public_base_url = ""
 prefix = "uploads"
 profile = "company-backup"
+# AWS S3 官方 endpoint 用 auto 即可；自定义域名 endpoint 请改用 "path"。
 addressing_style = "auto"
 verify_tls = true
