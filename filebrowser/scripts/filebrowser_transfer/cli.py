@@ -143,7 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help='FileBrowser paths joined by "||" (each "source::/abs/path")',
     )
-    download_p.add_argument("--algo", choices=["zip", "tar", "tar.gz"], default="zip")
+    download_p.add_argument("--algo", choices=["zip", "tar.gz"], default="zip")
     download_p.add_argument("--output", help="Output archive path")
     download_p.add_argument("--json", action="store_true")
 

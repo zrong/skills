@@ -309,22 +309,61 @@ def test_upload_file_to_dir_creates_then_uploads(tmp_path: Path) -> None:
     assert state["clip_metadata"] == 2
 
 
-def test_download_files_joins_paths() -> None:
+def test_download_files_uses_repeated_file_params() -> None:
     captured: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        captured["files"] = request.url.params["files"]
-        captured["algo"] = request.url.params["algo"]
+        captured["path"] = request.url.path
+        captured["params"] = request.url.params.multi_items()
         return httpx.Response(200, content=b"PK\x03\x04zip")
 
     with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
-        path = client.download_files(["projects::/a.txt", "projects::/b.txt"], algo="zip")
+        path = client.download_files(["main::/a.txt", "/b.txt"], algo="zip")
 
-    assert captured == {
-        "files": "projects::/a.txt||projects::/b.txt",
-        "algo": "zip",
-    }
+    assert captured["path"] == "/api/resources/download"
+    assert captured["params"] == [
+        ("file", "/a.txt"),
+        ("file", "/b.txt"),
+        ("algo", "zip"),
+        ("source", "projects"),
+    ]
     assert path.read_bytes() == b"PK\x03\x04zip"
+
+
+def test_download_files_falls_back_to_raw_endpoint() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if request.url.path == "/api/resources/download":
+            return httpx.Response(404)
+        return httpx.Response(200, content=b"PK\x03\x04zip")
+
+    with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
+        path = client.download_files(["/a.txt"], algo="zip")
+
+    assert seen == ["/api/resources/download", "/api/raw"]
+    assert path.read_bytes() == b"PK\x03\x04zip"
+
+
+def test_download_files_rejects_foreign_source_prefix() -> None:
+    with (
+        FileBrowserClient(
+            _config(), transport=httpx.MockTransport(lambda _: httpx.Response(200))
+        ) as client,
+        pytest.raises(FileBrowserError, match="does not match"),
+    ):
+        client.download_files(["staging::/a.txt"])
+
+
+def test_download_files_rejects_unsupported_algo() -> None:
+    with (
+        FileBrowserClient(
+            _config(), transport=httpx.MockTransport(lambda _: httpx.Response(200))
+        ) as client,
+        pytest.raises(FileBrowserError, match="zip or tar.gz"),
+    ):
+        client.download_files(["/a.txt"], algo="tar")
 
 
 def test_download_files_requires_at_least_one_path() -> None:

@@ -48,7 +48,7 @@ FileBrowser 配置见 [references/configuration.md](references/configuration.md)
 | `move` | 重命名 / 移动 / 复制；`--action rename\|copy`，`--overwrite` 才允许覆盖 |
 | `search` | 文件名搜索；`--scope` 限定目录 |
 | `preview` | 下载缩略图；`--size` 控制尺寸，`--output` 指定输出 |
-| `download-files` | 多文件打包下载；`--files` 用 `||` 分隔（如 `proj::/a.txt||proj::/b.txt`），`--algo zip\|tar\|tar.gz` |
+| `download-files` | 多文件打包下载（Quantum 服务端打包，重复 `file` 参数 + `source`）；`--files` 用 `||` 分隔（如 `proj::/a.txt||proj::/b.txt`），`--algo zip\|tar.gz` |
 | `sources` | 列出 source 信息 |
 
 ### 传输分发（跨存储 / CDN）

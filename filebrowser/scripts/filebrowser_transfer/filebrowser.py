@@ -363,33 +363,65 @@ class FileBrowserClient:
         algo: str = "zip",
         output: str | Path | None = None,
     ) -> Path:
-        """Bundle multiple ``files`` (each ``source::/path``) into a single archive.
+        """Bundle multiple ``files`` (each ``<source-name>::/path`` or ``/path``)
+        into a single archive and stream it to ``output`` (defaults to a temp
+        file with the right extension).
 
-        ``output`` is the destination path; defaults to a temp file with
-        the right extension. ``algo`` is the FileBrowser archive algorithm
-        (``zip``, ``tar``, ``tar.gz``).
+        FileBrowser Quantum serves bundles through the same downloadHandler as
+        single-file downloads: repeated ``file`` query parameters plus ``source``
+        and ``algo``.  Quantum only supports ``zip`` and ``tar.gz`` archives.
         """
         if not files:
             raise FileBrowserError("download_files requires at least one path")
-        joined = "||".join(files)
-        params: dict[str, str] = {
-            "files": joined,
-            "algo": algo,
-        }
-        with self._client.stream("GET", "/api/raw", params=params) as response:
+        if algo not in ("zip", "tar.gz"):
+            raise FileBrowserError(
+                f"download_files algo must be zip or tar.gz, got {algo!r}"
+            )
+        params: list[tuple[str, str]] = [
+            ("file", self._strip_source_prefix(item)) for item in files
+        ]
+        params += [("algo", algo), ("source", self.config.source)]
+        with self._client.stream(
+            "GET", "/api/resources/download", params=params
+        ) as response:
+            if response.status_code in {404, 405}:
+                response.read()
+                # Older Quantum builds expose the same handler at /api/raw.
+                with self._client.stream("GET", "/api/raw", params=params) as legacy:
+                    self._raise_for_status(legacy, "download FileBrowser bundle")
+                    return self._write_bundle(legacy, output, algo)
             self._raise_for_status(response, "download FileBrowser bundle")
-            if output is None:
-                suffix = ".zip" if algo == "zip" else f".{algo}"
-                from tempfile import NamedTemporaryFile
+            return self._write_bundle(response, output, algo)
 
-                with NamedTemporaryFile(delete=False, suffix=suffix) as handle:
-                    destination = Path(handle.name)
-            else:
-                destination = Path(output)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            with destination.open("wb") as target:
-                for chunk in response.iter_bytes():
-                    target.write(chunk)
+    def _strip_source_prefix(self, item: str) -> str:
+        """Drop the skill-level ``<source-name>::`` prefix and normalize the path."""
+        prefix = f"{self.config.name}::"
+        if item.startswith(prefix):
+            item = item[len(prefix):]
+        elif "::" in item:
+            other = item.split("::", 1)[0]
+            raise FileBrowserError(
+                f"download_files path source {other!r} does not match "
+                f"configured source {self.config.name!r}"
+            )
+        return normalize_remote_path(item)
+
+    @staticmethod
+    def _write_bundle(
+        response: httpx.Response, output: str | Path | None, algo: str
+    ) -> Path:
+        if output is None:
+            suffix = ".zip" if algo == "zip" else f".{algo}"
+            from tempfile import NamedTemporaryFile
+
+            with NamedTemporaryFile(delete=False, suffix=suffix) as handle:
+                destination = Path(handle.name)
+        else:
+            destination = Path(output)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open("wb") as target:
+            for chunk in response.iter_bytes():
+                target.write(chunk)
         return destination
 
     def upload_file(
