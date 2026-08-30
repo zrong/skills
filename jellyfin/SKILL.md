@@ -71,9 +71,11 @@ uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rena
 ## 典型工作流
 
 1. **先预览**：总是先用 `--dry-run` 查看解析结果是否正确
-2. **处理候选列表**：若 API 返回多个候选，从列表选择正确的 IMDB ID 后用 `--imdb-id` 重试
-3. **批量处理**：使用 `--batch` 时，失败的文件夹会在末尾汇总，逐一用 `--imdb-id` 补处理
-4. **确认执行**：预览无误后去掉 `--dry-run` 加 `--yes` 执行
+2. **清理噪声文件夹名**：文件夹名若混入站点广告（如「xxx.电影港 地址发布页 www.dygang.me 收藏不迷路」），中文名会被整段带入新名称，先 `mv` 清理成干净的中文标题再 rename
+3. **处理候选列表**：若 API 返回多个候选，从列表选择正确的 IMDB ID 后用 `--imdb-id` 重试
+4. **指定 IMDB ID 时同时给 --title/--year**：OMDb API 偶发超时，`--imdb-id` 查询失败时会回退到 `--title/--year`，同时提供可保证回退名称也正确
+5. **批量处理**：使用 `--batch` 时，失败的文件夹会在末尾汇总，逐一用 `--imdb-id` 补处理
+6. **确认执行**：预览无误后去掉 `--dry-run` 加 `--yes` 执行
 
 ## 支持的文件格式
 

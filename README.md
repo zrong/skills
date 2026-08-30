@@ -176,6 +176,12 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 
 ## 更新记录
 
+### 2026-08-30
+- 修复 jellyfin 多图片统一改名 poster 互相覆盖的问题：首图作 poster，其余移入 `extrafanart/fanartN.jpg`（rename 与 clean 均修复）
+- jellyfin rename 批量模式新增 `--exclude` 参数，可重复传递以跳过指定子目录
+- jellyfin 字幕文件在文件名与视频一致（或仅多语言标签）时跟随视频重命名，便于 Jellyfin 挂载
+- jellyfin SKILL.md 补充典型工作流注意事项：清理广告噪声文件夹名、`--imdb-id` 配合 `--title/--year` 防 OMDb 超时回退
+
 ### 2026-08-14
 - 新增独立 object-storage skill：统一管理多个 S3 兼容 target、本地文件上传、SHA-256 条件覆盖与腾讯云 CDN；filebrowser 移除 boto3/CDN SDK 和 target 配置，改用稳定 CLI/JSON 接口委托 object-storage。
 
