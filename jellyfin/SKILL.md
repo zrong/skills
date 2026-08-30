@@ -48,7 +48,7 @@ uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" clea
 - 电影视频文件：`Movie Name (year) [imdbid-ttXXXXXXXX].mkv`
 - 剧集文件夹：`Show Name (year) [imdbid-ttXXXXXXXX]`
 - 剧集视频文件：`Show Name S01E01.mkv`
-- 图片（poster）：`Name (year) [imdbid-ttXXXXXXXX]-poster.jpg`
+- 图片：首图 `Name (year) [imdbid-ttXXXXXXXX]-poster.jpg`，其余图片按 Jellyfin 约定移入 `extrafanart/fanart1.jpg`、`extrafanart/fanart2.jpg` …
 
 ```bash
 # 单个文件夹（自动检测是电影还是剧集）
@@ -77,5 +77,5 @@ uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rena
 ## 支持的文件格式
 
 - 视频：`.mp4` `.mkv` `.avi` `.wmv` `.mov` `.ts` `.m2ts` `.flv` `.rmvb`
-- 图片（poster）：`.jpg` `.jpeg` `.png` `.webp` `.gif` `.tbn`
+- 图片（poster/fanart）：`.jpg` `.jpeg` `.png` `.webp` `.gif` `.tbn`
 - 字幕：`.srt` `.ass` `.ssa` `.sub` `.vtt`（保留原文件名不处理）

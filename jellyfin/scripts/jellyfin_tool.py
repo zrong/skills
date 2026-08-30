@@ -216,8 +216,13 @@ def clean(directory, yes, dry_run):
                 file_renames.append((folder, v, t))
             if first_stem is None:
                 first_stem = Path(t).stem
-        for img in images:
-            t = f"{first_stem}-poster{Path(img).suffix}" if first_stem else img.replace(' ', '')
+        for idx, img in enumerate(images):
+            if idx == 0 and first_stem:
+                t = f"{first_stem}-poster{Path(img).suffix}"
+            elif first_stem:
+                t = f"extrafanart/fanart{idx}{Path(img).suffix}"
+            else:
+                t = img.replace(' ', '')
             if img != t:
                 file_renames.append((folder, img, t))
         new_name = name.replace(' ', '')
@@ -250,6 +255,7 @@ def clean(directory, yes, dry_run):
             return
 
     for folder, old, new in file_renames:
+        (folder / new).parent.mkdir(parents=True, exist_ok=True)
         (folder / old).rename(folder / new)
     for parent, old, new in folder_renames:
         (parent / old).rename(parent / new)
@@ -359,6 +365,8 @@ def _rename_one(
 
     # 规划文件重命名
     file_renames: list[tuple[Path, Path]] = []
+    poster_done = False
+    fanart_count = 0
     for f in sorted(folder.iterdir()):
         if f.is_dir():
             continue
@@ -374,7 +382,13 @@ def _rename_one(
                 new_name = f"{new_folder_name}{f.suffix}"
             file_renames.append((f, folder / new_name))
         elif ext in IMAGE_EXTS:
-            file_renames.append((f, folder / f"{new_folder_name}-poster{f.suffix}"))
+            # 多图时首图作 poster，其余按 Jellyfin 约定放入 extrafanart，避免同名互相覆盖
+            if not poster_done:
+                file_renames.append((f, folder / f"{new_folder_name}-poster{f.suffix}"))
+                poster_done = True
+            else:
+                fanart_count += 1
+                file_renames.append((f, folder / "extrafanart" / f"fanart{fanart_count}{f.suffix}"))
 
     # 显示预览
     click.echo(f"\n重命名计划：")
@@ -399,6 +413,7 @@ def _rename_one(
     # 先重命名文件，再重命名文件夹
     for src, dst in file_renames:
         if src != dst:
+            dst.parent.mkdir(parents=True, exist_ok=True)
             src.rename(dst)
     if folder != new_folder:
         folder.rename(new_folder)
