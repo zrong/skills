@@ -54,8 +54,8 @@ uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" clea
 # 单个文件夹（自动检测是电影还是剧集）
 uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename "/path/to/Movie.Name.2020.1080P" --dry-run
 
-# 批量处理整个目录
-uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename /path/to/Movies/ --batch --dry-run
+# 批量处理整个目录（--exclude 跳过无需处理的子目录，可多次使用）
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename /path/to/Movies/ --batch --exclude Film --exclude H --dry-run
 
 # 手动指定标题（当自动解析不准时）
 uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename "/path/to/folder" --title "The Matrix" --year 1999

@@ -270,9 +270,10 @@ def clean(directory, yes, dry_run):
 @click.option('--title', 'title_override', default=None, help='手动指定英文搜索标题')
 @click.option('--year', 'year_override', type=int, default=None, help='手动指定年份')
 @click.option('--imdb-id', 'imdb_id_override', default=None, help='手动指定 IMDB ID（跳过 API 搜索）')
+@click.option('--exclude', 'excludes', multiple=True, help='批量模式下要跳过的子目录名，可多次使用')
 @click.option('--yes', '-y', is_flag=True, help='跳过确认，直接执行')
 @click.option('--dry-run', is_flag=True, help='只预览，不执行')
-def rename(folder, batch, media_type, title_override, year_override, imdb_id_override, yes, dry_run):
+def rename(folder, batch, media_type, title_override, year_override, imdb_id_override, excludes, yes, dry_run):
     """智能重命名：按 Jellyfin 规范重命名电影/剧集文件夹及内部文件。
 
     解析 BT/字幕组风格文件夹名（如 Movie.Name.2020.1080P.X264），
@@ -283,7 +284,7 @@ def rename(folder, batch, media_type, title_override, year_override, imdb_id_ove
     base = Path(folder).resolve()
 
     if batch:
-        subdirs = sorted([d for d in base.iterdir() if d.is_dir()])
+        subdirs = sorted([d for d in base.iterdir() if d.is_dir() and d.name not in excludes])
         failures = []
         for d in subdirs:
             click.echo(f"\n{'='*60}\n处理：{d.name}\n{'='*60}")
