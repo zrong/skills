@@ -49,6 +49,7 @@ uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" clea
 - 剧集文件夹：`Show Name (year) [imdbid-ttXXXXXXXX]`
 - 剧集视频文件：`Show Name S01E01.mkv`
 - 图片：首图 `Name (year) [imdbid-ttXXXXXXXX]-poster.jpg`，其余图片按 Jellyfin 约定移入 `extrafanart/fanart1.jpg`、`extrafanart/fanart2.jpg` …
+- 字幕：文件名与某视频相同（或仅多出 `.chs` 等语言标签）的字幕会跟随该视频改名，便于 Jellyfin 挂载；无法匹配任何视频的字幕保留原名
 
 ```bash
 # 单个文件夹（自动检测是电影还是剧集）
@@ -78,4 +79,4 @@ uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rena
 
 - 视频：`.mp4` `.mkv` `.avi` `.wmv` `.mov` `.ts` `.m2ts` `.flv` `.rmvb`
 - 图片（poster/fanart）：`.jpg` `.jpeg` `.png` `.webp` `.gif` `.tbn`
-- 字幕：`.srt` `.ass` `.ssa` `.sub` `.vtt`（保留原文件名不处理）
+- 字幕：`.srt` `.ass` `.ssa` `.sub` `.vtt`（能匹配到视频的跟随视频改名，其余保留原文件名）

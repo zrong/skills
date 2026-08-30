@@ -179,6 +179,17 @@ def _ep_filename(show: str, season: int, ep: int, ep_end: int | None, ext: str) 
     return f"{show} S{season:02d}E{ep:02d}{ext}"
 
 
+def _match_subtitle_name(sub_file: Path, video_renames: list[tuple[Path, Path]]) -> str | None:
+    """字幕 stem 与某视频 stem 相同（或仅多出 .chs 等语言标签后缀）时，返回跟随该视频的新文件名。"""
+    sub_stem = sub_file.stem
+    for src, dst in video_renames:
+        v_stem = src.stem
+        if sub_stem == v_stem or sub_stem.startswith(v_stem + '.'):
+            remainder = sub_stem[len(v_stem):]
+            return f"{dst.stem}{remainder}{sub_file.suffix}"
+    return None
+
+
 @click.group()
 def cli():
     """Jellyfin 媒体库文件重命名工具。"""
@@ -364,8 +375,9 @@ def _rename_one(
     new_folder_name = f"{display_title} ({official_year}) [imdbid-{imdb_id}]"
     new_folder = folder.parent / new_folder_name
 
-    # 规划文件重命名
+    # 规划文件重命名；字幕需依据视频的新名称匹配，放在视频之后处理
     file_renames: list[tuple[Path, Path]] = []
+    video_renames: list[tuple[Path, Path]] = []
     poster_done = False
     fanart_count = 0
     for f in sorted(folder.iterdir()):
@@ -382,6 +394,7 @@ def _rename_one(
             else:
                 new_name = f"{new_folder_name}{f.suffix}"
             file_renames.append((f, folder / new_name))
+            video_renames.append((f, folder / new_name))
         elif ext in IMAGE_EXTS:
             # 多图时首图作 poster，其余按 Jellyfin 约定放入 extrafanart，避免同名互相覆盖
             if not poster_done:
@@ -390,6 +403,12 @@ def _rename_one(
             else:
                 fanart_count += 1
                 file_renames.append((f, folder / "extrafanart" / f"fanart{fanart_count}{f.suffix}"))
+    for f in sorted(folder.iterdir()):
+        if f.is_dir() or f.suffix.lower() not in SUBTITLE_EXTS:
+            continue
+        sub_new = _match_subtitle_name(f, video_renames)
+        if sub_new:
+            file_renames.append((f, folder / sub_new))
 
     # 显示预览
     click.echo(f"\n重命名计划：")
