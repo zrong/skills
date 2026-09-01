@@ -270,16 +270,58 @@ class FileBrowserClient:
             raise FileBrowserError("Refusing to move the FileBrowser root path")
         if source == destination:
             raise FileBrowserError("FileBrowser move source and destination are identical")
+        # Quantum ignores the body's overwrite flag on conflicts and may
+        # auto-suffix the destination instead of failing, so enforce the
+        # documented "no overwrite by default" contract client-side.
+        self._ensure_destination_writable(destination, overwrite=overwrite)
+        # FileBrowser Quantum requires a JSON body with per-item source+path
+        # pairs; the upstream query-string form is rejected with HTTP 400.
         response = self._client.patch(
             "/api/resources",
-            params={
-                "from": f"{self.config.source}::{source}",
-                "destination": destination,
+            json={
+                "items": [
+                    {
+                        "fromSource": self.config.source,
+                        "fromPath": source,
+                        "toSource": self.config.source,
+                        "toPath": destination,
+                    }
+                ],
                 "action": action,
-                "overwrite": str(overwrite).lower(),
+                "overwrite": overwrite,
             },
         )
         self._raise_for_status(response, "move FileBrowser resource")
+        failures = self._patch_failure_messages(response)
+        if failures:
+            raise FileBrowserError("FileBrowser move/copy failed: " + "; ".join(failures))
+
+    @staticmethod
+    def _patch_failure_messages(response: httpx.Response) -> list[str]:
+        """Extract per-item failure messages from a Quantum patch response."""
+        try:
+            value: object = response.json()
+        except ValueError:
+            return []
+        if not isinstance(value, dict):
+            return []
+        items = value.get("failed")
+        if not isinstance(items, list):
+            return []
+        messages: list[str] = []
+        for item in cast(list[object], items):
+            if not isinstance(item, dict):
+                continue
+            payload = cast(dict[str, object], item)
+            message = payload.get("message")
+            from_path = payload.get("fromPath")
+            if isinstance(message, str) and message:
+                messages.append(message)
+            elif isinstance(from_path, str):
+                messages.append(f"{from_path}: unknown failure")
+            else:
+                messages.append("unknown failure")
+        return messages
 
     def search(self, query: str, *, scope: str | None = None) -> list[dict[str, object]]:
         """List matching files. ``scope`` narrows the search to a directory path."""

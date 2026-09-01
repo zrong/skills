@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
@@ -198,17 +199,16 @@ def test_delete_sends_correct_path() -> None:
     assert captured == {"method": "DELETE", "path": "/docs/old.txt"}
 
 
-def test_move_rename() -> None:
+def test_move_rename_sends_quantum_json_body() -> None:
     captured: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":  # destination pre-check
+            return httpx.Response(404)
         captured["method"] = request.method
         captured["path"] = request.url.path
-        captured["from"] = request.url.params["from"]
-        captured["destination"] = request.url.params["destination"]
-        captured["action"] = request.url.params["action"]
-        captured["overwrite"] = request.url.params["overwrite"]
-        return httpx.Response(200)
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"succeeded": [{"fromPath": "/old.txt"}], "failed": []})
 
     with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
         client.move("/old.txt", "/new.txt", action="rename", overwrite=True)
@@ -216,11 +216,91 @@ def test_move_rename() -> None:
     assert captured == {
         "method": "PATCH",
         "path": "/api/resources",
-        "from": "projects::/old.txt",
-        "destination": "/new.txt",
-        "action": "rename",
-        "overwrite": "true",
+        "body": {
+            "items": [
+                {
+                    "fromSource": "projects",
+                    "fromPath": "/old.txt",
+                    "toSource": "projects",
+                    "toPath": "/new.txt",
+                }
+            ],
+            "action": "rename",
+            "overwrite": True,
+        },
     }
+
+
+def test_move_copy_sends_quantum_json_body() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":  # destination pre-check
+            return httpx.Response(404)
+        captured["method"] = request.method
+        captured["query_from"] = request.url.params.get("from")
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"succeeded": [], "failed": []})
+
+    with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
+        client.move("/a/b.mp4", "/c/b.mp4", action="copy")
+
+    assert captured["method"] == "PATCH"
+    assert captured["query_from"] is None
+    assert captured["body"] == {
+        "items": [
+            {
+                "fromSource": "projects",
+                "fromPath": "/a/b.mp4",
+                "toSource": "projects",
+                "toPath": "/c/b.mp4",
+            }
+        ],
+        "action": "copy",
+        "overwrite": False,
+    }
+
+
+def test_move_refuses_existing_destination_without_overwrite() -> None:
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request.method)
+        return httpx.Response(200, json={"type": "text/plain"})
+
+    with (
+        FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client,
+        pytest.raises(FileBrowserError, match="pass --overwrite"),
+    ):
+        client.move("/old.txt", "/new.txt")
+
+    assert requests == ["GET"]
+
+
+def test_move_allows_existing_destination_with_overwrite() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"type": "text/plain"})
+        return httpx.Response(200, json={"succeeded": [], "failed": []})
+
+    with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
+        client.move("/old.txt", "/new.txt", overwrite=True)
+
+
+def test_move_raises_when_item_reports_failure() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":  # destination pre-check
+            return httpx.Response(404)
+        return httpx.Response(
+            200,
+            json={"failed": [{"fromPath": "/old.txt", "message": "destination exists"}]},
+        )
+
+    with (
+        FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client,
+        pytest.raises(FileBrowserError, match="destination exists"),
+    ):
+        client.move("/old.txt", "/new.txt")
 
 
 def test_move_rejects_identical_paths() -> None:
