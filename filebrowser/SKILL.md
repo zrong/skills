@@ -51,6 +51,11 @@ API 文档。已知差异：
 - 目录列表：直接子项分列在响应的 `folders` 与 `files` 两个键中，某一类为空时该键整体缺席。
 - 打包下载：`GET /api/resources/download` 用重复 `file` 参数 + `algo`（`zip|tar.gz`）；
   当前部署没有旧版的 `/api/raw` 端点。
+- 资源元数据滞后：`list-dir` / `info` 返回的 `size` 来自服务端索引，文件被同名覆盖或
+  删除重传后可能长期不更新——无 reindex API、不会自愈（实测差值数千字节且数小时后
+  仍不恢复），`modified` 也可能停留在上一次写入。**判断远端内容是否变化时禁止用列表
+  size 比对**，必须以 `get` 实际下载的 Content-Length / 哈希为准；`get`/`put` 自身的
+  字节校验走真实响应，不受索引影响。
 
 安全语义差异：Quantum 的 PATCH 处理器不校验 `overwrite`，目标冲突时可能自动加版本后缀
 （如 `name (1).mp4`）而不是报错。本 skill 的 `move` 因此在客户端预检目标存在性：目标已存在
