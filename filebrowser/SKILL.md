@@ -1,5 +1,6 @@
 ---
 name: filebrowser
+version: 26.36.16
 description: |
   FileBrowser Quantum 一体化 CLI。包含两类操作：
     1) 文件管理：浏览（info/list-dir）、读写（update）、创建目录（mkdir）、删除（delete）、
@@ -32,6 +33,30 @@ FileBrowser 配置见 [references/configuration.md](references/configuration.md)
 `OBJECT_STORAGE_SKILL_DIR`，否则查找项目或用户 Skills 目录以及当前 Skills 仓库中的相邻目录。
 未安装时停止并说明安装位置；纯 FileBrowser 的 `get`、`put` 和文件管理命令不依赖它。
 
+## 服务端：FileBrowser Quantum
+
+所有 source 指向的都是 **FileBrowser Quantum**（gtsteffaniak/filebrowser fork），**不是**上游
+filebrowser/filebrowser。两者的 REST API 不兼容，查阅或调试接口时必须以 Quantum 为准（可从
+服务端 `GET /swagger/doc.json` 取当前部署的 swagger 定义），不要套用上游 filebrowser 的
+API 文档。已知差异：
+
+- 移动/重命名/复制：`PATCH /api/resources` 要求 JSON body——`items` 数组逐项携带
+  `fromSource/fromPath/toSource/toPath`，顶层为 `action`（`copy|move|rename`）与 `overwrite`。
+  上游的 query-string 形式（`from`/`destination`）会被以 400 拒绝。
+- 搜索：`GET /api/tools/search`，必须提供 `sources`（逗号分隔）或 `scope`（格式
+  `sourceName:relativePath`）。搜索基于服务端实时索引，新建文件可能尚未入索引；带 `scope`
+  时返回的 `path` 是相对 scope 的路径。
+- 预览：`GET /api/resources/preview`，必须带 `source` 参数，否则 400；`size` 仅支持
+  `small`（默认）/`large`/`xlarge`/`original`。
+- 目录列表：直接子项分列在响应的 `folders` 与 `files` 两个键中，某一类为空时该键整体缺席。
+- 打包下载：`GET /api/resources/download` 用重复 `file` 参数 + `algo`（`zip|tar.gz`）；
+  当前部署没有旧版的 `/api/raw` 端点。
+
+安全语义差异：Quantum 的 PATCH 处理器不校验 `overwrite`，目标冲突时可能自动加版本后缀
+（如 `name (1).mp4`）而不是报错。本 skill 的 `move` 因此在客户端预检目标存在性：目标已存在
+且未加 `--overwrite` 时直接拒绝。不要绕过 CLI 直接调 PATCH API 复制/移动，否则会绕过这层
+幂等保护。
+
 ## 子命令总览
 
 按职责分两组。所有命令都支持 `--source <name>` 切换 FileBrowser source，省略时用 `[filebrowser] default_source`。
@@ -46,8 +71,8 @@ FileBrowser 配置见 [references/configuration.md](references/configuration.md)
 | `update` | 从 stdin 覆盖写入文件；`--override` 才允许覆盖 |
 | `delete` | 删除文件或目录 |
 | `move` | 重命名 / 移动 / 复制；`--action rename\|copy`，`--overwrite` 才允许覆盖 |
-| `search` | 文件名搜索；`--scope` 限定目录 |
-| `preview` | 下载缩略图；`--size` 控制尺寸，`--output` 指定输出 |
+| `search` | 文件名搜索（Quantum 索引）；`--scope` 限定目录，结果路径相对 scope |
+| `preview` | 下载缩略图；`--size` 仅支持 small/large/xlarge/original，`--output` 指定输出 |
 | `download-files` | 多文件打包下载（Quantum 服务端打包，重复 `file` 参数 + `source`）；`--files` 用 `||` 分隔（如 `proj::/a.txt||proj::/b.txt`），`--algo zip\|tar.gz` |
 | `sources` | 列出 source 信息 |
 

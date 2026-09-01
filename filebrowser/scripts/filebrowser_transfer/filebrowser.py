@@ -325,10 +325,13 @@ class FileBrowserClient:
 
     def search(self, query: str, *, scope: str | None = None) -> list[dict[str, object]]:
         """List matching files. ``scope`` narrows the search to a directory path."""
-        params: dict[str, str] = {"source": self.config.source, "query": query}
+        # Quantum exposes search at /api/tools/search and requires either
+        # ``sources`` (comma-separated) or scoped entries formatted
+        # ``sourceName:relativePath``; bare paths are rejected.
+        params: dict[str, str] = {"sources": self.config.source, "query": query}
         if scope:
-            params["scope"] = normalize_remote_path(scope)
-        response = self._client.get("/api/search", params=params)
+            params["scope"] = f"{self.config.source}:{normalize_remote_path(scope)}"
+        response = self._client.get("/api/tools/search", params=params)
         self._raise_for_status(response, "search FileBrowser")
         try:
             value: object = response.json()

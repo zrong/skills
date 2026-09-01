@@ -317,14 +317,21 @@ def test_search_with_scope() -> None:
     captured: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
         captured["query"] = request.url.params["query"]
+        captured["sources"] = request.url.params["sources"]
         captured["scope"] = request.url.params.get("scope", "")
         return httpx.Response(200, json=[{"path": "/pictures/a.jpg", "name": "a.jpg"}])
 
     with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
         results = client.search("photo", scope="/pictures")
 
-    assert captured == {"query": "photo", "scope": "/pictures"}
+    assert captured == {
+        "path": "/api/tools/search",
+        "query": "photo",
+        "sources": "projects",
+        "scope": "projects:/pictures",
+    }
     assert results == [{"path": "/pictures/a.jpg", "name": "a.jpg"}]
 
 
