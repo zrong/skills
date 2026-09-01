@@ -312,4 +312,4 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - 新增 tencent-docs skill：腾讯文档 MCP，提供完整的腾讯文档操作能力（创建、编辑、搜索文档）
 
 ### 2026-09-01
-- 升级 filebrowser skill v26.36.16：修复对 FileBrowser Quantum 服务端的 API 调用错误——`move` 改为 JSON body（items 携带 fromSource/fromPath/toSource/toPath）并增加客户端覆盖预检，`search` 迁移到 `/api/tools/search`（sources/scope 新格式），`preview` 迁移到 `/api/resources/preview` 并补 source 参数，`list-dir` 合并 folders/files 两个子项键；SKILL.md 新增"服务端：FileBrowser Quantum"章节明确 API 差异
+- 升级 filebrowser skill v26.36.55：修复对 FileBrowser Quantum 服务端的 API 调用错误——`move` 改为 JSON body（items 携带 fromSource/fromPath/toSource/toPath）并增加客户端覆盖预检，`search` 迁移到 `/api/tools/search`（sources/scope 新格式），`preview` 迁移到 `/api/resources/preview` 并补 source 参数，`list-dir` 合并 folders/files 两个子项键；SKILL.md 新增"服务端：FileBrowser Quantum"章节明确 API 差异

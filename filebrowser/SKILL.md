@@ -1,6 +1,6 @@
 ---
 name: filebrowser
-version: 26.36.16
+version: 26.36.55
 description: |
   FileBrowser Quantum 一体化 CLI。包含两类操作：
     1) 文件管理：浏览（info/list-dir）、读写（update）、创建目录（mkdir）、删除（delete）、
