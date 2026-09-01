@@ -71,7 +71,6 @@ def test_list_files_returns_children() -> None:
                 "type": "directory",
                 "files": [
                     {"name": "a.txt", "type": "text/plain", "size": 1},
-                    {"name": "b/", "type": "directory"},
                     "not-a-dict",
                 ],
             },
@@ -80,7 +79,24 @@ def test_list_files_returns_children() -> None:
     with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
         items = client.list_files("/docs")
 
-    assert [item["name"] for item in items] == ["a.txt", "b/"]
+    assert [item["name"] for item in items] == ["a.txt"]
+
+
+def test_list_files_merges_folders_and_files() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "type": "directory",
+                "folders": [{"name": "sub/", "type": "directory"}],
+                "files": [{"name": "a.txt", "type": "text/plain", "size": 1}],
+            },
+        )
+
+    with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
+        items = client.list_files("/docs")
+
+    assert [item["name"] for item in items] == ["sub/", "a.txt"]
 
 
 def test_list_files_allows_root_directory() -> None:

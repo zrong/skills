@@ -177,16 +177,20 @@ class FileBrowserClient:
         return True
 
     def list_files(self, path: str) -> list[dict[str, object]]:
-        """Return immediate child entries of a directory."""
+        """Return immediate child entries (files and folders) of a directory."""
         payload = self.info(path)
-        items = payload.get("files")
-        if not isinstance(items, list):
-            return []
-        return [
-            cast(dict[str, object], item)
-            for item in cast(list[object], items)
-            if isinstance(item, dict)
-        ]
+        # Quantum splits listing children into "files" and "folders"; when a
+        # directory has none of one kind the key is absent entirely.
+        items: list[dict[str, object]] = []
+        for key in ("folders", "files"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                items.extend(
+                    cast(dict[str, object], item)
+                    for item in cast(list[object], value)
+                    if isinstance(item, dict)
+                )
+        return items
 
     def ensure_dir(self, path: str) -> str:
         """Create ``path`` (a directory) if missing; return the normalized path.
