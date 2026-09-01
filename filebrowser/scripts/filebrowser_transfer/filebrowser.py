@@ -348,10 +348,12 @@ class FileBrowserClient:
     def preview(self, path: str, size: str | None = None, output: str | None = None) -> Path:
         """Download a thumbnail/preview to ``output`` (or a temp path) and return it."""
         normalized = normalize_remote_path(path)
-        params: dict[str, str] = {"path": normalized}
+        # Quantum serves previews from /api/resources/preview and rejects
+        # requests without an explicit source ("small"|"large"|"xlarge"|"original").
+        params: dict[str, str] = {"source": self.config.source, "path": normalized}
         if size:
             params["size"] = size
-        response = self._client.get("/api/preview", params=params)
+        response = self._client.get("/api/resources/preview", params=params)
         self._raise_for_status(response, "fetch FileBrowser preview")
         if output:
             destination = Path(output)

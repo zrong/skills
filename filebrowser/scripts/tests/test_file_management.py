@@ -337,7 +337,8 @@ def test_search_with_scope() -> None:
 
 def test_preview_writes_to_output(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/preview"
+        assert request.url.path == "/api/resources/preview"
+        assert request.url.params["source"] == "projects"
         assert request.url.params["path"] == "/photos/hero.jpg"
         assert request.url.params["size"] == "large"
         return httpx.Response(200, content=b"\x89PNG\r\n\x1a\nbinary")
