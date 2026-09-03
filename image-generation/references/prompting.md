@@ -44,4 +44,4 @@ Avoid: ...
 
 ## 透明背景
 
-模型 policy 支持 `background` 和 `output_format` 时，可请求 `--background transparent --output-format png`。不支持原生透明时，先要求纯色无渐变背景，再用 `chroma-key` 转 alpha。
+模型 policy 支持 `background` 和 `output_format` 时，可请求 `--background transparent --output-format png`。不支持原生透明时，生成阶段优先要求纯色无渐变背景，再使用 `remove-background`：配置可用时走独立 matting，配置不可用时回退 `chroma-key`。只有明确需要手调关键色参数时直接调用 `chroma-key`。

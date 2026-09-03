@@ -33,6 +33,17 @@
         "第二轮 session 记录引用第一轮输出，point/bbox 标注映射到官方请求字段",
         "会话文件不保存 API key，失败或 retry 保留可审计的 turn 状态"
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "把已经生成好的产品图去掉背景并输出透明 PNG。优先使用 matting；如果没配置或服务不可用，再用现有的本地方法。",
+      "expected_output": "通过统一 imggen remove-background 入口先探测 matting 状态和实时能力；配置与服务可用时由 matting 自动选择算法，配置缺失或不可达时明确记录 fallback_reason 并使用 chroma-key；探测成功后的任务失败不得静默回退。",
+      "files": [],
+      "expectations": [
+        "matting 分支先读取实时 status/capabilities，再根据输入图选择当前可用的 method/model",
+        "只有配置或探测不可用时回退 chroma-key，并在结果中报告 fallback_reason",
+        "输出固定为 PNG、默认拒绝覆盖，matting 执行失败不静默回退"
+      ]
     }
   ]
 }

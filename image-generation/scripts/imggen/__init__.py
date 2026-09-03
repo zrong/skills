@@ -1,3 +1,3 @@
 """imggen package."""
 
-__version__ = "26.29.14"
+__version__ = "26.36.56"

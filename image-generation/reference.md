@@ -12,6 +12,7 @@ scripts/imggen/
 ├── output.py             # 防覆盖、命名、格式、downscale
 ├── interactive.py        # Seedream 坐标标注与原子会话 manifest
 ├── chroma.py             # 纯色背景转 alpha
+├── matting_bridge.py     # 可选调用独立 matting skill；不可用时回退 chroma-key
 ├── provider.py           # 兼容 Python 入口，不再做协议猜测
 └── adapters/
     ├── base.py

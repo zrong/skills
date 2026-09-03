@@ -78,3 +78,12 @@ max_outputs = 10
 [image-generation.providers.primary.endpoints.seedream.models."doubao-seedream-4-5-251128".options]
 generate_path = "/images/generations"
 response_format = "b64_json"
+
+# 可选：imggen remove-background 会读取同一文件中的 [matting]。
+# 独立 skill 的完整配置说明见 ../matting/agent_config.example.toml。
+[matting]
+base_url = "http://127.0.0.1:8060"
+timeout = 300
+poll_interval = 2
+max_wait_seconds = 900
+default_model = "birefnet-auto-quality"

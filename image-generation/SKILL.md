@@ -1,9 +1,9 @@
 ---
 name: image-generation
-version: 26.29.14
-description: AI 图片生成与编辑。使用统一 CLI 调用 OpenAI Images、Google Gemini 原生图片 API、火山方舟 Seedream，支持多参考图、mask、批量生成、透明背景后处理，以及 Seedream 5.0 Pro 点选/框选式连续交互编辑。当用户提到生成图片、画图、封面图、配图、AI 生图、改图、修图、参考图编辑、Gemini 生图、Seedream 或交互编辑时使用。
-argument-hint: "generate|edit|interactive [prompt] [-p provider] [-e endpoint] [-m model]"
+description: AI 图片生成、编辑与透明背景后处理。使用统一 CLI 调用 OpenAI Images、Google Gemini 原生图片 API、火山方舟 Seedream，支持多参考图、mask、批量生成、Seedream 5.0 Pro 点选/框选连续编辑，并在配置可用时调用独立 matting skill 自动选择算法抠图；未配置或服务不可用时回退现有 chroma-key。用户提到生成图片、画图、封面图、配图、AI 生图、改图、修图、去背景、透明底、参考图编辑、Gemini 生图、Seedream 或交互编辑时使用。
 allowed-tools: Bash(uv run *), Read, Grep, Glob, Edit
+metadata:
+  version: "26.36.56"
 ---
 
 # Image Generation
@@ -37,7 +37,8 @@ allowed-tools: Bash(uv run *), Read, Grep, Glob, Edit
 - OpenAI alpha mask 局部修改：`edit --mask`
 - Seedream 5.0 Pro 点选/框选并连续迭代：`interactive`
 - 多个独立生成任务：`generate-batch`
-- 纯色背景转透明：`chroma-key`
+- 一般去背景/透明底：`remove-background`（优先 matting，配置不可用时回退 `chroma-key`）
+- 明确的纯色背景转透明或需要手调关键色：`chroma-key`
 
 编辑前先查看参考图，确认用户指的是哪一侧、哪个主体或哪块区域。若目标清楚，直接执行；只有会实质改变结果的缺失信息才需要询问。
 
@@ -133,6 +134,15 @@ uv run --project {SCRIPTS_DIR} imggen chroma-key \
   --input ./green.png --out ./transparent.png \
   --auto-key corners --soft-matte --despill
 ```
+
+普通去背景优先使用统一入口：
+
+```bash
+uv run --project {SCRIPTS_DIR} imggen remove-background \
+  --input ./generated.png --out ./transparent.png
+```
+
+该命令先调用独立 `matting` skill 的实时状态与算法探测；只有 `[matting]` 配置有效且服务可用时才提交任务。配置缺失、无效、服务不可达或未安装 matting skill 时，会在结果 JSON 中写明 `fallback_reason`，再使用现有 `chroma-key`。一旦探测已成功，后续任务提交、轮询或下载失败会直接报错，不静默回退。算法选择与配置见 `../matting/SKILL.md`；语义复杂的人物、发丝、玻璃、烟雾等素材在执行前仍要查看原图。
 
 JSONL、重试、输出与全部参数见 [references/cli.md](references/cli.md)。
 

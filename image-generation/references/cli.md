@@ -72,3 +72,19 @@ imggen chroma-key --input keyed.png --out alpha.png \
 ```
 
 输出必须是 PNG 或 WebP，以保留 alpha。
+
+## remove-background
+
+```bash
+imggen remove-background --input source.png --out transparent.png \
+  [--config agent_config.toml] [--method METHOD --model MODEL] \
+  [--parameters-json JSON] [--reprocess] [--no-matting] [--no-fallback] \
+  [--fallback-key-color '#00ff00'] [--fallback-auto-key border] \
+  [--fallback-tolerance 12] [--fallback-transparent-threshold 12] \
+  [--fallback-opaque-threshold 96] [--fallback-edge-feather 0] \
+  [--fallback-edge-contract 0] [--dry-run] [--force]
+```
+
+默认先运行独立 matting skill 的 `status`，探测通过后运行 `remove`。探测失败才回退 `chroma-key`；探测通过后的执行失败不会回退。`--config` 指向同时包含 `[matting]` 的共享 `agent_config.toml`。`--no-matting` 可强制使用旧方法，`--no-fallback` 可要求 matting 不可用时立即失败。
+
+为保证 matting 与回退分支交付一致，`remove-background` 输出固定为透明 PNG。

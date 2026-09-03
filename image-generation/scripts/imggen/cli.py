@@ -21,6 +21,7 @@ from imggen.interactive import (
     parse_canvas_size,
     parse_point,
 )
+from imggen.matting_bridge import remove_background
 from imggen.models import CapabilityError, ImageRequest, ImggenError
 from imggen.output import output_paths, preflight_outputs, save_artifacts
 from imggen.prompting import PROMPT_FIELDS, augment_prompt, read_prompt
@@ -113,6 +114,34 @@ def build_parser() -> argparse.ArgumentParser:
     )
     chroma.add_argument("--force", action="store_true")
     chroma.set_defaults(func=_chroma_key)
+
+    remove = sub.add_parser(
+        "remove-background",
+        help="Use configured matting-api, or fall back to the existing chroma-key",
+    )
+    remove.add_argument("--input", required=True)
+    remove.add_argument("--out", required=True)
+    remove.add_argument(
+        "--config", help="Shared agent_config.toml containing [matting]"
+    )
+    remove.add_argument("--method")
+    remove.add_argument("--model")
+    remove.add_argument("--parameters-json")
+    remove.add_argument("--reprocess", action="store_true")
+    remove.add_argument("--no-matting", action="store_true")
+    remove.add_argument("--no-fallback", action="store_true")
+    remove.add_argument("--fallback-key-color", default="#00ff00")
+    remove.add_argument(
+        "--fallback-auto-key", choices=["none", "corners", "border"], default="border"
+    )
+    remove.add_argument("--fallback-tolerance", type=int, default=12)
+    remove.add_argument("--fallback-transparent-threshold", type=float, default=12.0)
+    remove.add_argument("--fallback-opaque-threshold", type=float, default=96.0)
+    remove.add_argument("--fallback-edge-feather", type=float, default=0.0)
+    remove.add_argument("--fallback-edge-contract", type=int, default=0)
+    remove.add_argument("--force", action="store_true")
+    remove.add_argument("--dry-run", action="store_true")
+    remove.set_defaults(func=_remove_background)
     return parser
 
 
@@ -479,6 +508,30 @@ def _chroma_key(args: argparse.Namespace) -> None:
         edge_contract=args.edge_contract,
         spill_cleanup=args.spill_cleanup,
         force=args.force,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def _remove_background(args: argparse.Namespace) -> None:
+    result = remove_background(
+        args.input,
+        args.out,
+        config_path=args.config,
+        method=args.method,
+        model=args.model,
+        parameters_json=args.parameters_json,
+        reprocess=args.reprocess,
+        use_matting=not args.no_matting,
+        fallback=not args.no_fallback,
+        fallback_key_color=args.fallback_key_color,
+        fallback_auto_key=args.fallback_auto_key,
+        fallback_tolerance=args.fallback_tolerance,
+        fallback_transparent_threshold=args.fallback_transparent_threshold,
+        fallback_opaque_threshold=args.fallback_opaque_threshold,
+        fallback_edge_feather=args.fallback_edge_feather,
+        fallback_edge_contract=args.fallback_edge_contract,
+        force=args.force,
+        dry_run=args.dry_run,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
