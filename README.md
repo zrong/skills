@@ -98,6 +98,15 @@ AI 图片生成与编辑工具，通过独立 OpenAI、Gemini 原生和 Seedream
 - 支持生成、mask/多参考图编辑、JSONL 并发、downscale、chroma-key 和防覆盖输出
 - 支持 Seedream 5.0 Pro 点选/框选坐标协议与可恢复的连续编辑 session
 
+### matting
+
+独立 matting-api 抠图工具，为本地图片自动选择算法并输出透明 PNG。
+
+- 每次执行前读取服务状态、队列、实时 methods/models 与可证明兼容的组合
+- 检查已有 alpha、边框颜色/均匀度、绿蓝幕和亮度分布，自动选择 BiRefNet、InSPyReNet、Luma 或 CorridorKey 组合
+- 支持显式算法/模型、dry-run、异步任务轮询、透明 PNG 验证、原子写入和防覆盖
+- 可由 image-generation 的 `remove-background` 统一入口调用
+
 ### object-storage
 
 独立的 S3 兼容对象存储与 CDN 管理工具。
@@ -175,6 +184,10 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - [`shared/agent-config`](shared/agent-config/README.md)：`agent_config.toml` 的跨平台查找、全局兜底、显式路径、配置示例和测试模板。创建新 skill 时复制实现，运行时不依赖仓库共享目录。
 
 ## 更新记录
+
+### 2026-09-03
+
+- 新增 matting skill：直连 matting-api，实时读取状态与算法/模型能力，按输入图技术特征自动选择兼容组合并输出经验证的透明 PNG。
 
 ### 2026-08-30
 - 修复 jellyfin 多图片统一改名 poster 互相覆盖的问题：首图作 poster，其余移入 `extrafanart/fanartN.jpg`（rename 与 clean 均修复）

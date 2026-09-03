@@ -1,0 +1,23 @@
+{
+  "skill_name": "matting",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "把这张绿幕人物图抠成透明 PNG。先告诉我服务当前支持哪些算法和模型，再自动选一个适合发丝边缘的方法。",
+      "expected_output": "先实时读取 status/capabilities，再检查图片；只在 CorridorKey 实时可用且存在兼容模型时选择组合精修，否则选择当前可用的 BiRefNet/InSPyReNet；下载并验证透明 PNG。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "这张黑底火焰特效要去黑底保留发光边缘，先 dry-run，不要真的提交任务。",
+      "expected_output": "识别暗色均匀边框与亮度型素材，优先推荐实时可用的 birefnet_luma_restore，给出 bright polarity，dry-run 不提交也不写文件。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "用 image-generation 把生成好的产品图去背景；如果 matting 没配置就用原来的办法。",
+      "expected_output": "通过 imggen remove-background 探测 matting；配置有效且服务可用时调用 matting，配置缺失/不可达时明确回退到 chroma-key；已探测可用后的处理失败不静默回退。",
+      "files": []
+    }
+  ]
+}

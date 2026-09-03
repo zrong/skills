@@ -1,0 +1,25 @@
+# 将此 section 合并到当前目录、skill 目录、Git 根目录的
+# agent_config.toml，或全局 ~/.agents/agent_config.toml。
+
+[matting]
+base_url = "http://127.0.0.1:8060"
+timeout = 300
+poll_interval = 2
+max_wait_seconds = 900
+default_model = "birefnet-auto-quality"
+max_input_bytes = 52428800
+max_pixels = 100000000
+
+# 当前 matting-api 默认无需认证。若网关要求认证，优先使用环境变量。
+api_key = ""
+api_key_env = ""
+auth_header = "Authorization"
+auth_scheme = "Bearer"
+
+# 可选：为服务尚未返回 model-method 映射的新模型声明精确兼容关系。
+# [matting.models."custom-model"]
+# methods = ["birefnet"]
+
+# 可选：额外静态 header。值可写成 ${ENV_NAME}。
+# [matting.headers]
+# X-API-Key = "${MATTING_API_KEY}"
