@@ -190,6 +190,10 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 
 - 新增 matting skill：直连 matting-api，实时读取状态与算法/模型能力，按输入图技术特征自动选择兼容组合并输出经验证的透明 PNG。
 - 升级 image-generation v26.36.56：新增 `remove-background`，matting 配置可用时优先调用独立 skill；配置缺失或服务不可用时明确回退现有 chroma-key，已探测可用后的任务失败不静默回退。
+- 修正更新记录时间排序：filebrowser v26.36.55（2026-09-01）条目此前误置于列表末尾，已按日期归位。
+
+### 2026-09-01
+- 升级 filebrowser skill v26.36.55：修复对 FileBrowser Quantum 服务端的 API 调用错误——`move` 改为 JSON body（items 携带 fromSource/fromPath/toSource/toPath）并增加客户端覆盖预检，`search` 迁移到 `/api/tools/search`（sources/scope 新格式），`preview` 迁移到 `/api/resources/preview` 并补 source 参数，`list-dir` 合并 folders/files 两个子项键；SKILL.md 新增"服务端：FileBrowser Quantum"章节明确 API 差异
 
 ### 2026-08-30
 - 修复 jellyfin 多图片统一改名 poster 互相覆盖的问题：首图作 poster，其余移入 `extrafanart/fanartN.jpg`（rename 与 clean 均修复）
@@ -325,6 +329,3 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 
 ### 2026-03-11
 - 新增 tencent-docs skill：腾讯文档 MCP，提供完整的腾讯文档操作能力（创建、编辑、搜索文档）
-
-### 2026-09-01
-- 升级 filebrowser skill v26.36.55：修复对 FileBrowser Quantum 服务端的 API 调用错误——`move` 改为 JSON body（items 携带 fromSource/fromPath/toSource/toPath）并增加客户端覆盖预检，`search` 迁移到 `/api/tools/search`（sources/scope 新格式），`preview` 迁移到 `/api/resources/preview` 并补 source 参数，`list-dir` 合并 folders/files 两个子项键；SKILL.md 新增"服务端：FileBrowser Quantum"章节明确 API 差异
