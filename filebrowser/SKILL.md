@@ -1,10 +1,11 @@
 ---
 name: filebrowser
-version: 26.36.55
+version: 26.37.58
 description: |
   FileBrowser Quantum 一体化 CLI。包含两类操作：
     1) 文件管理：浏览（info/list-dir）、读写（update）、创建目录（mkdir）、删除（delete）、
-       移动/重命名/复制（move）、搜索（search）、预览（preview）、多文件打包下载（download-files）。
+       移动/重命名/复制（move）、搜索（search）、预览（preview）、多文件打包下载（download-files）、
+       不下载读媒体时长（duration）。
     2) 传输分发：FileBrowser ↔ 本地（get/put），以及通过独立 object-storage Skill 将
        FileBrowser 文件上传到 S3 兼容 bucket。兼容命令仍提供对象 key、覆盖保护、内容去重、
        dry-run 和腾讯云 CDN 刷新/预热，但 S3/CDN 配置与实现由 object-storage 统一管理。
@@ -49,6 +50,10 @@ API 文档。已知差异：
 - 预览：`GET /api/resources/preview`，必须带 `source` 参数，否则 400；`size` 仅支持
   `small`（默认）/`large`/`xlarge`/`original`。
 - 目录列表：直接子项分列在响应的 `folders` 与 `files` 两个键中，某一类为空时该键整体缺席。
+- 媒体元数据：`GET /api/media/metadata`（参数 `source` + `path`）返回与 `/api/resources`
+  相同的目录列表，但每个音视频文件额外带 `metadata.duration`（整数秒，来自服务端媒体索引）。
+  这是界面显示视频时长的数据来源，**无需下载文件体**。索引可能滞后于新上传/覆盖的文件；
+  `duration` 只精确到整秒，需要亚秒精度仍须下载后用 ffprobe 实测。
 - 打包下载：`GET /api/resources/download` 用重复 `file` 参数 + `algo`（`zip|tar.gz`）；
   当前部署没有旧版的 `/api/raw` 端点。
 - 资源元数据滞后：`list-dir` / `info` 返回的 `size` 来自服务端索引，文件被同名覆盖或
@@ -78,6 +83,7 @@ API 文档。已知差异：
 | `move` | 重命名 / 移动 / 复制；`--action rename\|copy`，`--overwrite` 才允许覆盖 |
 | `search` | 文件名搜索（Quantum 索引）；`--scope` 限定目录，结果路径相对 scope |
 | `preview` | 下载缩略图；`--size` 仅支持 small/large/xlarge/original，`--output` 指定输出 |
+| `duration` | 不下载读媒体时长；`--path` 目录（或单个文件），`--pattern` 按 fnmatch 过滤文件名（如 `99*`），输出每个文件时长与总和 |
 | `download-files` | 多文件打包下载（Quantum 服务端打包，重复 `file` 参数 + `source`）；`--files` 用 `||` 分隔（如 `proj::/a.txt||proj::/b.txt`），`--algo zip\|tar.gz` |
 | `sources` | 列出 source 信息 |
 
@@ -116,6 +122,12 @@ filebrowser download-files --source 项目 \
 # 6) 重命名 / 复制（--action rename|copy）
 filebrowser move --source 项目 --from /虎澈漫剧/B06/old.mp4 --destination /虎澈漫剧/B06/new.mp4 \
   --action rename --json
+
+# 7) 不下载读某目录全部视频时长并求和
+filebrowser duration --source 项目 --path /虎澈漫剧/B06/成片/480p/ --json
+
+# 8) 只统计某前缀（如 99 开头）的视频时长；--pattern 为 fnmatch 通配符
+filebrowser duration --source 项目 --path /虎澈游戏/A07末日公路/成片/480p/ --pattern '99*' --json
 ```
 
 ## 传输分发工作流

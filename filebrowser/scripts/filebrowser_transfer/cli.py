@@ -169,6 +169,20 @@ def build_parser() -> argparse.ArgumentParser:
     list_dir_p.add_argument("--path", required=True, help="Absolute FileBrowser directory path")
     list_dir_p.add_argument("--json", action="store_true")
 
+    duration_p = subparsers.add_parser(
+        "duration",
+        help="Read media durations from the server index without downloading",
+    )
+    duration_p.add_argument("--source", help="Configured FileBrowser source name")
+    duration_p.add_argument(
+        "--path", required=True, help="Absolute FileBrowser directory (or file) path"
+    )
+    duration_p.add_argument(
+        "--pattern",
+        help='Only count files whose name matches an fnmatch pattern (e.g. "99*")',
+    )
+    duration_p.add_argument("--json", action="store_true")
+
     return parser
 
 
@@ -211,6 +225,60 @@ def _print_payload(payload: dict[str, object], *, as_json: bool) -> None:
 def _optional_string(args: argparse.Namespace, name: str) -> str | None:
     value = getattr(args, name, None)
     return value if isinstance(value, str) and value else None
+
+
+def _collect_durations(
+    payload: dict[str, object],
+    *,
+    pattern: str | None = None,
+) -> dict[str, int | float]:
+    """Extract ``name -> duration`` seconds from a /api/media/metadata payload.
+
+    Durations come from the server media index and are whole seconds;
+    files without a duration (non-media or unindexed) are skipped.
+    """
+    import fnmatch
+
+    entries: list[dict[str, object]] = []
+    top_metadata = payload.get("metadata")
+    if isinstance(top_metadata, dict) and isinstance(top_metadata.get("duration"), int):
+        name = payload.get("name")
+        if isinstance(name, str) and name:
+            entries.append({"name": name, "metadata": top_metadata})
+    files = payload.get("files")
+    if isinstance(files, list):
+        entries.extend(
+            cast(dict[str, object], item)
+            for item in cast(list[object], files)
+            if isinstance(item, dict)
+        )
+
+    durations: dict[str, int | float] = {}
+    for item in entries:
+        metadata = item.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        duration = metadata.get("duration")
+        if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+            continue
+        if duration < 0:
+            continue
+        name = item.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        if pattern is not None and not fnmatch.fnmatch(name, pattern):
+            continue
+        durations[name] = duration
+    return durations
+
+
+def _format_hms(total_seconds: int | float) -> str:
+    total = int(total_seconds)
+    hours, remainder = divmod(total, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m {seconds:02d}s"
+    return f"{minutes}m {seconds:02d}s"
 
 
 def _run_cdn_command(
@@ -393,6 +461,30 @@ def main(argv: list[str] | None = None) -> int:
                 },
                 as_json=as_json,
             )
+            return 0
+
+        if command == "duration":
+            path = cast(str, args.path)
+            payload = service.media_metadata(path, source_name=_optional_string(args, "source"))
+            durations = _collect_durations(payload, pattern=_optional_string(args, "pattern"))
+            total = sum(durations.values())
+            if as_json:
+                _print_payload(
+                    {
+                        "path": path,
+                        "count": len(durations),
+                        "total_seconds": total,
+                        "total_hms": _format_hms(total),
+                        "durations": durations,
+                    },
+                    as_json=True,
+                )
+            else:
+                for name, seconds in durations.items():
+                    print(f"{name}: {seconds}s")
+                print(
+                    f"total: {len(durations)} files, {total}s = {_format_hms(total)}"
+                )
             return 0
 
         remote_path = cast(str, args.remote_path)

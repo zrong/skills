@@ -96,6 +96,13 @@ class FileManagementSource(Protocol):
 
     def list_sources(self) -> list[dict[str, object]]: ...
 
+    def media_metadata(
+        self,
+        path: str,
+        *,
+        album_art: bool = False,
+    ) -> dict[str, object]: ...
+
     def upload_file_to_dir(
         self,
         local_path: str | Path,
@@ -430,6 +437,17 @@ class TransferService:
         source_config = self.config.source(source_name)
         with self._source_factory(source_config) as source:
             return self._management_source(source).list_sources()
+
+    def media_metadata(
+        self,
+        path: str,
+        *,
+        source_name: str | None = None,
+        album_art: bool = False,
+    ) -> dict[str, object]:
+        source_config = self.config.source(source_name)
+        with self._source_factory(source_config) as source:
+            return self._management_source(source).media_metadata(path, album_art=album_art)
 
     def upload_file_to_dir(
         self,

@@ -192,6 +192,28 @@ class FileBrowserClient:
                 )
         return items
 
+    def media_metadata(self, path: str, *, album_art: bool = False) -> dict[str, object]:
+        """Read server-side media metadata for ``path`` without downloading.
+
+        Backed by Quantum's /api/media/metadata endpoint, which returns the
+        same listing as /api/resources but with per-file ``metadata.duration``
+        (whole seconds) for audio/video. Useful for summing video lengths
+        without transferring file bodies.
+        """
+        normalized = normalize_remote_path(path)
+        params: dict[str, str] = {"source": self.config.source, "path": normalized}
+        if album_art:
+            params["albumArt"] = "true"
+        response = self._client.get("/api/media/metadata", params=params)
+        self._raise_for_status(response, "read FileBrowser media metadata")
+        try:
+            value: object = response.json()
+        except ValueError as exc:
+            raise FileBrowserError("FileBrowser returned invalid media metadata JSON") from exc
+        if not isinstance(value, dict):
+            raise FileBrowserError("FileBrowser returned unexpected media metadata")
+        return cast(dict[str, object], value)
+
     def ensure_dir(self, path: str) -> str:
         """Create ``path`` (a directory) if missing; return the normalized path.
 

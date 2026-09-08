@@ -186,6 +186,10 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 
 ## 更新记录
 
+### 2026-09-08
+
+- 升级 filebrowser skill v26.37.58：新增 `duration` 子命令，通过 `GET /api/media/metadata` 读取服务端媒体索引中的时长（整数秒），无需下载视频即可统计目录内视频总时长；支持 `--pattern`（fnmatch）按文件名过滤，如 `filebrowser duration --path /某项目/成片/480p/ --pattern '99*'`。索引可能滞后于新上传/覆盖文件，亚秒精度仍须下载后用 ffprobe 实测。
+
 ### 2026-09-03
 
 - 新增 matting skill：直连 matting-api，实时读取状态与算法/模型能力，按输入图技术特征自动选择兼容组合并输出经验证的透明 PNG。

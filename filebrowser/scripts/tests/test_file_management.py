@@ -6,7 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from filebrowser_transfer.cli import build_parser
+from filebrowser_transfer.cli import _collect_durations, _format_hms, build_parser
 from filebrowser_transfer.config import SkillConfig
 from filebrowser_transfer.filebrowser import FileBrowserClient, FileBrowserError
 from filebrowser_transfer.models import (
@@ -382,6 +382,77 @@ def test_list_sources_returns_items() -> None:
     assert [item["name"] for item in items] == ["projects", "archive"]
 
 
+def test_media_metadata_requests_index_endpoint() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        captured["source"] = request.url.params["source"]
+        captured["path_param"] = request.url.params["path"]
+        captured["album_art"] = request.url.params.get("albumArt")
+        return httpx.Response(
+            200,
+            json={
+                "type": "directory",
+                "files": [
+                    {"name": "ep01.mp4", "type": "video/mp4", "metadata": {"duration": 42}},
+                    {"name": "readme.txt", "type": "text/plain", "metadata": {}},
+                ],
+            },
+        )
+
+    with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
+        payload = client.media_metadata("/shows/480p")
+
+    assert captured == {
+        "path": "/api/media/metadata",
+        "source": "projects",
+        "path_param": "/shows/480p",
+        "album_art": None,
+    }
+    assert payload["files"][0]["metadata"]["duration"] == 42
+
+
+def test_media_metadata_rejects_invalid_json() -> None:
+    with (
+        FileBrowserClient(
+            _config(),
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, content=b"nope")),
+        ) as client,
+        pytest.raises(FileBrowserError, match="invalid media metadata"),
+    ):
+        client.media_metadata("/shows")
+
+
+def test_collect_durations_sums_and_filters() -> None:
+    payload = {
+        "type": "directory",
+        "files": [
+            {"name": "990001_480p.mp4", "type": "video/mp4", "metadata": {"duration": 19}},
+            {"name": "990002_480p.mp4", "type": "video/mp4", "metadata": {"duration": 17}},
+            {"name": "100100_480p.mp4", "type": "video/mp4", "metadata": {"duration": 10}},
+            {"name": "readme.txt", "type": "text/plain", "metadata": {}},
+            "not-a-dict",
+        ],
+    }
+    durations = _collect_durations(payload, pattern="99*")
+    assert durations == {"990001_480p.mp4": 19, "990002_480p.mp4": 17}
+    assert sum(durations.values()) == 36
+    assert _format_hms(36) == "0m 36s"
+    assert _format_hms(3661) == "1h 01m 01s"
+
+
+def test_collect_durations_supports_single_file_payload() -> None:
+    payload = {"name": "clip.mp4", "type": "video/mp4", "metadata": {"duration": 5}}
+    assert _collect_durations(payload) == {"clip.mp4": 5}
+
+
+def test_duration_parser_accepts_pattern() -> None:
+    args = build_parser().parse_args(["duration", "--path", "/shows", "--pattern", "99*"])
+    assert args.path == "/shows"
+    assert args.pattern == "99*"
+
+
 def test_upload_file_to_dir_creates_then_uploads(tmp_path: Path) -> None:
     local = tmp_path / "clip.mp4"
     local.write_bytes(b"clip-bytes")
@@ -536,3 +607,21 @@ def test_service_uses_default_source_when_omitted() -> None:
     )
     service.info("/path")
     assert seen == ["Bearer secret-token"]
+
+
+def test_service_routes_media_metadata_to_requested_source() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/media/metadata"
+        if "staging" in str(request.url):
+            return httpx.Response(200, json={"type": "directory", "staging": True})
+        return httpx.Response(200, json={"type": "directory", "main": True})
+
+    config = _skill_config_with_two_sources()
+    service = TransferService(
+        config,
+        source_factory=lambda cfg: FileBrowserClient(cfg, transport=httpx.MockTransport(handler)),
+    )
+    assert service.media_metadata("/path", source_name="staging") == {
+        "type": "directory",
+        "staging": True,
+    }
