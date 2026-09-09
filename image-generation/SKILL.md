@@ -1,9 +1,9 @@
 ---
 name: image-generation
-description: AI 图片生成、编辑与透明背景后处理。使用统一 CLI 调用 OpenAI Images、Google Gemini 原生图片 API、火山方舟 Seedream，支持多参考图、mask、批量生成、Seedream 5.0 Pro 点选/框选连续编辑，并在配置可用时调用独立 matting skill 自动选择算法抠图；未配置或服务不可用时回退现有 chroma-key。用户提到生成图片、画图、封面图、配图、AI 生图、改图、修图、去背景、透明底、参考图编辑、Gemini 生图、Seedream 或交互编辑时使用。
+description: AI 图片生成、编辑与透明背景后处理。使用统一 CLI 调用 OpenAI Images（含 gpt-image-2 原生透明背景）、Google Gemini 原生图片 API、火山方舟 Seedream 及 API易兼容网关（gpt-image-2-vip、Grok Imagine、Nano Banana），支持多参考图、mask、批量生成、Seedream 5.0 Pro 点选/框选连续编辑，并在配置可用时调用独立 matting skill 自动选择算法抠图；未配置或服务不可用时回退现有 chroma-key。用户提到生成图片、画图、封面图、配图、AI 生图、改图、修图、去背景、透明底、参考图编辑、Gemini 生图、Seedream、Grok 生图或交互编辑时使用。
 allowed-tools: Bash(uv run *), Read, Grep, Glob, Edit
 metadata:
-  version: "26.36.56"
+  version: "26.37.59"
 ---
 
 # Image Generation
@@ -37,10 +37,13 @@ metadata:
 - OpenAI alpha mask 局部修改：`edit --mask`
 - Seedream 5.0 Pro 点选/框选并连续迭代：`interactive`
 - 多个独立生成任务：`generate-batch`
+- 模型原生透明底（仅声明 `background` capability 的模型，如官方 gpt-image-2/gpt-image-1.5）：`generate/edit --background transparent`
 - 一般去背景/透明底：`remove-background`（优先 matting，配置不可用时回退 `chroma-key`）
 - 明确的纯色背景转透明或需要手调关键色：`chroma-key`
 
 编辑前先查看参考图，确认用户指的是哪一侧、哪个主体或哪块区域。若目标清楚，直接执行；只有会实质改变结果的缺失信息才需要询问。
+
+原生透明底与后处理去背景是两条路径：模型 policy 未声明 `background` 时（gpt-image-2-vip、Grok Imagine、Nano Banana、Seedream 等），`--background` 会在请求前被拦截，应改用 `remove-background`。
 
 ### 2. 选择 endpoint 和模型
 
@@ -93,6 +96,31 @@ uv run --project {SCRIPTS_DIR} imggen edit \
 uv run --project {SCRIPTS_DIR} imggen edit \
   --prompt "只替换透明 mask 区域" --image ./input.png --mask ./mask.png \
   -p primary -e openai -m gpt-image-1.5 -o ./masked.png
+
+# 官方 gpt-image-2 原生透明背景（preview，仅 png/webp 带 alpha）
+uv run --project {SCRIPTS_DIR} imggen generate \
+  --prompt "一只玻璃茶壶，产品摄影" --background transparent \
+  -p primary -e openai -m gpt-image-2 --output-format png -o ./teapot.png
+
+# API易 gpt-image-2-vip 多图融合：image 顺序对应 prompt 中「图1/图2/图3」；
+# size 传 auto 跟随被修改图比例，或 30 档锁定；该模型固定单张输出
+uv run --project {SCRIPTS_DIR} imggen edit \
+  --prompt "把图1的人物放进图2的场景，参考图3的画风" \
+  --image ./ref1.png --image ./ref2.png --image ./ref3.png \
+  -p apiyi -e openai-compatible -m gpt-image-2-vip \
+  --size auto -o ./merged.png
+
+# API易 Grok Imagine 编辑：1–4 张参考图，第一张决定输出画幅，无 mask/size 参数
+uv run --project {SCRIPTS_DIR} imggen edit \
+  --prompt "把背景换成海边黄昏，其余保持不变" --image ./photo.png \
+  -p apiyi -e openai-compatible -m grok-imagine-image -o ./edited.png
+
+# API易 Nano Banana（Gemini 原生协议）编辑
+uv run --project {SCRIPTS_DIR} imggen edit \
+  --prompt "把这两张图里的人物合成到同一个办公室场景中" \
+  --image ./person1.png --image ./person2.png \
+  -p apiyi -e gemini -m gemini-3-pro-image-preview \
+  --aspect-ratio 16:9 --image-size 2K -o ./office.png
 ```
 
 `--out` 已存在时默认拒绝覆盖；明确覆盖才加 `--force`。`--downscale-max-dim` 会在原图之外生成带 `-small` 后缀的缩略副本。

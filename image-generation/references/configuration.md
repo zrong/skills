@@ -70,6 +70,13 @@ payload = { response_format = "b64_json" }
 
 `options.payload` 只用于 endpoint 要求的稳定兼容参数，不应用它绕开 capability 校验。
 
+其他已支持的 `options` 键：
+
+- `generate_path` / `edit_path`：覆盖默认 API 路径；
+- `image_field`：multipart 编辑中参考图字段名（默认 `image[]`；gpt-image-2-vip 等网关用 `image`）；
+- `send_n`：`false` 时 OpenAI 兼容 adapter 不发送 `n` 参数（gpt-image-2-vip 等固定单张输出的网关模型需要，配合 `max_outputs = 1`）；
+- `field_map` / `response_list` / `response_format` / `generation_config` / `size_rules`：adapter 专属协议映射与固定值。
+
 ## 严格行为
 
 以下行为全部在网络请求前拒绝：
