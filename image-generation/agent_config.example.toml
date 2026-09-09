@@ -33,6 +33,27 @@ generate_path = "/images/generations"
 edit_path = "/images/edits"
 image_field = "image[]"
 
+# gpt-image-2 官方 API：原生透明背景（background=transparent，preview），
+# 仅 png/webp 输出可带 alpha；这是目前唯一官方支持原生透明底的模型系列之一。
+[image-generation.providers.primary.endpoints.openai.models."gpt-image-2"]
+adapter = "openai"
+operations = ["generate", "edit"]
+capabilities = [
+  "multi_reference", "mask", "size", "quality", "background",
+  "output_format", "output_compression", "moderation",
+]
+# 输入固定高保真，不接受 input_fidelity；尺寸由下方 size_rules 校验。
+qualities = ["auto", "low", "medium", "high"]
+output_formats = ["png", "jpeg", "webp"]
+max_references = 16
+max_outputs = 10
+
+[image-generation.providers.primary.endpoints.openai.models."gpt-image-2".options]
+generate_path = "/images/generations"
+edit_path = "/images/edits"
+image_field = "image[]"
+size_rules = { multiple_of = 16, max_edge = 3840, max_ratio = 3, min_pixels = 655360, max_pixels = 8294400 }
+
 [image-generation.providers.primary.endpoints.gemini]
 adapter = "gemini"
 base_url = "https://generativelanguage.googleapis.com/v1beta"
@@ -78,6 +99,95 @@ max_outputs = 10
 [image-generation.providers.primary.endpoints.seedream.models."doubao-seedream-4-5-251128".options]
 generate_path = "/images/generations"
 response_format = "b64_json"
+
+# ---------------------------------------------------------------------------
+# API易聚合网关（https://api.apiyi.com）：一个 key 同时承载 OpenAI 兼容与
+# Gemini 原生两组 endpoint。以下模型的能力约束来自 API易官方文档实测：
+# 均未声明 "background"，即不支持原生透明背景；去背景请用 imggen remove-background。
+# ---------------------------------------------------------------------------
+[image-generation.providers.apiyi]
+name = "API易聚合网关"
+default_endpoint = "openai-compatible"
+
+[image-generation.providers.apiyi.endpoints.openai-compatible]
+adapter = "openai"
+base_url = "https://api.apiyi.com/v1"
+api_key = "${APIYI_API_KEY}"
+default_model = "gpt-image-2-vip"
+timeout = 300
+
+# gpt-image-2-vip（官逆·Codex 线）：multipart 编辑，image 字段重复传多图，
+# prompt 用「图1/图2/图3」按上传顺序指代。文档明确：不接受 quality，不接受 n
+# （固定单张输出），无 mask、无 background。size 可传 auto（跟随 prompt 点名
+# 要修改的那张图比例）或下列 30 档之一，统一价。
+[image-generation.providers.apiyi.endpoints.openai-compatible.models."gpt-image-2-vip"]
+adapter = "openai"
+operations = ["generate", "edit"]
+capabilities = ["multi_reference", "size"]
+sizes = [
+  "auto",
+  "1280x1280", "848x1280", "1280x848", "960x1280", "1280x960",
+  "1024x1280", "1280x1024", "720x1280", "1280x720", "1280x544",
+  "2048x2048", "1360x2048", "2048x1360", "1536x2048", "2048x1536",
+  "1632x2048", "2048x1632", "1152x2048", "2048x1152", "2048x864",
+  "2880x2880", "2336x3520", "3520x2336", "2480x3312", "3312x2480",
+  "2560x3216", "3216x2560", "2160x3840", "3840x2160", "3840x1632",
+]
+max_references = 8
+max_outputs = 1
+
+[image-generation.providers.apiyi.endpoints.openai-compatible.models."gpt-image-2-vip".options]
+generate_path = "/images/generations"
+edit_path = "/images/edits"
+image_field = "image"
+send_n = false
+
+# grok-imagine-image：编辑仅 multipart 文件上传（不支持 URL/base64 输入），
+# image[] 重复传 1–4 张，第一张决定输出画幅；resolution/aspect_ratio 传入不
+# 报错也不生效；不支持 mask；n 1–10 有效；response_format 默认 url。
+[image-generation.providers.apiyi.endpoints.openai-compatible.models."grok-imagine-image"]
+adapter = "openai"
+operations = ["generate", "edit"]
+capabilities = ["multi_reference"]
+max_references = 4
+max_outputs = 10
+
+[image-generation.providers.apiyi.endpoints.openai-compatible.models."grok-imagine-image".options]
+generate_path = "/images/generations"
+edit_path = "/images/edits"
+image_field = "image[]"
+payload = { response_format = "b64_json" }
+
+# grok-imagine-image-quality：同协议，更高质量档位。
+[image-generation.providers.apiyi.endpoints.openai-compatible.models."grok-imagine-image-quality"]
+adapter = "openai"
+operations = ["generate", "edit"]
+capabilities = ["multi_reference"]
+max_references = 4
+max_outputs = 10
+
+[image-generation.providers.apiyi.endpoints.openai-compatible.models."grok-imagine-image-quality".options]
+generate_path = "/images/generations"
+edit_path = "/images/edits"
+image_field = "image[]"
+payload = { response_format = "b64_json" }
+
+# Nano Banana（gemini-3-pro-image-preview）在 API易走 Gemini 原生协议：
+# JSON generateContent，1 个 text part + N 个 inlineData part（base64）。
+[image-generation.providers.apiyi.endpoints.gemini]
+adapter = "gemini"
+base_url = "https://api.apiyi.com/v1beta"
+api_key = "${APIYI_API_KEY}"
+auth = "bearer"
+default_model = "gemini-3-pro-image-preview"
+timeout = 300
+
+[image-generation.providers.apiyi.endpoints.gemini.models."gemini-3-pro-image-preview"]
+adapter = "gemini"
+operations = ["generate", "edit"]
+capabilities = ["multi_reference", "aspect_ratio", "image_size"]
+max_references = 14
+max_outputs = 4
 
 # 可选：imggen remove-background 会读取同一文件中的 [matting]。
 # 独立 skill 的完整配置说明见 ../matting/agent_config.example.toml。
