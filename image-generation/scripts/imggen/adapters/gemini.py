@@ -32,7 +32,9 @@ class GeminiAdapter(ImageAdapter):
             )
 
     def execute(self, request: ImageRequest) -> list[ImageArtifact]:
-        parts: list[dict[str, Any]] = []
+        # 官方契约：1 个 text part（编辑指令，放第一位）+ N 个 inlineData part，
+        # 每个 part 只能含 text 或 inlineData 之一，参考图顺序对应 prompt 中「图1/图2」。
+        parts: list[dict[str, Any]] = [{"text": request.prompt}]
         for image in request.references:
             parts.append(
                 {
@@ -42,7 +44,6 @@ class GeminiAdapter(ImageAdapter):
                     }
                 }
             )
-        parts.append({"text": request.prompt})
         generation: dict[str, Any] = {"responseModalities": ["TEXT", "IMAGE"]}
         image_config: dict[str, str] = {}
         if request.aspect_ratio:

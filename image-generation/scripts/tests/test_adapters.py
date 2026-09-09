@@ -162,8 +162,8 @@ def test_gemini_semantic_multi_image_edit(
         body = json.loads(request.content)
         assert request.url.path.endswith("/models/gemini-image-test:generateContent")
         parts = body["contents"][0]["parts"]
+        assert parts[0] == {"text": "merge them"}
         assert len([part for part in parts if "inlineData" in part]) == 2
-        assert parts[-1] == {"text": "merge them"}
         assert body["generationConfig"]["imageConfig"] == {
             "aspectRatio": "16:9",
             "imageSize": "2K",
