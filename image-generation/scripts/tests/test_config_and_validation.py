@@ -19,6 +19,83 @@ from imggen.models import (
 from imggen.service import execute, validate_request
 
 
+@pytest.fixture
+def example_openai_endpoint(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-example-key")
+    return get_endpoint_config(
+        "primary", "openai", config_path=config_module.CONFIG_EXAMPLE_PATH
+    )
+
+
+@pytest.mark.parametrize("fidelity", ["low", "high"])
+def test_example_gpt_image_2_rejects_input_fidelity_before_adapter(
+    example_openai_endpoint, tmp_path: Path, monkeypatch, fidelity: str
+) -> None:
+    reference = tmp_path / "reference.png"
+    reference.write_bytes(b"image")
+
+    def unexpected_adapter(_endpoint):
+        pytest.fail("Unsupported input_fidelity reached adapter creation")
+
+    monkeypatch.setattr("imggen.service.create_adapter", unexpected_adapter)
+    with pytest.raises(CapabilityError, match="input_fidelity"):
+        execute(
+            example_openai_endpoint,
+            ImageRequest(
+                operation="edit",
+                prompt="Preserve identity",
+                model=example_openai_endpoint.resolve_model("gpt-image-2", "edit"),
+                references=[reference],
+                input_fidelity=fidelity,
+            ),
+        )
+
+
+@pytest.mark.parametrize("operation", ["generate", "edit"])
+@pytest.mark.parametrize(
+    "size", ["auto", "1024x1024", "2048x2048", "3840x2160", "2160x3840"]
+)
+def test_example_gpt_image_2_accepts_supported_sizes(
+    example_openai_endpoint, tmp_path: Path, operation: str, size: str
+) -> None:
+    reference = tmp_path / "reference.png"
+    reference.write_bytes(b"image")
+    validate_request(
+        ImageRequest(
+            operation=operation,
+            prompt="Draw a landscape",
+            model=example_openai_endpoint.resolve_model("gpt-image-2", operation),
+            references=[reference] if operation == "edit" else [],
+            size=size,
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("size", "message"),
+    [
+        ("1537x1024", "16 的倍数"),
+        ("3856x1024", "最长边"),
+        ("3072x768", "长短边比例"),
+        ("512x512", "总像素"),
+        ("3072x3072", "总像素"),
+        ("invalid", "WIDTHxHEIGHT"),
+    ],
+)
+def test_example_gpt_image_2_rejects_invalid_sizes(
+    example_openai_endpoint, size: str, message: str
+) -> None:
+    with pytest.raises(CapabilityError, match=message):
+        validate_request(
+            ImageRequest(
+                operation="generate",
+                prompt="Draw a landscape",
+                model=example_openai_endpoint.resolve_model("gpt-image-2", "generate"),
+                size=size,
+            )
+        )
+
+
 def test_exact_model_allowlist(config_file: Path) -> None:
     endpoint = get_endpoint_config("test", "openai", config_path=config_file)
     assert endpoint.adapter == "openai"
@@ -139,6 +216,15 @@ def test_transparent_output_requires_alpha_format(config_file: Path) -> None:
             model=policy,
             background="transparent",
             output_format="png",
+        )
+    )
+    # output_format 缺省时 Images API 默认 png，同样允许透明背景。
+    validate_request(
+        ImageRequest(
+            operation="generate",
+            prompt="transparent",
+            model=policy,
+            background="transparent",
         )
     )
 

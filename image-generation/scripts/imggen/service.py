@@ -104,10 +104,12 @@ def validate_request(request: ImageRequest) -> None:
                 f"模型 '{request.model.name}' 不允许 output_format={normalized}；允许: "
                 f"{', '.join(request.model.output_formats)}"
             )
-    if request.background == "transparent" and request.output_format not in {
-        "png",
-        "webp",
-    }:
+    if (
+        request.background == "transparent"
+        and request.output_format is not None
+        and request.output_format not in {"png", "webp"}
+    ):
+        # output_format 缺省时 Images API 默认 png，满足透明背景要求。
         raise ImggenError("透明背景要求 --output-format png 或 webp")
     if request.background is not None and request.background not in {
         "transparent",
