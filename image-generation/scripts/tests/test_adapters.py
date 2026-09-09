@@ -93,6 +93,62 @@ def test_openai_multipart_multi_reference_and_mask(
     assert result[0].data == b"edited"
 
 
+def test_openai_edit_send_n_false_and_prefixed_b64(
+    config_file: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """gpt-image-2-vip 风格：拒绝 n 参数；b64_json 可能带 data: 前缀。"""
+    reference = tmp_path / "one.png"
+    reference.write_bytes(b"image-bytes")
+    endpoint = get_endpoint_config("test", "openai", config_path=config_file)
+    adapter = OpenAIAdapter(endpoint)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/images/edits"
+        body = request.content
+        assert b'name="n"' not in body
+        assert body.count(b'name="image"') == 1
+        encoded = base64.b64encode(b"edited").decode()
+        return httpx.Response(
+            200, json={"data": [{"b64_json": f"data:image/png;base64,{encoded}"}]}
+        )
+
+    monkeypatch.setattr(adapter, "_client", lambda: _mock_client(handler))
+    policy = replace(
+        endpoint.resolve_model(None, "edit"),
+        options={"image_field": "image", "send_n": False},
+    )
+    result = adapter.execute(
+        ImageRequest(
+            operation="edit",
+            prompt="edit",
+            model=policy,
+            references=[reference],
+        )
+    )
+    assert result[0].data == b"edited"
+
+
+def test_openai_generate_send_n_false_omits_n(config_file: Path, monkeypatch) -> None:
+    endpoint = get_endpoint_config("test", "openai", config_path=config_file)
+    adapter = OpenAIAdapter(endpoint)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert "n" not in body
+        return httpx.Response(
+            200, json={"data": [{"b64_json": base64.b64encode(b"one").decode()}]}
+        )
+
+    monkeypatch.setattr(adapter, "_client", lambda: _mock_client(handler))
+    policy = replace(
+        endpoint.resolve_model(None, "generate"), options={"send_n": False}
+    )
+    result = adapter.execute(
+        ImageRequest(operation="generate", prompt="draw", model=policy)
+    )
+    assert result[0].data == b"one"
+
+
 def test_gemini_semantic_multi_image_edit(
     config_file: Path, tmp_path: Path, monkeypatch
 ) -> None:

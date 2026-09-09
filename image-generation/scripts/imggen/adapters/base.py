@@ -52,6 +52,10 @@ class ImageAdapter(ABC):
     ) -> ImageArtifact:
         encoded = item.get("b64_json") or item.get("b64") or item.get("base64")
         if encoded:
+            # 部分网关历史上在 b64_json 中带 data: 前缀（API易文档实测两种形态并存）。
+            encoded = str(encoded)
+            if encoded.startswith("data:"):
+                encoded = encoded.split(",", 1)[1]
             return ImageArtifact(
                 base64.b64decode(encoded),
                 str(item.get("mime_type") or item.get("mimeType") or "image/png"),

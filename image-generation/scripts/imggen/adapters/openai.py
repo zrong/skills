@@ -13,6 +13,11 @@ from imggen.adapters.base import (
 from imggen.models import ImageArtifact, ImageRequest
 
 
+def _send_n(options: dict[str, Any]) -> bool:
+    """部分网关模型（如 gpt-image-2-vip）拒绝 n 参数，固定单张输出。"""
+    return bool(options.get("send_n", True))
+
+
 class OpenAIAdapter(ImageAdapter):
     def _headers(self) -> dict[str, str]:
         return {
@@ -43,10 +48,11 @@ class OpenAIAdapter(ImageAdapter):
         body: dict[str, Any] = {
             "model": request.model.api_model,
             "prompt": request.prompt,
-            "n": request.n,
             **optional_payload(request),
             **dict(options.get("payload", {})),
         }
+        if _send_n(options):
+            body["n"] = request.n
         field_map = dict(options.get("field_map", {}))
         body = {str(field_map.get(key, key)): value for key, value in body.items()}
         with self._client() as client:
@@ -81,8 +87,9 @@ class OpenAIAdapter(ImageAdapter):
         data: dict[str, str] = {
             "model": request.model.api_model,
             "prompt": request.prompt,
-            "n": str(request.n),
         }
+        if _send_n(options):
+            data["n"] = str(request.n)
         for key, value in optional_payload(request).items():
             data[key] = str(value).lower() if isinstance(value, bool) else str(value)
         for key, value in dict(options.get("payload", {})).items():
