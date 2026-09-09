@@ -97,6 +97,7 @@ AI 图片生成与编辑工具，通过独立 OpenAI、Gemini 原生和 Seedream
 - endpoint 独立配置 adapter/base_url/key，并用精确模型 allowlist 与 capability policy 在请求前拦截越权调用
 - 支持生成、mask/多参考图编辑、JSONL 并发、downscale、去背景和防覆盖输出
 - 支持 Seedream 5.0 Pro 点选/框选坐标协议与可恢复的连续编辑 session
+- 内置 API易聚合网关示例配置（gpt-image-2-vip、Grok Imagine、Nano Banana）；官方 gpt-image-2 支持原生透明背景，未声明该能力的模型统一走 `remove-background` 后处理
 - 去背景时优先调用独立 matting skill；配置缺失或服务不可用时明确回退现有 chroma-key
 
 ### matting
@@ -188,6 +189,8 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 
 ### 2026-09-08
 
+- 修正 image-generation 官方 `gpt-image-2` 示例配置：移除不支持的 `input_fidelity`，改用尺寸规则放行合法 2K/4K 分辨率；新增直接读取示例配置的参数与尺寸边界回归测试。
+- 升级 image-generation skill v26.37.59：接入 API易兼容网关图片编辑（gpt-image-2-vip 多图融合/30 档锁尺寸、Grok Imagine 1–4 张参考图编辑、Nano Banana Gemini 原生协议编辑），示例配置新增 `apiyi` provider 与官方 `gpt-image-2` 模型条目；gpt-image-2 原生透明背景（preview）通过 `background` capability 声明，未声明该能力的模型（vip/Grok/Nano Banana/Seedream）由 policy 在请求前拦截 `--background` 并走 `remove-background`；adapter 新增 `send_n=false` 模型选项（vip 拒绝 n 参数）、`b64_json` 带 `data:` 前缀兼容，Gemini parts 调整为 text 优先以符合官方契约，`--background transparent` 不再强制要求显式 `--output-format`（API 默认 png）。
 - 升级 filebrowser skill v26.37.58：新增 `duration` 子命令，通过 `GET /api/media/metadata` 读取服务端媒体索引中的时长（整数秒），无需下载视频即可统计目录内视频总时长；支持 `--pattern`（fnmatch）按文件名过滤，如 `filebrowser duration --path /某项目/成片/480p/ --pattern '99*'`。索引可能滞后于新上传/覆盖文件，亚秒精度仍须下载后用 ffprobe 实测。
 
 ### 2026-09-03
