@@ -20,6 +20,7 @@ import re
 import sys
 import tomllib
 from email.header import decode_header
+from email.message import Message
 from pathlib import Path
 
 if sys.version_info < (3, 13):
@@ -291,6 +292,25 @@ def _should_filter_before(args) -> str | None:
     if any(ord(c) > 127 for c in " ".join(parts)):
         return before
     return None
+
+
+def _is_attachment_part(part: Message) -> bool:
+    """判断 MIME part 是否为附件。
+
+    除 Content-Disposition: attachment 外，也识别带文件名的 inline 附件
+    （如途家/12306 等把发票 PDF 以 inline 发送的邮件，这类附件可能
+    带无意义的 Content-ID，不能据此排除）；
+    排除正文（text/*）和 HTML 通过 cid: 引用的内嵌图片（image/*）。
+    """
+    disp = str(part.get("Content-Disposition", "")).lower()
+    if "attachment" in disp:
+        return True
+    if not part.get_filename():
+        return False
+    if part.get("Content-ID") and part.get_content_maintype() == "image":
+        return False
+    maintype = part.get_content_maintype()
+    return maintype not in ("text", "multipart", "message")
 
 
 def _resolve_folder(imap: imaplib.IMAP4_SSL, target_name: str) -> str:
@@ -589,8 +609,7 @@ def cmd_read(args):
         attachments = []
         for part in msg.walk():
             ct = part.get_content_type()
-            disp = str(part.get("Content-Disposition", ""))
-            if "attachment" in disp:
+            if _is_attachment_part(part):
                 filename = part.get_filename() or "unnamed"
                 if filename:
                     decoded_parts = decode_header(filename)
@@ -664,8 +683,7 @@ def cmd_download(args):
         subject = _decode_subject(msg.get("Subject", ""))
 
         for part in msg.walk():
-            disp = str(part.get("Content-Disposition", ""))
-            if "attachment" not in disp:
+            if not _is_attachment_part(part):
                 continue
 
             filename = part.get_filename() or "unnamed"
