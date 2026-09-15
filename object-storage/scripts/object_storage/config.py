@@ -86,8 +86,35 @@ def _parse_cdn(
         return None
     cdn_table = _table(table["cdn"], f"[object-storage.targets.{name}.cdn]")
     provider = _string(cdn_table, "provider")
-    if provider != "tencent":
+    if provider not in {"tencent", "cloudfront"}:
         raise ConfigError(f"Unsupported CDN provider for target {name}: {provider or '(missing)'}")
+    if provider == "cloudfront":
+        if any(
+            _string(cdn_table, key)
+            for key in (
+                "access_key_id",
+                "access_key_id_env",
+                "secret_access_key",
+                "secret_access_key_env",
+                "session_token",
+                "session_token_env",
+                "profile",
+            )
+        ):
+            raise ConfigError(
+                "CloudFront reuses target credentials; configure them on the S3 target"
+            )
+        return CdnConfig(
+            name=name,
+            provider=provider,
+            distribution_id=_required_string(cdn_table, "distribution_id", f"{name}.cdn"),
+            base_url=_http_url(
+                _required_string(cdn_table, "base_url", f"{name}.cdn"),
+                f"{name}.cdn.base_url",
+                required=True,
+            ),
+            purge_on_upload=_bool(cdn_table, "purge_on_upload", default=False),
+        )
     access_key_id = _secret(cdn_table, "access_key_id")
     secret_access_key = _secret(cdn_table, "secret_access_key")
     if access_key_id.declared != secret_access_key.declared:

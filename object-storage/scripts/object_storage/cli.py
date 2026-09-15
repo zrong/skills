@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 from .agent_config import ConfigNotFoundError
+from .cloudfront import CloudFrontCacheManager
 from .config import ConfigError, load_skill_config
 from .models import CdnTaskResult, ConfigurationError, ObjectStorageConfig, S3TargetConfig
 from .service import ObjectStorageService
@@ -78,6 +79,10 @@ def build_parser() -> argparse.ArgumentParser:
     prefetch.add_argument("--area", choices=["mainland", "overseas"], default="")
     prefetch.add_argument("--dry-run", action="store_true")
     prefetch.add_argument("--json", action="store_true")
+    status = cdn_sub.add_parser("status", help="Query a CloudFront invalidation")
+    status.add_argument("--target")
+    status.add_argument("--task-id", required=True)
+    status.add_argument("--json", action="store_true")
     return parser
 
 
@@ -117,6 +122,7 @@ def _summary(config: ObjectStorageConfig, config_path: Path) -> dict[str, object
                 "prefix": target.prefix,
                 "credential_mode": _credential_mode(target),
                 "cdn_provider": target.cdn.provider if target.cdn else "",
+                "cdn_distribution_id": target.cdn.distribution_id if target.cdn else "",
                 "cdn_purge_on_upload": target.cdn.purge_on_upload if target.cdn else False,
             }
         )
@@ -130,8 +136,9 @@ def _summary(config: ObjectStorageConfig, config_path: Path) -> dict[str, object
 def _cdn_targets(args: argparse.Namespace, service: ObjectStorageService) -> list[str]:
     urls = cast(list[str] | None, getattr(args, "urls", None))
     keys = cast(list[str] | None, getattr(args, "keys", None))
-    if urls:
-        return list(urls)
+    paths = cast(list[str] | None, getattr(args, "paths", None))
+    if urls or paths:
+        return list(urls or paths or [])
     manager = service.cdn_manager(_optional_string(args, "target"))
     return [manager.build_url(normalize_object_key(key)) for key in keys or []]
 
@@ -139,14 +146,28 @@ def _cdn_targets(args: argparse.Namespace, service: ObjectStorageService) -> lis
 def _run_cdn(args: argparse.Namespace, service: ObjectStorageService, as_json: bool) -> int:
     command = cast(str, args.cdn_command)
     manager = service.cdn_manager(_optional_string(args, "target"))
+    if command == "status":
+        if not isinstance(manager, CloudFrontCacheManager):
+            raise ConfigurationError("cdn status currently supports CloudFront only")
+        task_result = manager.status(cast(str, args.task_id))
+        _print(cast(dict[str, object], asdict(task_result)), as_json=as_json)
+        return 1 if task_result.status == "failed" else 0
     targets = _cdn_targets(args, service)
+    cloudfront_paths = None
+    if isinstance(manager, CloudFrontCacheManager):
+        if command == "prefetch":
+            raise ConfigurationError("CloudFront does not support CDN prefetch")
+        cloudfront_paths = manager.invalidation_paths(targets, directory=command == "purge-path")
     operation = {"purge-url": "purge_url", "purge-path": "purge_path", "prefetch": "prefetch"}[
         command
     ]
     if bool(args.dry_run):
         if command == "purge-path":
             targets = [target if target.endswith("/") else f"{target}/" for target in targets]
-        _print({"operation": operation, "dry_run": True, "targets": targets}, as_json=as_json)
+        _print(
+            {"operation": operation, "dry_run": True, "targets": cloudfront_paths or targets},
+            as_json=as_json,
+        )
         return 0
     task: CdnTaskResult
     if command == "purge-url":

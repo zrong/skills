@@ -1,4 +1,4 @@
-"""腾讯云 CDN 缓存刷新与预热适配器。"""
+"""腾讯云 CDN 与 AWS CloudFront 缓存管理。"""
 
 from __future__ import annotations
 
@@ -133,6 +133,10 @@ class TencentCdnCacheManager:
 def build_cdn_cache_manager(target: S3TargetConfig) -> CdnCacheManager | None:
     if target.cdn is None:
         return None
+    if target.cdn.provider == "cloudfront":
+        from .cloudfront import CloudFrontCacheManager
+
+        return CloudFrontCacheManager(target)
     if target.cdn.provider != "tencent":
         raise ConfigurationError(f"Unsupported CDN provider: {target.cdn.provider}")
     return TencentCdnCacheManager(target.cdn)

@@ -37,6 +37,7 @@ class CdnConfig:
     name: str
     provider: str
     base_url: str
+    distribution_id: str = ""
     purge_on_upload: bool = False
     access_key_id: SecretValue = field(default_factory=SecretValue, repr=False)
     secret_access_key: SecretValue = field(default_factory=SecretValue, repr=False)

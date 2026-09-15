@@ -3,7 +3,7 @@ name: object-storage
 description: |
   独立的 S3 兼容对象存储与 CDN 管理工具。用于把本地文件上传到 AWS S3、腾讯云 COS、
   阿里云 OSS、火山 TOS、MinIO 等 S3 API 兼容目标；支持多 target、对象 key 前缀、覆盖保护、
-  SHA-256 内容去重、上传后尺寸校验、公开 URL，以及腾讯云 CDN URL/目录刷新和预热。
+  SHA-256 内容去重、上传后尺寸校验、公开 URL，以及 CloudFront URL/目录刷新与状态查询、腾讯云 CDN 刷新和预热。
   当用户要求上传本地文件到 bucket、比较远端对象是否变化、返回对象 URL、刷新 CDN 或预热资源时使用。
 ---
 
@@ -63,15 +63,43 @@ uv run --project {SKILL_DIR}/scripts object-storage --non-interactive <command>
 | `upload LOCAL_PATH` | 上传一个本地文件 |
 | `cdn purge-url` | 按完整 URL 或 object key 刷新文件缓存 |
 | `cdn purge-path` | 按完整目录 URL 或 object key 刷新目录缓存 |
-| `cdn prefetch` | 按完整 URL 或 object key预热资源 |
+| `cdn prefetch` | 腾讯云 CDN 资源预热 |
+| `cdn status` | 查询 CloudFront 刷新任务状态（`--task-id ID`） |
 
-CDN 示例：
+CDN 默认优先目录刷新（传目录，不手写 `*`）；先 dry-run，再执行：
 
 ```bash
-object-storage cdn purge-url --target archive --keys project/video.mp4 --json
+object-storage cdn purge-path --target archive --keys project/ --flush-type flush --dry-run --json
 object-storage cdn purge-path --target archive --keys project/ --flush-type flush --json
 object-storage cdn prefetch --target archive --keys project/video.mp4 --area mainland --json
 ```
+
+CloudFront 配置 `provider = "cloudfront"` 与 `distribution_id`，复用 S3 target 凭据。
+具体配置及权限见 [配置参考](references/configuration.md#aws-cloudfront)。
+CloudFront 不支持预热；目录刷新转为 `/dir/*`。
+
+## CDN 刷新策略（AWS 与腾讯云通用）
+
+- 默认优先目录/通配符刷新，尽量避免逐文件 `purge-url`；同一批变更先汇总，
+  按本次发布或资源目录合并、去重，去掉已被父目录覆盖的子目录，再统一提交。
+- 选择覆盖本次变更的最小合理业务目录。例如 `project/video/a.mp4` 和
+  `project/video/b.mp4` 合并为 `project/video/`。不要为了压成一条而把不同项目
+  扩大为全站；跨项目分别刷新。仅在用户要求精确文件刷新、目录扩大范围不合适，
+  或 provider 不支持目录刷新时使用单文件路径。
+- 统一使用 `cdn purge-path --keys project/video/`：CloudFront 自动生成
+  `/project/video/*`；腾讯云提交目录 URL 到 `PurgePathCache`，不要把 `*` 传给腾讯云。
+  腾讯云默认 `--flush-type flush`（刷新变更资源），需要目录内全部缓存失效时用 `delete`。
+- 手动 CDN `--keys` 必须包含真实对象 key 的 target prefix。执行前用 `--dry-run`
+  检查最终范围，说明合并后的目录数/失效路径数；不要自动扩大到 `/*`。
+- 批量上传采用 `purge_on_upload = false`，上传完成后只对实际变更涉及的目录统一刷新。
+  若现有配置为 true，先明确它仍会逐文件刷新；按任务需要关闭并在完成后恢复原设置，
+  避免逐文件自动刷新后又重复目录刷新。全部 `skipped_unchanged` 时不刷新。
+- AWS 每月前 1000 个失效路径免费，同一 AWS 账户下所有分配合并计算；
+  一个通配符路径无论覆盖多少文件都计一个路径。将多个路径放进一次 API 请求
+  仍按路径数量计费，不能将请求次数当作额度用量。未查询账户当月总用量时，
+  不声称本次一定免费或给出剩余额度。
+- 上述合并策略适用于腾讯云；AWS 的 1000 路径免费额度不适用于腾讯云。
+  计费依据及腾讯云目录额度见 [CDN 刷新额度与合并示例](references/configuration.md#cdn-刷新额度与合并示例)。
 
 ## 关键语义
 

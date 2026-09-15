@@ -72,3 +72,10 @@ profile = "company-backup"
 # AWS S3 官方 endpoint 用 auto 即可；自定义域名 endpoint 请改用 "path"。
 addressing_style = "auto"
 verify_tls = true
+
+# AWS CloudFront：复用所属 S3 target 的凭据、session token 或 profile/default chain。
+[object-storage.targets.aws-backup.cdn]
+provider = "cloudfront"
+base_url = "https://d123example.cloudfront.net"
+distribution_id = "EXAMPLE_DISTRIBUTION_ID"
+purge_on_upload = false
