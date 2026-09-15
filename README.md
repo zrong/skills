@@ -181,6 +181,16 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 - chroma 算法直接复用 spritesheet skill 的核心（保持一致性）
 - 输出透明背景 PNG、分离的 UI 元素 PNG、元数据 JSON
 
+### dns-manager
+
+DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
+
+- 当用户说"DNS"、"域名解析"、"A 记录"、"CNAME"、"添加/删除解析"、"把域名指向某 IP"、"DNSPod"时自动激活
+- 幂等的 list / upsert / delete（unchanged / skipped 明确区分，重复执行无副作用），写操作支持 `--dry-run`
+- 纯标准库实现 TC3-HMAC-SHA256 签名直连腾讯云 OpenAPI，无第三方依赖
+- Provider 抽象 + registry，后续新增 aliyun/cloudflare 只需实现 `DnsProvider` 子类并注册
+- 凭据优先从环境变量读取（`TENCENTCLOUD_SECRET_ID/KEY`），复用 `shared/agent-config` 模板
+
 ## 共享开发资源
 
 - [`shared/agent-config`](shared/agent-config/README.md)：`agent_config.toml` 的跨平台查找、全局兜底、显式路径、配置示例和测试模板。创建新 skill 时复制实现，运行时不依赖仓库共享目录。
@@ -188,6 +198,7 @@ Vikunja 任务管理工具，将已完成任务同步到 Joplin weekly 笔记。
 ## 更新记录
 
 ### 2026-09-15
+- 新增 dns-manager skill：腾讯云 DNSPod 解析记录的幂等管理（list/upsert/delete + dry-run），纯标准库 TC3 签名，Provider 抽象预留多服务商扩展；已通过单元测试与真实 API 全路径验证
 - git-commit 明确提交与历史整理的授权边界、部分步骤受阻时的处理方式，以及原子提交的实际文件树验证要求。
 - object-storage 统一 AWS/腾讯云优先目录刷新策略，补充 CloudFront 每月 1000 个失效路径免费规则、跨分配合计与通配符计数，并区分腾讯云目录刷新额度。
 - object-storage 新增 AWS CloudFront 配置、文件/目录刷新和任务状态查询，复用 S3 凭据；修复 CDN `--paths` 参数未传入适配器的问题。

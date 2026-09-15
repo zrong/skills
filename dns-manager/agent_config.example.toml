@@ -1,0 +1,21 @@
+# agent_config.toml 示例模板（dns-manager）
+#
+# 使用方式：
+# 1. 将 [dns-manager] section 合并到以下任一位置的 agent_config.toml：
+#    当前工作目录 / skill 目录 / 当前 Git 项目根目录 / ~/.agents/agent_config.toml
+# 2. 密钥优先从环境变量读取（见 *_env 字段）；也可以直接填写 secret_id/secret_key，
+#    但含密钥的实际 agent_config.toml 不要提交到仓库。
+#
+# 不要在示例中填写真实密钥。
+
+[dns-manager]
+# DNS 服务商。当前支持 tencentcloud（DNSPod）；预留 aliyun、cloudflare 等。
+provider = "tencentcloud"
+
+[dns-manager.tencentcloud]
+# 腾讯云 API 密钥（建议使用仅具备 DNSPod 权限的子账号密钥）。
+# 优先从环境变量解析：secret_id_env / secret_key_env 指定变量名。
+secret_id = ""
+secret_key = ""
+secret_id_env = "TENCENTCLOUD_SECRET_ID"
+secret_key_env = "TENCENTCLOUD_SECRET_KEY"
