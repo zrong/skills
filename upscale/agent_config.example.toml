@@ -1,0 +1,24 @@
+# 将此 section 合并到当前目录、skill 目录、Git 根目录的
+# agent_config.toml，或全局 ~/.agents/agent_config.toml。
+
+[upscale]
+base_url = "http://127.0.0.1:8064"
+timeout = 3600
+poll_interval = 2
+max_wait_seconds = 86400
+max_input_bytes = 21474836480
+
+# 当前 upscale-api 默认无需认证。若网关要求认证，优先使用环境变量。
+api_key = ""
+api_key_env = ""
+auth_header = "Authorization"
+auth_scheme = "Bearer"
+
+# 可选：显式指定独立 filebrowser skill 根目录或 scripts 目录。
+filebrowser_skill_dir = ""
+# 可选：filebrowser 使用不同配置文件时显式指定；空值让它按自己的标准顺序发现。
+filebrowser_config = ""
+
+# 可选：额外静态 header。值可写成 ${ENV_NAME}。
+# [upscale.headers]
+# X-API-Key = "${UPSCALE_API_KEY}"

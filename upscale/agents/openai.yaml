@@ -1,0 +1,4 @@
+interface:
+  display_name: "Upscale"
+  short_description: "通过 upscale-api 超分本地或 FileBrowser 图像和视频"
+  default_prompt: "Use $upscale to upscale a local or FileBrowser image or video and return its download address."

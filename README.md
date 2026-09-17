@@ -109,6 +109,16 @@ AI 图片生成与编辑工具，通过独立 OpenAI、Gemini 原生和 Seedream
 - 支持显式算法/模型、dry-run、异步任务轮询、透明 PNG 验证、原子写入和防覆盖
 - 可由 image-generation 的 `remove-background` 统一入口调用
 
+### upscale
+
+独立 upscale-api 图片与视频超分工具，支持本地文件和 FileBrowser 远端文件。
+
+- 每次执行前读取服务健康、GPU/队列状态、实时模型能力与提交合同
+- 内置最快（Real-CUGAN Pro x2）、标准（Real-ESRGAN x2plus）、高质量（SeedVR2 3B）三档，也支持精确模型名与实时能力建议
+- 本地文件通过 multipart 上传，轮询任务终态，并返回 API 下载地址；可选下载并验证 PNG/MP4
+- FileBrowser 文件复用独立 filebrowser skill 的 `get`/`put`，默认把 `_upscaled` 结果回传到原目录
+- 支持显式模型、图片倍率、视频 2×/4× 或目标尺寸、contain/cover 适配、视频时间范围、dry-run 和默认防覆盖
+
 ### object-storage
 
 独立的 S3 兼容对象存储与 CDN 管理工具。
@@ -196,6 +206,10 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 - [`shared/agent-config`](shared/agent-config/README.md)：`agent_config.toml` 的跨平台查找、全局兜底、显式路径、配置示例和测试模板。创建新 skill 时复制实现，运行时不依赖仓库共享目录。
 
 ## 更新记录
+
+### 2026-09-17
+
+- 新增 upscale skill：直连 upscale-api 对本地或 FileBrowser 图片/视频执行超分，内置最快/标准/高质量三档并支持精确模型与实时能力建议；视频可按 2×/4× 或目标尺寸输出，并支持 contain/cover 适配；FileBrowser 结果默认回传至源文件同目录。
 
 ### 2026-09-15
 - 新增 dns-manager skill：腾讯云 DNSPod 解析记录的幂等管理（list/upsert/delete + dry-run），纯标准库 TC3 签名，Provider 抽象预留多服务商扩展；已通过单元测试与真实 API 全路径验证
