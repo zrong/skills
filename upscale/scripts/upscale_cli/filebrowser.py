@@ -10,6 +10,7 @@ from typing import Any
 from .agent_config import find_git_root
 from .config import SKILL_DIR, UpscaleConfig
 from .errors import FileBrowserError
+from .naming import default_output_name
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 
@@ -22,10 +23,15 @@ def normalize_remote_path(value: str) -> str:
     return str(pure)
 
 
-def remote_output_path(remote_input: str, media_type: str) -> str:
+def remote_output_path(
+    remote_input: str, media_type: str, model: str, *, width: int | None,
+    height: int | None, fps=None
+) -> str:
     source = PurePosixPath(normalize_remote_path(remote_input))
-    suffix = ".png" if media_type == "image" else ".mp4"
-    return str(source.with_name(f"{source.stem}_upscaled{suffix}"))
+    name = default_output_name(
+        source.name, media_type, model, width=width, height=height, fps=fps
+    )
+    return str(source.with_name(name))
 
 
 def discover_filebrowser_scripts(config: UpscaleConfig) -> Path:

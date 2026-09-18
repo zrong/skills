@@ -16,6 +16,7 @@ from .client import UpscaleClient
 from .config import UpscaleConfig
 from .errors import ApiError, ServiceUnavailableError, UpscaleError
 from .filebrowser import FileBrowserGateway, normalize_remote_path, remote_output_path
+from .naming import default_output_name
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
@@ -195,25 +196,18 @@ class UpscaleService:
         }
         if output_path:
             output = Path(str(plan["output"]))
-            result.update(
-                self._download_verified(
-                    task_id, output, plan["media_type"], force=force
-                )
-            )
         else:
-            suffix = ".png" if plan["media_type"] == "image" else ".mp4"
-            with tempfile.TemporaryDirectory(prefix="upscale-verify-") as work:
-                verification = self._download_verified(
-                    task_id,
-                    Path(work) / f"result{suffix}",
-                    plan["media_type"],
-                    force=False,
+            output = Path(plan["input"]).with_name(
+                _default_name_from_task(
+                    Path(plan["input"]).name, plan["media_type"], terminal,
+                    fallback_model=plan["model"]
                 )
-            result.update(
-                output=None,
-                output_bytes=verification["output_bytes"],
-                validation=verification["validation"],
             )
+        result.update(
+            self._download_verified(
+                task_id, output, plan["media_type"], force=force
+            )
+        )
         return result
 
     def _wait(self, task_id: str) -> dict[str, Any]:
@@ -284,13 +278,9 @@ def run_filebrowser(
 ) -> dict[str, Any]:
     remote = normalize_remote_path(remote_input)
     selected_media = infer_media_type(PurePosixPath(remote), media_type)
-    destination = (
-        normalize_remote_path(remote_output)
-        if remote_output
-        else remote_output_path(remote, selected_media)
-    )
+    destination = normalize_remote_path(remote_output) if remote_output else None
     expected_suffix = ".png" if selected_media == "image" else ".mp4"
-    if PurePosixPath(destination).suffix.lower() != expected_suffix:
+    if destination and PurePosixPath(destination).suffix.lower() != expected_suffix:
         raise UpscaleError(
             f"FileBrowser {selected_media} 输出必须使用 {expected_suffix}"
         )
@@ -315,6 +305,10 @@ def run_filebrowser(
             "filebrowser_source": source_name,
             "filebrowser_input": remote,
             "filebrowser_output": destination,
+            "default_output_pattern": (
+                "输入文件名_WxH_模型名称.png" if selected_media == "image"
+                else "输入文件名_短边p_实际fps_模型名称.mp4"
+            ) if destination is None else None,
             "local_output": str(local_copy) if local_copy else None,
             "media_type": selected_media,
             "model": selected_model,
@@ -356,6 +350,15 @@ def run_filebrowser(
             target_fps=target_fps,
             interpolation_model=interpolation_model,
         )
+        if destination is None:
+            destination = remote_output_path(
+                remote,
+                selected_media,
+                result["model"],
+                width=result["validation"].get("width"),
+                height=result["validation"].get("height"),
+                fps=result["validation"].get("avg_frame_rate"),
+            )
         uploaded = fb.put(api_output, destination, source=source_name, overwrite=force)
         if local_copy:
             local_copy.parent.mkdir(parents=True, exist_ok=True)
@@ -374,6 +377,20 @@ def run_filebrowser(
             "filebrowser_bytes": uploaded.get("size") or result.get("output_bytes"),
             "local_output": str(local_copy) if local_copy else None,
         }
+
+
+def _default_name_from_task(
+    input_name: str, media_type: str, task: dict[str, Any], *, fallback_model: str
+) -> str:
+    metrics = task.get("metrics") if isinstance(task.get("metrics"), dict) else {}
+    return default_output_name(
+        input_name,
+        media_type,
+        str(task.get("model") or fallback_model),
+        width=metrics.get("width"),
+        height=metrics.get("height"),
+        fps=metrics.get("fps"),
+    )
 
 
 def infer_media_type(path: Path | PurePosixPath, explicit: str | None = None) -> str:

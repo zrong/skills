@@ -41,6 +41,7 @@ class FakeClient:
             "id": "task-1",
             "status": "completed",
             "model": "realesrgan-x2plus",
+            "metrics": {"width": 8, "height": 6},
         }
 
     def download_url(self, task_id):
@@ -74,7 +75,7 @@ def test_default_image_scale_is_explicit_in_plan(tmp_path: Path) -> None:
     assert service.plan(source)["scale"] == 2
 
 
-def test_url_only_run_still_downloads_and_validates_temporary_result(
+def test_run_without_output_uses_default_output_filename(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "input.png"
@@ -83,7 +84,10 @@ def test_url_only_run_still_downloads_and_validates_temporary_result(
         UpscaleConfig(base_url="http://api.test"), client=FakeClient()
     )
     result = service.run(source)
-    assert result["output"] is None
+    assert result["output"] == str(
+        tmp_path / "input_8x6_realesrgan-x2plus.png"
+    )
+    assert Path(result["output"]).is_file()
     assert result["output_bytes"] > 0
     assert result["validation"] == {"format": "PNG", "width": 8, "height": 6}
 
@@ -105,8 +109,13 @@ def test_output_overwrite_and_media_parameter_guards(tmp_path: Path) -> None:
 def test_media_and_remote_output_rules() -> None:
     assert infer_media_type(Path("a.webp")) == "image"
     assert infer_media_type(Path("a.mov")) == "video"
-    assert remote_output_path("/dir/photo.jpg", "image") == "/dir/photo_upscaled.png"
-    assert remote_output_path("/dir/clip.mkv", "video") == "/dir/clip_upscaled.mp4"
+    assert remote_output_path(
+        "/dir/photo.jpg", "image", "realesrgan-x2plus", width=2048, height=1536
+    ) == "/dir/photo_2048x1536_realesrgan-x2plus.png"
+    assert remote_output_path(
+        "/dir/clip.mkv", "video", "realcugan-pro-x2", width=1920,
+        height=1080, fps="60000/1001"
+    ) == "/dir/clip_1080p_59.94fps_realcugan-pro-x2.mp4"
 
 
 def test_video_size_parameter_guards() -> None:
@@ -188,7 +197,11 @@ def test_filebrowser_flow_returns_result_to_same_directory() -> None:
         source_name="production",
         gateway=gateway,
     )
-    assert result["filebrowser_output"] == "/project/photo_upscaled.png"
+    assert result["filebrowser_output"] == (
+        "/project/photo_8x6_realesrgan-x2plus.png"
+    )
     assert result["filebrowser_source"] == "production"
     assert result["download_url"].endswith("/task-1/download")
-    assert gateway.put_calls == [("/project/photo_upscaled.png", "production", False)]
+    assert gateway.put_calls == [
+        ("/project/photo_8x6_realesrgan-x2plus.png", "production", False)
+    ]

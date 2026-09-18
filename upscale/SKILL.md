@@ -53,12 +53,14 @@ uv run --project {SKILL_DIR}/scripts upscale --non-interactive models
 
 ## 本地文件超分
 
-仅等待完成并返回 API 下载地址：
+省略 `--output` 时，结果下载到输入文件同目录，并按实际输出信息命名：
 
 ```bash
 uv run --project {SKILL_DIR}/scripts upscale --non-interactive run \
   --input ./source.png --model realesrgan-x2plus --scale 2
 ```
+
+例如输入`source.png`实际输出2048×1536时，默认文件名为`source_2048x1536_realesrgan-x2plus.png`。显式提供`--output`时使用调用方给出的文件名。
 
 最快或高质量方案只需替换 `--model`：
 
@@ -123,7 +125,7 @@ uv run --project {SKILL_DIR}/scripts upscale --non-interactive filebrowser \
   --path "/项目/素材/shot.png" --source production --scale 2
 ```
 
-默认回传到同目录的 `/项目/素材/shot_upscaled.png`；视频统一输出 `.mp4`。可用 `--output` 指定另一个 FileBrowser 绝对路径，但仍必须是与媒体类型匹配的 `.png` 或 `.mp4`。流程为：
+默认回传到输入文件同目录，并在任务完成后根据实际结果生成名称：视频为`输入文件名_短边p_实际fps_模型名称.mp4`，例如`shot_1080p_60fps_realcugan-pro-x2.mp4`；图像为`输入文件名_WxH_模型名称.png`。可用 `--output` 指定另一个 FileBrowser 绝对路径，但仍必须是与媒体类型匹配的 `.png` 或 `.mp4`。流程为：
 
 1. 用 `filebrowser get` 下载输入到隔离临时目录；
 2. 调用 upscale-api、轮询终态并下载校验结果；
