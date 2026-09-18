@@ -154,6 +154,32 @@ def test_interpolation_parameter_guards() -> None:
         _validate_parameters(**base, target_fps="121", interpolation_model=None)
 
 
+def test_cancel_reads_state_then_waits_for_cancelled_terminal() -> None:
+    class CancellingClient(FakeClient):
+        def __init__(self) -> None:
+            self.task_reads = 0
+
+        def task(self, _task_id):
+            self.task_reads += 1
+            return {
+                "id": "task-1",
+                "status": "queued" if self.task_reads == 1 else "cancelled",
+            }
+
+        def cancel(self, task_id):
+            assert task_id == "task-1"
+            return {"id": task_id, "status": "cancelling"}
+
+    service = UpscaleService(
+        UpscaleConfig(base_url="http://api.test", poll_interval=0.1),
+        client=CancellingClient(),
+    )
+    result = service.cancel("task-1", wait=True)
+    assert result["cancellation_requested"] is True
+    assert result["before"]["status"] == "queued"
+    assert result["task"]["status"] == "cancelled"
+
+
 def test_image_validation_rejects_non_png(tmp_path: Path) -> None:
     path = tmp_path / "bad.png"
     Image.new("RGB", (2, 2)).save(path, format="JPEG")

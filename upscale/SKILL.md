@@ -31,6 +31,20 @@ uv run --project {SKILL_DIR}/scripts upscale --non-interactive status
 uv run --project {SKILL_DIR}/scripts upscale --non-interactive models
 ```
 
+## 取消任务
+
+只有用户明确要求取消指定任务时，才执行取消操作。先读取任务状态，再调用 API：
+
+```bash
+# 发送取消请求并返回当前状态
+uv run --project {SKILL_DIR}/scripts upscale --non-interactive cancel <task-id>
+
+# 等待取消或任务完成的终态
+uv run --project {SKILL_DIR}/scripts upscale --non-interactive cancel <task-id> --wait
+```
+
+排队任务会直接取消；运行中的任务先进入 `cancelling`，服务停止推理进程后才会变为 `cancelled`。取消和完成可能并发，因此 `--wait` 也可能返回 `completed` 或 `failed`。终态任务不重复发起取消。详见 [API合同](references/api-contract.md)。
+
 ## 模型选择
 
 按以下优先级选择，不能用低优先级规则覆盖用户更明确的选择：

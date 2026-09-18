@@ -210,6 +210,28 @@ class UpscaleService:
         )
         return result
 
+    def cancel(self, task_id: str, *, wait: bool = False) -> dict[str, Any]:
+        task_id = str(task_id).strip()
+        if not task_id:
+            raise UpscaleError("任务 ID 不能为空")
+        before = self.client.task(task_id)
+        before_state = str(before.get("status") or "").lower()
+        if before_state in {"completed", "failed", "cancelled"}:
+            raise UpscaleError(f"任务已处于终态，不能取消: {before_state}")
+        if before_state not in {"queued", "running", "cancelling"}:
+            raise ApiError(f"upscale-api 返回未知任务状态: {before_state or '(empty)'}")
+        requested = self.client.cancel(task_id)
+        result: dict[str, Any] = {
+            "backend": "upscale-api",
+            "task_id": task_id,
+            "cancellation_requested": True,
+            "before": before,
+            "task": requested,
+        }
+        if wait:
+            result["task"] = self._wait_for_cancel_terminal(task_id)
+        return result
+
     def _wait(self, task_id: str) -> dict[str, Any]:
         deadline = time.monotonic() + self.config.max_wait_seconds
         while time.monotonic() < deadline:
@@ -223,6 +245,18 @@ class UpscaleService:
                 raise ApiError(f"upscale-api 返回未知任务状态: {state or '(empty)'}")
             time.sleep(self.config.poll_interval)
         raise ApiError(f"upscale-api 任务超时: {task_id}")
+
+    def _wait_for_cancel_terminal(self, task_id: str) -> dict[str, Any]:
+        deadline = time.monotonic() + self.config.max_wait_seconds
+        while time.monotonic() < deadline:
+            current = self.client.task(task_id)
+            state = str(current.get("status") or "").lower()
+            if state in {"cancelled", "completed", "failed"}:
+                return current
+            if state not in {"queued", "running", "cancelling"}:
+                raise ApiError(f"upscale-api 返回未知任务状态: {state or '(empty)'}")
+            time.sleep(self.config.poll_interval)
+        raise ApiError(f"upscale-api 等待任务取消超时: {task_id}")
 
     def _download_verified(
         self, task_id: str, output: Path, media_type: str, *, force: bool

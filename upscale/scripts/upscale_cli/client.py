@@ -94,6 +94,9 @@ class UpscaleClient:
     def task(self, task_id: str) -> dict[str, Any]:
         return self._request_json("GET", f"/api/tasks/{task_id}")
 
+    def cancel(self, task_id: str) -> dict[str, Any]:
+        return self._request_json("POST", f"/api/tasks/{task_id}/cancel")
+
     def download_url(self, task_id: str) -> str:
         return f"{self.config.base_url}/api/tasks/{task_id}/download"
 

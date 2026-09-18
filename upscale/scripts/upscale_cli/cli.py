@@ -53,6 +53,14 @@ def build_parser() -> argparse.ArgumentParser:
     _common(models)
     models.set_defaults(func=_models)
 
+    cancel = sub.add_parser("cancel", help="Cancel a queued or running task")
+    _common(cancel)
+    cancel.add_argument("task_id", help="upscale-api task ID")
+    cancel.add_argument(
+        "--wait", action="store_true", help="Wait until the task reaches a terminal state"
+    )
+    cancel.set_defaults(func=_cancel)
+
     run = sub.add_parser("run", help="Upscale a local image or video")
     _common(run)
     _task_options(run)
@@ -99,6 +107,10 @@ def _models(args: argparse.Namespace) -> None:
             "selection_profiles": capabilities.get("selection_profiles", {}),
         }
     )
+
+
+def _cancel(args: argparse.Namespace) -> None:
+    _print(_service(args).cancel(args.task_id, wait=args.wait))
 
 
 def _run(args: argparse.Namespace) -> None:

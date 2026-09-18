@@ -73,3 +73,16 @@ def test_video_submit_sends_mode_and_interpolation_fields(tmp_path: Path) -> Non
     ):
         assert b'name="' + name + b'"' in body
         assert value in body
+
+
+def test_cancel_posts_task_cancel_endpoint() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/api/tasks/task-1/cancel"
+        return httpx.Response(200, json={"id": "task-1", "status": "cancelling"})
+
+    client = UpscaleClient(
+        UpscaleConfig(base_url="http://api.test"),
+        transport=httpx.MockTransport(handler),
+    )
+    assert client.cancel("task-1") == {"id": "task-1", "status": "cancelling"}

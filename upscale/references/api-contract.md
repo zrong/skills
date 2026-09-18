@@ -9,6 +9,7 @@ CLI 使用以下端点：
 | `GET /api/capabilities` | 模型、媒体类型、输入限制、默认模型与提交合同 |
 | `POST /api/tasks/upload` | multipart 上传并提交，文件字段为 `file` |
 | `GET /api/tasks/{id}` | 查询任务与进度 |
+| `POST /api/tasks/{id}/cancel` | 取消排队任务，或请求终止运行中的任务 |
 | `GET /api/tasks/{id}/download` | completed 后下载 PNG 或 MP4 |
 
 图片字段：`media_type=image`、`model`、`scale`。视频字段：`media_type=video`、`model`、`mode`、`scale`、`target_width`、`target_height`、`fit`、`start`、`duration`、`target_fps`、`interpolation_model`。CLI 不使用 `input_path` 合同，因为调用方不能假设与服务共享文件系统。
@@ -27,6 +28,8 @@ CLI 使用以下端点：
 hc88 RTX 3090 的20秒720p24→1080p60组合链路中，RIFE 4.25补帧58.43秒、峰值保留显存2.04 GiB；Lite补帧59.54秒、1.92 GiB。该单样本没有证明Lite更快，调用方不能从模型名推导速度承诺。
 
 已知非终态为 `queued`、`running`、`cancelling`；成功终态为 `completed`；失败终态为 `failed`、`cancelled`。未知状态按协议错误处理，不无限等待。
+
+取消只能针对非终态任务。排队任务会直接变为 `cancelled`；运行中的任务先变为 `cancelling`，再由服务停止推理子进程。CLI 的 `cancel <task_id>` 只请求取消并返回即时状态；加 `--wait` 会轮询到 `cancelled`、`completed` 或 `failed`，以处理取消与任务完成并发时的竞态。
 
 完成后的绝对下载地址为：
 
