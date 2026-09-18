@@ -1,6 +1,6 @@
 ---
 name: upscale
-description: 通过独立 upscale-api 对本地或 FileBrowser 中的图片、视频执行超分，轮询异步任务并提供下载地址。支持最快、标准、高质量三档预设，也支持精确模型名和基于实时能力的模型建议；FileBrowser 输入会复用 filebrowser skill 下载，并把结果回传到原文件同目录。用户提到超分、放大图片、提升视频分辨率、高清修复、upscale、FileBrowser 文件超分或超分后回传时使用。
+description: 通过独立 upscale-api 对本地或 FileBrowser 中的图片、视频执行超分、AI增强、尺寸缩放或RIFE补帧，轮询异步任务并提供下载地址。支持最快、标准、高质量三档预设，也支持精确模型名和基于实时能力的模型建议；FileBrowser 输入会复用 filebrowser skill 下载，并把结果回传到原文件同目录。用户提到超分、放大图片、提升视频分辨率、高清修复、视频补帧、24fps转60fps、upscale、FileBrowser 文件超分或超分后回传时使用。
 ---
 
 # Upscale
@@ -79,7 +79,15 @@ uv run --project {SKILL_DIR}/scripts upscale --non-interactive run \
   --input ./source.png --output ./source_upscaled.png --scale 2
 ```
 
-视频可使用 `--scale 2|4`，或使用 `--target-width`/`--target-height` 指定目标尺寸，两种模式互斥；省略尺寸参数时服务默认把短边放大到 1080。`--fit contain` 保留完整画面，`--fit cover` 必须同时提供宽高并允许居中裁切。视频仍可使用 `--start`/`--duration`。图片接受大于 1 且不超过 4 的 `--scale`，不接受目标尺寸、fit 或视频时间参数。输出格式由服务合同固定为图片 PNG、视频 MP4。
+视频用 `--mode` 明确处理语义：
+
+| 模式 | 行为 | 省略尺寸时 |
+| --- | --- | --- |
+| `upscale` | AI 超分且结果必须变大；`--scale` 只接受 2 或 4 | 短边低于1080时到1080；1080及以上朝2×放大并受4K上限约束 |
+| `enhance` | AI 处理后允许保持、缩小或放大 | 保持原尺寸 |
+| `resize` | 只用 Lanczos 缩放，不加载超分模型 | 不允许省略，必须给倍率或目标尺寸 |
+
+`--scale` 与 `--target-width`/`--target-height` 互斥；enhance/resize 的倍率范围为0.25到4。`--fit contain` 保留完整画面，`--fit cover` 必须同时提供宽高并允许居中裁切。视频仍可使用 `--start`/`--duration`。图片只支持upscale，接受大于1且不超过4的 `--scale`，不接受目标尺寸、fit、时间或补帧参数。输出格式由服务合同固定为图片 PNG、视频 MP4。
 
 ```bash
 # 480p 视频严格放大 2 倍
@@ -89,7 +97,22 @@ uv run --project {SKILL_DIR}/scripts upscale --non-interactive run \
 # 保持比例放大到 1080 高度
 uv run --project {SKILL_DIR}/scripts upscale --non-interactive run \
   --input ./source-480.mp4 --target-height 1080
+
+# 1080p 原尺寸 AI 增强
+uv run --project {SKILL_DIR}/scripts upscale --non-interactive run \
+  --input ./source-1080.mp4 --mode enhance
+
+# 只把 1080p 缩到 720p
+uv run --project {SKILL_DIR}/scripts upscale --non-interactive run \
+  --input ./source-1080.mp4 --mode resize --target-height 720
+
+# 同时超分到1080p并从24fps补到60fps
+uv run --project {SKILL_DIR}/scripts upscale --non-interactive run \
+  --input ./source-720-24fps.mp4 --target-height 1080 --target-fps 60 \
+  --interpolation-model rife-v4.25
 ```
+
+`--target-fps` 只接受高于输入帧率、不超过120且倍率不超过4的目标，也可写成 `60000/1001`。省略 `--interpolation-model` 时显式采用默认的 `rife-v4.25`。`rife-v4.25-lite` 在hc88的20秒人物样本中少占约0.12 GiB补帧显存，但没有表现出稳定速度优势；不要仅凭Lite名称承诺更快，业务侧应先复测典型片段。详细合同见 [references/api-contract.md](references/api-contract.md)。
 
 高成本任务可先加 `--dry-run`。本地模式会读取实时状态与能力并校验输入和模型；FileBrowser 模式只验证远端路径规划、FileBrowser 配置与实时模型，因不下载文件体而不能证明远端媒体可解码。两种模式都不会上传、提交任务或写结果。
 

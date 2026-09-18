@@ -26,17 +26,22 @@ class FakeClient:
             "models": {
                 "image-model": {"media_types": ["image"]},
                 "video-model": {"media_types": ["video"]},
+                "realesrgan-x2plus": {"media_types": ["image", "video"]},
             },
             "submission_defaults": {"image": "image-model", "video": "video-model"},
             "task_submission": {"upload": {"url": "/api/tasks/upload"}},
         }
 
     def submit(self, *_args, **kwargs):
-        assert kwargs["model"] == "image-model"
+        assert kwargs["model"] == "realesrgan-x2plus"
         return {"id": "task-1", "status": "queued"}
 
     def task(self, _task_id):
-        return {"id": "task-1", "status": "completed", "model": "image-model"}
+        return {
+            "id": "task-1",
+            "status": "completed",
+            "model": "realesrgan-x2plus",
+        }
 
     def download_url(self, task_id):
         return f"http://api.test/api/tasks/{task_id}/download"
@@ -105,19 +110,39 @@ def test_media_and_remote_output_rules() -> None:
 
 
 def test_video_size_parameter_guards() -> None:
-    _validate_parameters("video", scale=2, target_width=None, target_height=None,
-                         fit="contain", start=0, duration=0)
-    _validate_parameters("video", scale=None, target_width=1920, target_height=1080,
-                         fit="cover", start=0, duration=0)
+    common = {"start": 0, "duration": 0, "target_fps": None,
+              "interpolation_model": None}
+    _validate_parameters("video", mode="upscale", scale=2, target_width=None,
+                         target_height=None, fit="contain", **common)
+    _validate_parameters("video", mode="upscale", scale=None, target_width=1920,
+                         target_height=1080, fit="cover", **common)
+    _validate_parameters("video", mode="enhance", scale=0.5, target_width=None,
+                         target_height=None, fit="contain", **common)
     with pytest.raises(UpscaleError, match="仅支持 2 或 4"):
-        _validate_parameters("video", scale=3, target_width=None, target_height=None,
-                             fit="contain", start=0, duration=0)
+        _validate_parameters("video", mode="upscale", scale=3, target_width=None,
+                             target_height=None, fit="contain", **common)
     with pytest.raises(UpscaleError, match="不能同时"):
-        _validate_parameters("video", scale=2, target_width=None, target_height=1080,
-                             fit="contain", start=0, duration=0)
+        _validate_parameters("video", mode="upscale", scale=2, target_width=None,
+                             target_height=1080, fit="contain", **common)
     with pytest.raises(UpscaleError, match="同时提供目标宽高"):
-        _validate_parameters("video", scale=None, target_width=None, target_height=1080,
-                             fit="cover", start=0, duration=0)
+        _validate_parameters("video", mode="upscale", scale=None, target_width=None,
+                             target_height=1080, fit="cover", **common)
+    with pytest.raises(UpscaleError, match="必须提供"):
+        _validate_parameters("video", mode="resize", scale=None, target_width=None,
+                             target_height=None, fit="contain", **common)
+
+
+def test_interpolation_parameter_guards() -> None:
+    base = {"media_type": "video", "mode": "upscale", "scale": 2,
+            "target_width": None, "target_height": None, "fit": "contain",
+            "start": 0, "duration": 0}
+    _validate_parameters(**base, target_fps="60000/1001",
+                         interpolation_model="rife-v4.25")
+    with pytest.raises(UpscaleError, match="必须与 --target-fps"):
+        _validate_parameters(**base, target_fps=None,
+                             interpolation_model="rife-v4.25-lite")
+    with pytest.raises(UpscaleError, match="不超过 120"):
+        _validate_parameters(**base, target_fps="121", interpolation_model=None)
 
 
 def test_image_validation_rejects_non_png(tmp_path: Path) -> None:

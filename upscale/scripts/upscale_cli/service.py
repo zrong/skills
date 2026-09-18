@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from fractions import Fraction
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -66,12 +67,15 @@ class UpscaleService:
         *,
         media_type: str | None = None,
         model: str | None = None,
+        mode: str = "upscale",
         scale: float | None = None,
         target_width: int | None = None,
         target_height: int | None = None,
         fit: str = "contain",
         start: float = 0,
         duration: float = 0,
+        target_fps: str | None = None,
+        interpolation_model: str | None = None,
         output_path: str | Path | None = None,
         force: bool = False,
     ) -> dict[str, Any]:
@@ -87,13 +91,17 @@ class UpscaleService:
             )
         selected_media = infer_media_type(source, media_type)
         _validate_parameters(
-            selected_media, scale=scale, target_width=target_width,
-            target_height=target_height, fit=fit, start=start, duration=duration
+            selected_media, mode=mode, scale=scale, target_width=target_width,
+            target_height=target_height, fit=fit, start=start, duration=duration,
+            target_fps=target_fps, interpolation_model=interpolation_model
         )
         live = self.probe()
         capabilities = live["capabilities"]
         selected_model = _select_model(capabilities, selected_media, model)
         inspection = inspect_input(source, selected_media, capabilities)
+        selected_interpolation = _validate_input_fps(
+            selected_media, inspection, target_fps, interpolation_model
+        )
         output = Path(output_path).expanduser().resolve() if output_path else None
         if output:
             expected = ".png" if selected_media == "image" else ".mp4"
@@ -107,6 +115,7 @@ class UpscaleService:
             "output": str(output) if output else None,
             "media_type": selected_media,
             "model": selected_model,
+            "mode": mode if selected_media == "video" else "upscale",
             "scale": (2 if scale is None else scale)
             if selected_media == "image"
             else scale,
@@ -115,6 +124,8 @@ class UpscaleService:
             "fit": fit if selected_media == "video" else None,
             "start": start if selected_media == "video" else None,
             "duration": duration if selected_media == "video" else None,
+            "target_fps": target_fps if selected_media == "video" else None,
+            "interpolation_model": selected_interpolation,
             "inspection": inspection,
             "live": live,
         }
@@ -126,12 +137,15 @@ class UpscaleService:
         output_path: str | Path | None = None,
         media_type: str | None = None,
         model: str | None = None,
+        mode: str = "upscale",
         scale: float | None = None,
         target_width: int | None = None,
         target_height: int | None = None,
         fit: str = "contain",
         start: float = 0,
         duration: float = 0,
+        target_fps: str | None = None,
+        interpolation_model: str | None = None,
         force: bool = False,
         dry_run: bool = False,
     ) -> dict[str, Any]:
@@ -139,12 +153,15 @@ class UpscaleService:
             input_path,
             media_type=media_type,
             model=model,
+            mode=mode,
             scale=scale,
             target_width=target_width,
             target_height=target_height,
             fit=fit,
             start=start,
             duration=duration,
+            target_fps=target_fps,
+            interpolation_model=interpolation_model,
             output_path=output_path,
             force=force,
         )
@@ -154,12 +171,15 @@ class UpscaleService:
             Path(plan["input"]),
             media_type=plan["media_type"],
             model=plan["model"],
+            mode=plan["mode"],
             scale=plan["scale"],
             target_width=plan["target_width"],
             target_height=plan["target_height"],
             fit=str(plan["fit"] or "contain"),
             start=float(plan["start"] or 0),
             duration=float(plan["duration"] or 0),
+            target_fps=plan["target_fps"],
+            interpolation_model=plan["interpolation_model"],
         )
         task_id = str(submitted.get("id") or "").strip()
         if not task_id:
@@ -249,12 +269,15 @@ def run_filebrowser(
     local_output: str | Path | None = None,
     media_type: str | None = None,
     model: str | None = None,
+    mode: str = "upscale",
     scale: float | None = None,
     target_width: int | None = None,
     target_height: int | None = None,
     fit: str = "contain",
     start: float = 0,
     duration: float = 0,
+    target_fps: str | None = None,
+    interpolation_model: str | None = None,
     force: bool = False,
     dry_run: bool = False,
     gateway: FileBrowserGateway | None = None,
@@ -283,8 +306,9 @@ def run_filebrowser(
         live = service.probe()
         selected_model = _select_model(live["capabilities"], selected_media, model)
         _validate_parameters(
-            selected_media, scale=scale, target_width=target_width,
-            target_height=target_height, fit=fit, start=start, duration=duration
+            selected_media, mode=mode, scale=scale, target_width=target_width,
+            target_height=target_height, fit=fit, start=start, duration=duration,
+            target_fps=target_fps, interpolation_model=interpolation_model
         )
         return {
             "dry_run": True,
@@ -294,6 +318,7 @@ def run_filebrowser(
             "local_output": str(local_copy) if local_copy else None,
             "media_type": selected_media,
             "model": selected_model,
+            "mode": mode if selected_media == "video" else "upscale",
             "scale": (2 if scale is None else scale)
             if selected_media == "image"
             else scale,
@@ -302,6 +327,12 @@ def run_filebrowser(
             "fit": fit if selected_media == "video" else None,
             "start": start if selected_media == "video" else None,
             "duration": duration if selected_media == "video" else None,
+            "target_fps": target_fps if selected_media == "video" else None,
+            "interpolation_model": (
+                (interpolation_model or "rife-v4.25")
+                if selected_media == "video" and target_fps is not None
+                else None
+            ),
             "live": live,
         }
 
@@ -315,12 +346,15 @@ def run_filebrowser(
             output_path=api_output,
             media_type=selected_media,
             model=model,
+            mode=mode,
             scale=scale,
             target_width=target_width,
             target_height=target_height,
             fit=fit,
             start=start,
             duration=duration,
+            target_fps=target_fps,
+            interpolation_model=interpolation_model,
         )
         uploaded = fb.put(api_output, destination, source=source_name, overwrite=force)
         if local_copy:
@@ -363,22 +397,33 @@ def infer_media_type(path: Path | PurePosixPath, explicit: str | None = None) ->
 
 
 def _validate_parameters(
-    media_type: str, *, scale: float | None, target_width: int | None,
-    target_height: int | None, fit: str, start: float, duration: float
+    media_type: str, *, mode: str, scale: float | None, target_width: int | None,
+    target_height: int | None, fit: str, start: float, duration: float,
+    target_fps: str | None, interpolation_model: str | None
 ) -> None:
     if media_type == "image":
+        if mode != "upscale":
+            raise UpscaleError("图片只支持 --mode upscale")
         if start or duration:
             raise UpscaleError("图片不接受 --start/--duration")
+        if target_fps is not None or interpolation_model is not None:
+            raise UpscaleError("图片不接受补帧参数")
         if target_width is not None or target_height is not None or fit != "contain":
             raise UpscaleError("图片不接受 --target-width/--target-height/--fit")
         actual_scale = 2 if scale is None else scale
         if not 1 < actual_scale <= 4:
             raise UpscaleError("图片 --scale 必须大于 1 且不超过 4")
     else:
-        if scale is not None and scale not in {2, 4}:
-            raise UpscaleError("视频 --scale 仅支持 2 或 4")
+        if mode not in {"upscale", "enhance", "resize"}:
+            raise UpscaleError("视频 --mode 必须是 upscale、enhance 或 resize")
+        if mode == "upscale" and scale is not None and scale not in {2, 4}:
+            raise UpscaleError("upscale 模式的 --scale 仅支持 2 或 4")
+        if mode in {"enhance", "resize"} and scale is not None and not 0.25 <= scale <= 4:
+            raise UpscaleError(f"{mode} 模式的 --scale 必须在 0.25 到 4 之间")
         if scale is not None and (target_width is not None or target_height is not None):
             raise UpscaleError("视频 --scale 与目标尺寸不能同时使用")
+        if mode == "resize" and scale is None and target_width is None and target_height is None:
+            raise UpscaleError("resize 模式必须提供 --scale 或目标尺寸")
         for name, value in (("--target-width", target_width), ("--target-height", target_height)):
             if value is not None and (value < 64 or value > 3840 or value % 2):
                 raise UpscaleError(f"视频 {name} 必须是64到3840之间的偶数")
@@ -388,6 +433,37 @@ def _validate_parameters(
             raise UpscaleError("视频 --fit cover 必须同时提供目标宽高")
         if start < 0 or duration < 0:
             raise UpscaleError("视频 --start/--duration 不能小于 0")
+        if interpolation_model is not None and target_fps is None:
+            raise UpscaleError("--interpolation-model 必须与 --target-fps 一起使用")
+        if interpolation_model not in {None, "rife-v4.25", "rife-v4.25-lite"}:
+            raise UpscaleError("未知补帧模型")
+        if target_fps is not None:
+            try:
+                parsed = Fraction(target_fps)
+            except (ValueError, ZeroDivisionError) as exc:
+                raise UpscaleError("--target-fps 必须是数字或有理数，例如 60 或 60000/1001") from exc
+            if parsed <= 0 or parsed > 120:
+                raise UpscaleError("--target-fps 必须大于 0 且不超过 120")
+
+
+def _validate_input_fps(
+    media_type: str,
+    inspection: dict[str, Any],
+    target_fps: str | None,
+    interpolation_model: str | None,
+) -> str | None:
+    if media_type != "video" or target_fps is None:
+        return None
+    try:
+        source_fps = Fraction(str(inspection["avg_frame_rate"]))
+        output_fps = Fraction(target_fps)
+    except (KeyError, ValueError, ZeroDivisionError) as exc:
+        raise UpscaleError("无法校验输入视频帧率") from exc
+    if output_fps <= source_fps:
+        raise UpscaleError("--target-fps 必须高于输入视频帧率")
+    if output_fps / source_fps > 4:
+        raise UpscaleError("补帧倍率不能超过 4")
+    return interpolation_model or "rife-v4.25"
 
 
 def _select_model(
@@ -397,11 +473,11 @@ def _select_model(
     defaults = capabilities.get("submission_defaults")
     if not isinstance(models, dict) or not isinstance(defaults, dict):
         raise ServiceUnavailableError("upscale-api 模型能力不完整")
-    selected = requested or str(defaults.get(media_type) or "")
+    selected = requested or "realesrgan-x2plus"
     if requested and requested not in models:
         raise UpscaleError(f"upscale-api 未广告模型: {requested}")
-    if not selected or selected not in models:
-        raise UpscaleError(f"upscale-api 没有可用的 {media_type} 默认模型")
+    if selected not in models:
+        raise UpscaleError(f"upscale-api 未广告标准模型: {selected}")
     details = models[selected]
     if isinstance(details, dict):
         supported = details.get("media_types")

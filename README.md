@@ -117,7 +117,7 @@ AI 图片生成与编辑工具，通过独立 OpenAI、Gemini 原生和 Seedream
 - 内置最快（Real-CUGAN Pro x2）、标准（Real-ESRGAN x2plus）、高质量（SeedVR2 3B）三档，也支持精确模型名与实时能力建议
 - 本地文件通过 multipart 上传，轮询任务终态，并返回 API 下载地址；可选下载并验证 PNG/MP4
 - FileBrowser 文件复用独立 filebrowser skill 的 `get`/`put`，默认把 `_upscaled` 结果回传到原目录
-- 支持显式模型、图片倍率、视频 2×/4× 或目标尺寸、contain/cover 适配、视频时间范围、dry-run 和默认防覆盖
+- 支持显式模型、upscale/enhance/resize 模式、图片倍率、视频倍率或目标尺寸、contain/cover 适配、RIFE 24→60 等精确补帧、视频时间范围、dry-run 和默认防覆盖
 
 ### object-storage
 
@@ -206,6 +206,9 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 - [`shared/agent-config`](shared/agent-config/README.md)：`agent_config.toml` 的跨平台查找、全局兜底、显式路径、配置示例和测试模板。创建新 skill 时复制实现，运行时不依赖仓库共享目录。
 
 ## 更新记录
+
+### 2026-09-18
+- 升级 upscale skill：支持视频 upscale/enhance/resize 明确处理模式、1080p 原尺寸增强、Lanczos 缩放，以及 RIFE 4.25/4.25 Lite 目标帧率补帧；按实时输入帧率校验120fps和4倍上限，并同步hc88的20秒人物样本速度与显存基线
 
 ### 2026-09-17
 

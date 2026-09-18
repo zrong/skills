@@ -61,23 +61,30 @@ class UpscaleClient:
         *,
         media_type: str,
         model: str,
+        mode: str,
         scale: float | None,
         target_width: int | None,
         target_height: int | None,
         fit: str,
         start: float,
         duration: float,
+        target_fps: str | None,
+        interpolation_model: str | None,
     ) -> dict[str, Any]:
         data: dict[str, str] = {"media_type": media_type, "model": model}
         if media_type == "image":
             data["scale"] = str(scale if scale is not None else 2)
         else:
-            data.update(start=str(start), duration=str(duration))
+            data.update(mode=mode, start=str(start), duration=str(duration))
             for key, value in (("scale", scale), ("target_width", target_width),
                                ("target_height", target_height)):
                 if value is not None:
                     data[key] = str(value)
             data["fit"] = fit
+            if target_fps is not None:
+                data["target_fps"] = target_fps
+            if interpolation_model is not None:
+                data["interpolation_model"] = interpolation_model
         with input_path.open("rb") as source:
             files = {"file": (input_path.name, source, "application/octet-stream")}
             return self._request_json(

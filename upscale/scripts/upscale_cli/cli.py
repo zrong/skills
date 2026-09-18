@@ -17,12 +17,19 @@ def _common(parser: argparse.ArgumentParser) -> None:
 def _task_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--media-type", choices=("image", "video"))
     parser.add_argument("--model")
+    parser.add_argument(
+        "--mode", choices=("upscale", "enhance", "resize"), default="upscale"
+    )
     parser.add_argument("--scale", type=float)
     parser.add_argument("--target-width", type=int)
     parser.add_argument("--target-height", type=int)
     parser.add_argument("--fit", choices=("contain", "cover"), default="contain")
     parser.add_argument("--start", type=float, default=0)
     parser.add_argument("--duration", type=float, default=0)
+    parser.add_argument("--target-fps")
+    parser.add_argument(
+        "--interpolation-model", choices=("rife-v4.25", "rife-v4.25-lite")
+    )
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
 
@@ -101,12 +108,15 @@ def _run(args: argparse.Namespace) -> None:
             output_path=args.output,
             media_type=args.media_type,
             model=args.model,
+            mode=args.mode,
             scale=args.scale,
             target_width=args.target_width,
             target_height=args.target_height,
             fit=args.fit,
             start=args.start,
             duration=args.duration,
+            target_fps=args.target_fps,
+            interpolation_model=args.interpolation_model,
             force=args.force,
             dry_run=args.dry_run,
         )
@@ -124,12 +134,15 @@ def _filebrowser(args: argparse.Namespace) -> None:
             local_output=args.local_output,
             media_type=args.media_type,
             model=args.model,
+            mode=args.mode,
             scale=args.scale,
             target_width=args.target_width,
             target_height=args.target_height,
             fit=args.fit,
             start=args.start,
             duration=args.duration,
+            target_fps=args.target_fps,
+            interpolation_model=args.interpolation_model,
             force=args.force,
             dry_run=args.dry_run,
         )
