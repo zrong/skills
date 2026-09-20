@@ -23,6 +23,7 @@ class FakeS3Client:
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
         self.metadata: dict[tuple[str, str], dict[str, str]] = {}
+        self.cache_controls: dict[tuple[str, str], str] = {}
         self.extra_args: dict[str, object] = {}
         self.upload_calls = 0
 
@@ -43,11 +44,14 @@ class FakeS3Client:
                 },
                 "HeadObject",
             ) from exc
-        return {
+        result: dict[str, object] = {
             "ContentLength": len(content),
             "ETag": '"etag-value"',
             "Metadata": self.metadata.get((Bucket, Key), {}),
         }
+        if cache_control := self.cache_controls.get((Bucket, Key)):
+            result["CacheControl"] = cache_control
+        return result
 
     def upload_file(
         self,
@@ -66,6 +70,10 @@ class FakeS3Client:
             if isinstance(raw, Mapping)
             else {}
         )
+        if cache_control := ExtraArgs.get("CacheControl"):
+            self.cache_controls[(Bucket, Key)] = str(cache_control)
+        else:
+            self.cache_controls.pop((Bucket, Key), None)
         self.extra_args = ExtraArgs
 
 
@@ -140,3 +148,54 @@ def test_legacy_object_without_digest_is_replaced(tmp_path: Path) -> None:
     result = target.upload(local, key, if_changed=True)
     assert result.skipped_unchanged is False
     assert client.upload_calls == 1
+
+
+def test_upload_sets_explicit_cache_control(tmp_path: Path) -> None:
+    client = FakeS3Client()
+    local = tmp_path / "index.html"
+    local.write_text("index", encoding="utf-8")
+    target = _target(client)
+    key = target.resolve_key("index.html")
+
+    result = target.upload(local, key, cache_control="no-cache,max-age=0,must-revalidate")
+
+    assert client.extra_args["CacheControl"] == "no-cache,max-age=0,must-revalidate"
+    assert result.cache_control == "no-cache,max-age=0,must-revalidate"
+
+
+def test_upload_preserves_existing_cache_control_when_omitted(tmp_path: Path) -> None:
+    client = FakeS3Client()
+    local = tmp_path / "index.html"
+    local.write_text("new index", encoding="utf-8")
+    target = _target(client)
+    key = target.resolve_key("index.html")
+    client.objects[("bucket", key)] = b"old index"
+    client.cache_controls[("bucket", key)] = "no-cache,max-age=0,must-revalidate"
+
+    existing = target.ensure_writable(key, overwrite=True)
+    result = target.upload(local, key, existing=existing, existing_checked=True)
+
+    assert client.extra_args["CacheControl"] == "no-cache,max-age=0,must-revalidate"
+    assert result.cache_control == "no-cache,max-age=0,must-revalidate"
+
+
+def test_if_changed_reuploads_identical_content_to_change_cache_control(tmp_path: Path) -> None:
+    client = FakeS3Client()
+    local = tmp_path / "index.html"
+    local.write_text("same index", encoding="utf-8")
+    target = _target(client)
+    key = target.resolve_key("index.html")
+    client.objects[("bucket", key)] = local.read_bytes()
+    client.metadata[("bucket", key)] = {CONTENT_SHA256_METADATA_KEY: calculate_file_sha256(local)}
+    client.cache_controls[("bucket", key)] = "max-age=3600"
+
+    result = target.upload(
+        local,
+        key,
+        if_changed=True,
+        cache_control="no-cache,max-age=0,must-revalidate",
+    )
+
+    assert result.skipped_unchanged is False
+    assert client.upload_calls == 1
+    assert result.cache_control == "no-cache,max-age=0,must-revalidate"

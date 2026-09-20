@@ -151,12 +151,14 @@ class S3Target:
         except BotoCoreError as exc:
             raise TargetError(f"S3 head_object failed for target {self.name}") from exc
 
-    def ensure_writable(self, object_key: str, *, overwrite: bool) -> None:
-        if self._head(object_key) is not None and not overwrite:
+    def ensure_writable(self, object_key: str, *, overwrite: bool) -> Mapping[str, object] | None:
+        existing = self._head(object_key)
+        if existing is not None and not overwrite:
             raise TargetError(
                 f"S3 object already exists: {self.config.bucket}/{object_key}; "
                 "use --overwrite to replace it"
             )
+        return existing
 
     @staticmethod
     def _metadata_content_sha256(metadata: Mapping[str, object]) -> str:
@@ -197,6 +199,7 @@ class S3Target:
             public_url=public_url,
             skipped_unchanged=skipped_unchanged,
             content_sha256=content_sha256,
+            cache_control=str(metadata.get("CacheControl", "")),
         )
 
     def upload(
@@ -206,23 +209,28 @@ class S3Target:
         *,
         content_type: str = "",
         if_changed: bool = False,
+        cache_control: str | None = None,
+        existing: Mapping[str, object] | None = None,
+        existing_checked: bool = False,
     ) -> UploadResult:
         local_size = local_path.stat().st_size
         content_sha256 = calculate_file_sha256(local_path)
-        if if_changed:
+        if not existing_checked and (if_changed or cache_control is None):
             existing = self._head(object_key)
-            if (
-                existing is not None
-                and existing.get("ContentLength") == local_size
-                and self._metadata_content_sha256(existing) == content_sha256
-            ):
-                return self._result(
-                    object_key,
-                    local_size=local_size,
-                    content_sha256=content_sha256,
-                    metadata=existing,
-                    skipped_unchanged=True,
-                )
+        if (
+            if_changed
+            and existing is not None
+            and existing.get("ContentLength") == local_size
+            and self._metadata_content_sha256(existing) == content_sha256
+            and (cache_control is None or existing.get("CacheControl") == cache_control)
+        ):
+            return self._result(
+                object_key,
+                local_size=local_size,
+                content_sha256=content_sha256,
+                metadata=existing,
+                skipped_unchanged=True,
+            )
 
         extra_args: dict[str, object] = {
             "ContentType": content_type
@@ -232,6 +240,13 @@ class S3Target:
         }
         if self.config.storage_class:
             extra_args["StorageClass"] = self.config.storage_class
+        selected_cache_control = cache_control
+        if selected_cache_control is None and existing is not None:
+            old_cache_control = existing.get("CacheControl")
+            if isinstance(old_cache_control, str) and old_cache_control:
+                selected_cache_control = old_cache_control
+        if selected_cache_control is not None:
+            extra_args["CacheControl"] = selected_cache_control
         try:
             self._client.upload_file(
                 Filename=str(local_path),

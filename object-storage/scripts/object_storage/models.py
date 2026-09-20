@@ -87,6 +87,16 @@ class UploadPlan:
     object_key: str
     overwrite: bool
     if_changed: bool
+    cache_control: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class TreeUploadPlan:
+    source_directory: str
+    target_name: str
+    key_prefix: str
+    files: list[UploadPlan]
+    workers: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +116,13 @@ class UnchangedFile:
     content_sha256: str
 
 
+@dataclass(frozen=True, slots=True)
+class UploadFailure:
+    source_path: str
+    object_key: str
+    error: str
+
+
 def _empty_unchanged_files() -> list[UnchangedFile]:
     return []
 
@@ -123,3 +140,18 @@ class UploadResult:
     skipped_unchanged: bool = False
     content_sha256: str = ""
     unchanged_files: list[UnchangedFile] = field(default_factory=_empty_unchanged_files)
+    cache_control: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class TreeUploadResult:
+    source_directory: str
+    target_name: str
+    total_files: int
+    uploaded_files: int
+    skipped_files: int
+    failed_files: int
+    uploaded_bytes: int
+    results: list[UploadResult]
+    failures: list[UploadFailure]
+    cdn_tasks: list[CdnTaskResult]

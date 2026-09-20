@@ -125,7 +125,10 @@ AI 图片生成与编辑工具，通过独立 OpenAI、Gemini 原生和 Seedream
 独立的 S3 兼容对象存储与 CDN 管理工具。
 
 - 支持多个命名 target，以及 AWS S3、腾讯云 COS、阿里云 OSS、火山 TOS、MinIO 等兼容端点
-- 上传本地文件，提供 dry-run、key/prefix 映射、默认拒绝覆盖与上传后大小校验
+- 上传单个本地文件或通过 `upload-tree` 递归上传目录，提供 dry-run、相对路径映射、
+  文件级并发、默认拒绝覆盖与上传后大小校验
+- 目录上传复用单对象传输实现和 target 客户端，批次完成后合并执行目录/通配符 CDN 刷新
+- 支持显式设置 `Cache-Control`，覆盖对象时默认保留旧值，并在上传结果中回报实际对象头
 - 使用 `content-sha256` metadata 实现条件覆盖，并明确报告内容相同的文件列表
 - 支持腾讯云 CDN URL/目录刷新、预热和上传后自动刷新
 - 支持 Amazon CloudFront 文件/目录失效刷新与任务状态查询
@@ -212,6 +215,10 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 
 ### 2026-09-20
 
+- object-storage 新增 `upload-tree`：默认递归上传目录、保留相对路径、复用单对象上传实现和
+  target 客户端，支持文件级并发、批量覆盖预检、结果汇总及目录优先的合并 CDN 刷新。
+- object-storage 上传支持 `--cache-control`，覆盖时默认保留已有缓存策略，防止入口文件的
+  `no-cache,max-age=0,must-revalidate` 被覆盖清除，并回报上传后实际对象头。
 - object-storage 接入火山引擎 CDN：支持文件与目录刷新、预热、任务状态查询，并可复用 TOS target 的 AK/SK。
 - object-storage 主说明补充 Amazon CloudFront 与火山引擎 CDN 的刷新、预热和任务查询能力。
 - 明确项目版本记录规则：以 Git CalVer tag 为唯一正式版本，按 Git 历史推导单 Skill 版本，不在 `SKILL.md` 重复维护版本号。

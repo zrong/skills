@@ -61,6 +61,25 @@ endpoint `https://s3.example.games` + bucket `public` 实际请求
   `content-sha256` metadata。
 - `--overwrite --if-changed` 只在大小和 metadata 摘要均一致时跳过；旧对象没有摘要时
   会重新上传一次。ETag 不用于跨厂商内容判断。
+- `upload-tree DIRECTORY` 默认递归上传普通文件，跳过符号链接，并保留 DIRECTORY 内的
+  相对路径。`--key-prefix` 位于 target `prefix` 之后，不包含源目录名称。
+- 目录上传在开始写入前检查全部目标 key 的覆盖冲突；实际传输复用同一个 target 客户端，
+  `--workers` 控制文件级并发。文件级并发会与 multipart `max_concurrency` 叠加。
+- `purge_on_upload = true` 时，目录上传在批次结束后统一刷新 `prefix`/`--key-prefix`
+  对应目录，不对每个文件单独提交刷新。目标根目录下的文件无法安全归并为目录时使用
+  文件刷新；全部文件未变化时不刷新。
+
+### Cache-Control
+
+- `upload` 和 `upload-tree` 支持 `--cache-control VALUE`，该值作为对象的系统元数据写入。
+- 覆盖已有对象但省略参数时，先读取并保留旧对象的 `Cache-Control`，避免入口文件原有的
+  `no-cache,max-age=0,must-revalidate` 被覆盖清除；显式传参会替换旧值。
+- 新对象省略参数时保持未设置，不假定所有文件使用相同缓存策略。
+- `upload-tree --cache-control` 应用于目录内所有实际上传文件。站点通常应区分入口文件和
+  带内容哈希的静态资源；需要不同策略时拆分上传，不要给整个混合目录强制同一个值。
+- 上传结果中的 `cache_control` 来自上传后 `head_object` 回读，可用于验证实际落盘结果。
+- 使用 `--overwrite --if-changed --cache-control VALUE` 时，只有内容摘要、大小和
+  `Cache-Control` 都一致才跳过；仅缓存策略变化也会重新上传对象。
 
 ## CDN
 

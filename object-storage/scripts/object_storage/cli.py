@@ -21,7 +21,7 @@ from .volcengine_cdn import VolcengineCdnCacheManager
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="object-storage",
-        description="Upload local files to S3-compatible storage and manage CDN caches",
+        description="Upload local files or directory trees and manage CDN caches",
     )
     parser.add_argument("--config", help="Explicit agent_config.toml path")
     parser.add_argument("--non-interactive", action="store_true", help="CLI never prompts")
@@ -44,6 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
     upload.add_argument("--target")
     upload.add_argument("--key", help="Relative object key; defaults to the file name")
     upload.add_argument("--content-type", default="")
+    upload.add_argument(
+        "--cache-control",
+        help="Set Cache-Control; when omitted during overwrite, preserve the existing value",
+    )
     upload.add_argument("--overwrite", action="store_true")
     upload.add_argument(
         "--if-changed",
@@ -52,6 +56,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     upload.add_argument("--dry-run", action="store_true")
     upload.add_argument("--json", action="store_true")
+
+    upload_tree = subparsers.add_parser("upload-tree", help="Recursively upload a local directory")
+    upload_tree.add_argument("local_directory")
+    upload_tree.add_argument("--target")
+    upload_tree.add_argument(
+        "--key-prefix",
+        default="",
+        help="Relative destination prefix; source directory contents are placed below it",
+    )
+    upload_tree.add_argument("--overwrite", action="store_true")
+    upload_tree.add_argument(
+        "--cache-control",
+        help="Set Cache-Control on every uploaded file; omitted values are preserved on overwrite",
+    )
+    upload_tree.add_argument(
+        "--if-changed",
+        action="store_true",
+        help="With --overwrite, skip files whose size and stored SHA-256 are unchanged",
+    )
+    upload_tree.add_argument("--workers", type=int, default=4)
+    upload_tree.add_argument("--dry-run", action="store_true")
+    upload_tree.add_argument("--json", action="store_true")
 
     cdn = subparsers.add_parser("cdn", help="Manage CDN cache")
     cdn_sub = cdn.add_subparsers(dest="cdn_command", required=True)
@@ -203,6 +229,36 @@ def main(argv: list[str] | None = None) -> int:
         service = ObjectStorageService(config)
         if command == "cdn":
             return _run_cdn(args, service, as_json)
+        if command == "upload-tree":
+            overwrite = bool(args.overwrite)
+            if_changed = bool(args.if_changed)
+            workers = cast(int, args.workers)
+            if bool(args.dry_run):
+                plan = service.plan_tree(
+                    cast(str, args.local_directory),
+                    target_name=_optional_string(args, "target"),
+                    key_prefix=cast(str, args.key_prefix),
+                    overwrite=overwrite,
+                    if_changed=if_changed,
+                    cache_control=_optional_string(args, "cache_control"),
+                    workers=workers,
+                )
+                payload = cast(dict[str, object], asdict(plan))
+                payload["dry_run"] = True
+                _print(payload, as_json=as_json)
+                return 0
+            result = service.upload_tree(
+                cast(str, args.local_directory),
+                target_name=_optional_string(args, "target"),
+                key_prefix=cast(str, args.key_prefix),
+                overwrite=overwrite,
+                if_changed=if_changed,
+                cache_control=_optional_string(args, "cache_control"),
+                workers=workers,
+            )
+            _print(cast(dict[str, object], asdict(result)), as_json=as_json)
+            cdn_failed = any(task.status == "failed" for task in result.cdn_tasks)
+            return 1 if result.failed_files or cdn_failed else 0
         overwrite = bool(args.overwrite)
         if_changed = bool(args.if_changed)
         if if_changed and not overwrite:
@@ -214,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
                 object_key=_optional_string(args, "key"),
                 overwrite=overwrite,
                 if_changed=if_changed,
+                cache_control=_optional_string(args, "cache_control"),
             )
             payload = cast(dict[str, object], asdict(plan))
             payload["dry_run"] = True
@@ -226,6 +283,7 @@ def main(argv: list[str] | None = None) -> int:
             overwrite=overwrite,
             if_changed=if_changed,
             content_type=cast(str, args.content_type),
+            cache_control=_optional_string(args, "cache_control"),
         )
         _print(cast(dict[str, object], asdict(result)), as_json=as_json)
         return 0
