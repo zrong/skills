@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
 from object_storage.config import ConfigError, load_skill_config, parse_skill_config
 
 
-def _document() -> dict[str, object]:
+def _document() -> dict[str, Any]:
     return {
         "object-storage": {
             "default_target": "archive",
@@ -39,6 +40,22 @@ def test_parse_independent_object_storage_section() -> None:
     assert target.cdn is not None
     assert target.cdn.base_url == "https://cdn.example.test"
     assert target.cdn.access_key_id.env_var == "S3_ACCESS_KEY"
+
+
+def test_volcengine_cdn_reuses_target_credentials() -> None:
+    document = _document()
+    section = cast(dict[str, Any], document["object-storage"])
+    targets = cast(dict[str, Any], section["targets"])
+    target = cast(dict[str, Any], targets["archive"])
+    cdn = cast(dict[str, Any], target["cdn"])
+    cdn["provider"] = "volcengine"
+
+    config = parse_skill_config(document)  # type: ignore[arg-type]
+    parsed_cdn = config.target().cdn
+
+    assert parsed_cdn is not None
+    assert parsed_cdn.provider == "volcengine"
+    assert parsed_cdn.access_key_id.env_var == "S3_ACCESS_KEY"
 
 
 def test_rejects_missing_targets() -> None:

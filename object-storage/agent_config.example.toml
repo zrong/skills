@@ -46,14 +46,16 @@ multipart_chunksize_bytes = 8388608
 max_concurrency = 4
 verify_tls = true
 
-# 可选腾讯云 CDN。purge_on_upload=true 时，真实上传成功后自动刷新文件 URL；
+# 可选腾讯云 CDN。火山引擎 CDN 将 provider 改为 "volcengine"，其余字段相同。
+# purge_on_upload=true 时，真实上传成功后自动刷新文件 URL；
 # 内容未变化而跳过上传时不会刷新。
 [object-storage.targets.archive.cdn]
 provider = "tencent"
 base_url = "https://cdn.example.com"
 purge_on_upload = false
 
-# 留空时复用 target 的显式 AK/SK。若 target 使用 profile 或默认凭据链，
+# 留空时复用 target 的显式 AK/SK（适用于腾讯云 COS 与火山引擎 TOS）。
+# 若 target 使用 profile 或默认凭据链，
 # CDN 子表必须单独声明凭据。
 # access_key_id = ""
 # access_key_id_env = "ARCHIVE_CDN_ACCESS_KEY_ID"

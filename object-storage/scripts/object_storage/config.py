@@ -86,7 +86,7 @@ def _parse_cdn(
         return None
     cdn_table = _table(table["cdn"], f"[object-storage.targets.{name}.cdn]")
     provider = _string(cdn_table, "provider")
-    if provider not in {"tencent", "cloudfront"}:
+    if provider not in {"tencent", "volcengine", "cloudfront"}:
         raise ConfigError(f"Unsupported CDN provider for target {name}: {provider or '(missing)'}")
     if provider == "cloudfront":
         if any(

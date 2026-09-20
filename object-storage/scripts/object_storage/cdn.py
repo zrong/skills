@@ -1,4 +1,4 @@
-"""腾讯云 CDN 与 AWS CloudFront 缓存管理。"""
+"""腾讯云、火山引擎 CDN 与 AWS CloudFront 缓存管理。"""
 
 from __future__ import annotations
 
@@ -137,6 +137,10 @@ def build_cdn_cache_manager(target: S3TargetConfig) -> CdnCacheManager | None:
         from .cloudfront import CloudFrontCacheManager
 
         return CloudFrontCacheManager(target)
-    if target.cdn.provider != "tencent":
-        raise ConfigurationError(f"Unsupported CDN provider: {target.cdn.provider}")
-    return TencentCdnCacheManager(target.cdn)
+    if target.cdn.provider == "tencent":
+        return TencentCdnCacheManager(target.cdn)
+    if target.cdn.provider == "volcengine":
+        from .volcengine_cdn import VolcengineCdnCacheManager
+
+        return VolcengineCdnCacheManager(target.cdn)
+    raise ConfigurationError(f"Unsupported CDN provider: {target.cdn.provider}")

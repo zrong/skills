@@ -208,6 +208,10 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 
 ## 更新记录
 
+### 2026-09-20
+
+- object-storage 接入火山引擎 CDN：支持文件与目录刷新、预热、任务状态查询，并可复用 TOS target 的 AK/SK。
+
 ### 2026-09-18
 - 升级 upscale skill：支持视频 upscale/enhance/resize 明确处理模式、1080p 原尺寸增强、Lanczos 缩放，以及 RIFE 4.25/4.25 Lite 目标帧率补帧；按实时输入帧率校验120fps和4倍上限，并同步hc88的20秒人物样本速度与显存基线
 - 统一 upscale 默认结果命名：本地运行和FileBrowser回传均根据实际输出尺寸、实际帧率和模型ID生成文件名，显式指定输出路径时仍保留调用方名称

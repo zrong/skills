@@ -15,6 +15,7 @@ from .config import ConfigError, load_skill_config
 from .models import CdnTaskResult, ConfigurationError, ObjectStorageConfig, S3TargetConfig
 from .service import ObjectStorageService
 from .target import TargetError, normalize_object_key, resolve_target_key
+from .volcengine_cdn import VolcengineCdnCacheManager
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -79,7 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     prefetch.add_argument("--area", choices=["mainland", "overseas"], default="")
     prefetch.add_argument("--dry-run", action="store_true")
     prefetch.add_argument("--json", action="store_true")
-    status = cdn_sub.add_parser("status", help="Query a CloudFront invalidation")
+    status = cdn_sub.add_parser("status", help="Query a CloudFront or Volcengine CDN task")
     status.add_argument("--target")
     status.add_argument("--task-id", required=True)
     status.add_argument("--json", action="store_true")
@@ -147,8 +148,8 @@ def _run_cdn(args: argparse.Namespace, service: ObjectStorageService, as_json: b
     command = cast(str, args.cdn_command)
     manager = service.cdn_manager(_optional_string(args, "target"))
     if command == "status":
-        if not isinstance(manager, CloudFrontCacheManager):
-            raise ConfigurationError("cdn status currently supports CloudFront only")
+        if not isinstance(manager, (CloudFrontCacheManager, VolcengineCdnCacheManager)):
+            raise ConfigurationError("cdn status supports CloudFront and Volcengine CDN only")
         task_result = manager.status(cast(str, args.task_id))
         _print(cast(dict[str, object], asdict(task_result)), as_json=as_json)
         return 1 if task_result.status == "failed" else 0

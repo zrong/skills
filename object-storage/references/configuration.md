@@ -82,6 +82,37 @@ purge_on_upload = false
 `--keys` 会使用 `cdn.base_url` 构造 URL；`--urls` 直接使用完整 URL。CDN 可复用
 target 的显式腾讯云 AK/SK；target 使用 profile 或默认链时，CDN 子表须单独配置凭据。
 
+## 火山引擎 CDN
+
+```toml
+[object-storage.targets.kongdao-tos.cdn]
+provider = "volcengine"
+base_url = "https://cdn.example.com"
+purge_on_upload = false
+```
+
+火山引擎 CDN provider 为 `volcengine`，复用 TOS target 的显式 AK/SK；也可在 CDN
+子表单独配置成对的凭据。SDK 固定使用 CDN 公共服务地址、`cn-north-1` 签名区域。
+
+| 命令 | 火山引擎 API / 类型 |
+|---|---|
+| `cdn purge-url` | `SubmitRefreshTask`，`type=file` |
+| `cdn purge-path` | `SubmitRefreshTask`，`type=dir` |
+| `cdn prefetch` | `SubmitPreloadTask` |
+| `cdn status` | `DescribeContentTasks` |
+
+- 刷新至少需要 `SubmitRefreshTask` 权限，查询结果需要 `DescribeContentTasks`；预热另需
+  `SubmitPreloadTask`。真实提交成功只能证明提交权限，任务达到 `completed` 才证明 CDN
+  已完成该任务。
+- 目录 URL 自动补 `/`，默认 `--flush-type flush` 对应标记缓存过期。`delete` 对应接口的
+  硬删除选项，需账号已开通相应白名单；它不会删除 TOS 源站对象。
+- `--area` 是腾讯云参数，火山引擎预热不接受该参数。
+- 官方默认额度为每天 10000 个文件 URL、50 个目录 URL，每次任务最多 100 个 URL；
+  账号实际额度以控制台和 API 返回为准。
+
+接口来源：[提交刷新任务](https://www.volcengine.com/docs/6454/70438?lang=zh)、
+[查询刷新任务](https://www.volcengine.com/docs/6454/70437?lang=zh)。
+
 ## AWS CloudFront
 
 ```toml
@@ -111,7 +142,7 @@ CloudFront 复用所属 S3 target 的凭据（包括 session token）、profile 
 
 ## CDN 刷新额度与合并示例
 
-核对日期：2026-09-15。刷新优先级与合并工作流见 SKILL.md 的 CDN 刷新策略。
+核对日期：2026-09-20。刷新优先级与合并工作流见 SKILL.md 的 CDN 刷新策略。
 
 ### Amazon CloudFront
 
@@ -134,6 +165,14 @@ CloudFront 复用所属 S3 target 的凭据（包括 session token）、profile 
 来源：[腾讯云缓存刷新](https://cloud.tencent.com/document/product/228/6299)、
 [目录刷新 API](https://cloud.tencent.com/document/product/228/37871)。
 
+### 火山引擎 CDN
+
+采用相同的目录合并策略，通过 `SubmitRefreshTask` 的 `type=dir` 提交目录 URL。
+官方默认额度为每天 50 个目录 URL；文件刷新默认每天 10000 个 URL。一次请求的文件或
+目录 URL 上限均为 100 条。AWS 每月 1000 路径免费规则不适用。
+
+来源：[火山引擎提交刷新任务](https://www.volcengine.com/docs/6454/70438?lang=zh)。
+
 ### 合并示例
 
 本次变更 `project/video/a.mp4`、`project/video/b.mp4`，统一刷新 `project/video/`：
@@ -143,7 +182,7 @@ object-storage cdn purge-path --target kongdao --keys project/video/ --dry-run -
 object-storage cdn purge-path --target kongdao --keys project/video/ --json
 ```
 
-CloudFront 最终提交 `/project/video/*`，计一个失效路径；将 target 换成腾讯云目标时，
-同一命令提交 `https://配置的CDN域名/project/video/` 目录刷新。
+CloudFront 最终提交 `/project/video/*`，计一个失效路径；将 target 换成腾讯云或
+火山引擎目标时，同一命令提交 `https://配置的CDN域名/project/video/` 目录刷新。
 此策略由 Agent 选择命令和汇总目录实现；CLI 不会自动将 `purge-url` 或
 `purge_on_upload = true` 的逐文件刷新改为目录刷新。
