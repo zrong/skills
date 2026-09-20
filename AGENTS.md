@@ -59,6 +59,20 @@ description: <准确的触发描述，最长 1024 字符>
 3. **打标签**：使用计算出的版本号执行 `git tag <YY.WW.MICRO>`。
 4. **README 同步**：若新增 Skill，需同步在 `README.md` 的 "Skills" 章节中添加说明。
 
+### 版本记录 (Versioning)
+
+- **唯一正式版本**：以仓库 Git CalVer tag（`YY.WW.MICRO`）作为当前项目及其完整
+  Skills 快照的唯一正式版本，不在各 Skill 中维护另一套人工同步的发布版本。
+- **更新记录**：每次发布在 `README.md` 的“更新记录”中明确列出受影响的 Skill 名称和
+  变更摘要，使版本 tag 可以追溯到具体 Skill 变化。
+- **SKILL.md 元数据**：不得添加不受校验器支持的顶层 `version` 字段。默认也不写
+  `metadata.version`，避免它与 Git tag 脱节；仅在外部分发格式明确要求时生成或维护。
+- **单 Skill 版本查询**：需要确认某个 Skill 的版本时，根据该 Skill 目录最后一次变更的
+  commit 及包含该 commit 的首个 CalVer tag 从 Git 历史推导；目录存在未提交改动时，
+  必须同时报告 working tree modified，不把最近 tag 描述成当前文件树的完整版本。
+- **脚本包版本**：`scripts/pyproject.toml` 等包清单中的版本只代表可独立发布的软件包。
+  未独立发布时不要求与仓库 CalVer 同步，也不得用它代替 Skill 或仓库版本。
+
 ## 4. 角色定位 (Role)
 作为 Agent，你在此项目中的职责是：
 - 确保新 Skill 的 `description` 足够精确。
