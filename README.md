@@ -128,6 +128,8 @@ AI 图片生成与编辑工具，通过独立 OpenAI、Gemini 原生和 Seedream
 - 上传本地文件，提供 dry-run、key/prefix 映射、默认拒绝覆盖与上传后大小校验
 - 使用 `content-sha256` metadata 实现条件覆盖，并明确报告内容相同的文件列表
 - 支持腾讯云 CDN URL/目录刷新、预热和上传后自动刷新
+- 支持 Amazon CloudFront 文件/目录失效刷新与任务状态查询
+- 支持火山引擎 CDN 文件/目录刷新、预热与任务状态查询
 
 ### filebrowser
 
@@ -211,6 +213,7 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 ### 2026-09-20
 
 - object-storage 接入火山引擎 CDN：支持文件与目录刷新、预热、任务状态查询，并可复用 TOS target 的 AK/SK。
+- object-storage 主说明补充 Amazon CloudFront 与火山引擎 CDN 的刷新、预热和任务查询能力。
 - 明确项目版本记录规则：以 Git CalVer tag 为唯一正式版本，按 Git 历史推导单 Skill 版本，不在 `SKILL.md` 重复维护版本号。
 
 ### 2026-09-18
