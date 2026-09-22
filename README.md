@@ -127,6 +127,9 @@ AI 图片生成与编辑工具，通过独立 OpenAI、Gemini 原生和 Seedream
 - 支持多个命名 target，以及 AWS S3、腾讯云 COS、阿里云 OSS、火山 TOS、MinIO 等兼容端点
 - 上传单个本地文件或通过 `upload-tree` 递归上传目录，提供 dry-run、相对路径映射、
   文件级并发、默认拒绝覆盖与上传后大小校验
+- 支持 `download` 单对象下载和 `download-tree` 递归下载：默认防覆盖、临时文件原子落盘，
+  校验远端大小及可用的 SHA-256 metadata
+- 支持 `head` 只读查询对象存在性及大小、类型、缓存策略、版本和摘要 metadata，无需下载正文
 - 目录上传复用单对象传输实现和 target 客户端，批次完成后合并执行目录/通配符 CDN 刷新
 - 支持显式设置 `Cache-Control`，覆盖对象时默认保留旧值，并在上传结果中回报实际对象头
 - 使用 `content-sha256` metadata 实现条件覆盖，并明确报告内容相同的文件列表
@@ -212,6 +215,11 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 - [`shared/agent-config`](shared/agent-config/README.md)：`agent_config.toml` 的跨平台查找、全局兜底、显式路径、配置示例和测试模板。创建新 skill 时复制实现，运行时不依赖仓库共享目录。
 
 ## 更新记录
+
+### 2026-09-22
+
+- object-storage 新增 `download`、`download-tree` 与 `head`：支持单对象和递归下载、
+  本地覆盖保护、临时文件原子落盘、大小及可用 SHA-256 校验，以及不下载正文的对象元数据查询。
 
 ### 2026-09-20
 

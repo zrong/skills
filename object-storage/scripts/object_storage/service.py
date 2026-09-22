@@ -5,14 +5,21 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Protocol
 
 from .cdn import CdnCacheManager, build_cdn_cache_manager, build_cdn_url
 from .models import (
     CdnTaskResult,
+    DownloadFailure,
+    DownloadPlan,
+    DownloadResult,
+    ObjectHeadResult,
     ObjectStorageConfig,
+    RemoteObject,
     S3TargetConfig,
+    TreeDownloadPlan,
+    TreeDownloadResult,
     TreeUploadPlan,
     TreeUploadResult,
     UnchangedFile,
@@ -23,7 +30,7 @@ from .models import (
 from .target import S3Target, TargetError, normalize_object_key, resolve_target_key
 
 
-class UploadTarget(Protocol):
+class ObjectStorageTarget(Protocol):
     def resolve_key(self, relative_key: str) -> str: ...
 
     def ensure_writable(
@@ -42,8 +49,14 @@ class UploadTarget(Protocol):
         existing_checked: bool = False,
     ) -> UploadResult: ...
 
+    def list_prefix(self, object_prefix: str) -> list[RemoteObject]: ...
 
-type TargetFactory = Callable[[S3TargetConfig], UploadTarget]
+    def download(self, object_key: str, output_path: Path) -> DownloadResult: ...
+
+    def head(self, object_key: str) -> ObjectHeadResult: ...
+
+
+type TargetFactory = Callable[[S3TargetConfig], ObjectStorageTarget]
 type CdnFactory = Callable[[S3TargetConfig], CdnCacheManager | None]
 
 
@@ -148,6 +161,11 @@ class ObjectStorageService:
         target_config = self.config.target(target_name)
         return resolve_target_key(target_config, relative_key)
 
+    def head(self, object_key: str, *, target_name: str | None = None) -> ObjectHeadResult:
+        target_config = self.config.target(target_name)
+        target = self._target_factory(target_config)
+        return target.head(resolve_target_key(target_config, object_key))
+
     def upload(
         self,
         local_path: str | Path,
@@ -176,7 +194,7 @@ class ObjectStorageService:
 
     @staticmethod
     def _upload_plan(
-        target: UploadTarget,
+        target: ObjectStorageTarget,
         plan: UploadPlan,
         *,
         content_type: str = "",
@@ -291,6 +309,172 @@ class ObjectStorageService:
             results=results,
             failures=failures,
             cdn_tasks=cdn_tasks,
+        )
+
+    def plan_download(
+        self,
+        object_key: str,
+        *,
+        output_path: str | Path,
+        target_name: str | None = None,
+        overwrite: bool = False,
+    ) -> DownloadPlan:
+        target_config = self.config.target(target_name)
+        output = Path(output_path).expanduser().resolve()
+        if output.exists() and output.is_dir():
+            raise ValueError(f"Download output is a directory: {output}")
+        return DownloadPlan(
+            target_name=target_config.name,
+            bucket=target_config.bucket,
+            object_key=resolve_target_key(target_config, object_key),
+            output_path=str(output),
+            overwrite=overwrite,
+        )
+
+    @staticmethod
+    def _ensure_download_output_writable(plan: DownloadPlan) -> None:
+        output = Path(plan.output_path)
+        if output.exists() and not plan.overwrite:
+            raise ValueError(
+                f"Download output already exists: {output}; use --overwrite to replace it"
+            )
+
+    def download(
+        self,
+        object_key: str,
+        *,
+        output_path: str | Path,
+        target_name: str | None = None,
+        overwrite: bool = False,
+    ) -> DownloadResult:
+        plan = self.plan_download(
+            object_key,
+            output_path=output_path,
+            target_name=target_name,
+            overwrite=overwrite,
+        )
+        self._ensure_download_output_writable(plan)
+        target = self._target_factory(self.config.target(plan.target_name))
+        return target.download(plan.object_key, Path(plan.output_path))
+
+    def plan_download_tree(
+        self,
+        source_prefix: str,
+        *,
+        output_directory: str | Path,
+        target_name: str | None = None,
+        overwrite: bool = False,
+        workers: int = 4,
+    ) -> TreeDownloadPlan:
+        target_config = self.config.target(target_name)
+        target = self._target_factory(target_config)
+        return self._build_download_tree_plan(
+            target,
+            target_config,
+            source_prefix,
+            output_directory=output_directory,
+            overwrite=overwrite,
+            workers=workers,
+        )
+
+    def _build_download_tree_plan(
+        self,
+        target: ObjectStorageTarget,
+        target_config: S3TargetConfig,
+        source_prefix: str,
+        *,
+        output_directory: str | Path,
+        overwrite: bool,
+        workers: int,
+    ) -> TreeDownloadPlan:
+        if workers < 1:
+            raise ValueError("--workers must be at least 1")
+        normalized_prefix = normalize_object_key(source_prefix)
+        object_prefix = resolve_target_key(target_config, normalized_prefix)
+        output_root = Path(output_directory).expanduser().resolve()
+        if output_root.exists() and not output_root.is_dir():
+            raise ValueError(f"Download output is not a directory: {output_root}")
+        source_prefix_with_separator = f"{object_prefix}/"
+        plans: list[DownloadPlan] = []
+        output_paths: set[Path] = set()
+        for remote in target.list_prefix(object_prefix):
+            if not remote.object_key.startswith(source_prefix_with_separator):
+                raise TargetError(
+                    "S3 list_objects_v2 returned an object outside the requested prefix"
+                )
+            relative_key = normalize_object_key(
+                remote.object_key.removeprefix(source_prefix_with_separator)
+            )
+            output = (output_root / Path(*PurePosixPath(relative_key).parts)).resolve()
+            if not output.is_relative_to(output_root):
+                raise TargetError("S3 object key resolves outside the requested output directory")
+            if output in output_paths:
+                raise TargetError(f"Multiple S3 objects map to one output path: {output}")
+            output_paths.add(output)
+            plans.append(
+                DownloadPlan(
+                    target_name=target_config.name,
+                    bucket=target_config.bucket,
+                    object_key=remote.object_key,
+                    output_path=str(output),
+                    overwrite=overwrite,
+                )
+            )
+        if not plans:
+            raise ValueError(f"No regular objects found under prefix: {object_prefix}")
+        for plan in plans:
+            self._ensure_download_output_writable(plan)
+        return TreeDownloadPlan(
+            source_prefix=object_prefix,
+            target_name=target_config.name,
+            output_directory=str(output_root),
+            files=plans,
+            workers=workers,
+        )
+
+    def download_tree(
+        self,
+        source_prefix: str,
+        *,
+        output_directory: str | Path,
+        target_name: str | None = None,
+        overwrite: bool = False,
+        workers: int = 4,
+    ) -> TreeDownloadResult:
+        target_config = self.config.target(target_name)
+        target = self._target_factory(target_config)
+        tree_plan = self._build_download_tree_plan(
+            target,
+            target_config,
+            source_prefix,
+            output_directory=output_directory,
+            overwrite=overwrite,
+            workers=workers,
+        )
+
+        def execute(plan: DownloadPlan) -> DownloadResult | DownloadFailure:
+            try:
+                self._ensure_download_output_writable(plan)
+                return target.download(plan.object_key, Path(plan.output_path))
+            except (TargetError, ValueError) as exc:
+                return DownloadFailure(plan.object_key, plan.output_path, str(exc))
+            except Exception as exc:
+                return DownloadFailure(plan.object_key, plan.output_path, type(exc).__name__)
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            outcomes = list(executor.map(execute, tree_plan.files))
+        results = [item for item in outcomes if isinstance(item, DownloadResult)]
+        failures = [item for item in outcomes if isinstance(item, DownloadFailure)]
+        return TreeDownloadResult(
+            source_prefix=tree_plan.source_prefix,
+            target_name=tree_plan.target_name,
+            output_directory=tree_plan.output_directory,
+            total_files=len(tree_plan.files),
+            downloaded_files=len(results),
+            failed_files=len(failures),
+            downloaded_bytes=sum(result.size for result in results),
+            results=results,
+            failures=failures,
         )
 
     def _purge_tree_upload(

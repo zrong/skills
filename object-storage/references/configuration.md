@@ -81,6 +81,23 @@ endpoint `https://s3.example.games` + bucket `public` 实际请求
 - 使用 `--overwrite --if-changed --cache-control VALUE` 时，只有内容摘要、大小和
   `Cache-Control` 都一致才跳过；仅缓存策略变化也会重新上传对象。
 
+## 下载
+
+- `download KEY --output PATH` 的 KEY 位于 target `prefix` 之后，默认拒绝覆盖本地文件；
+  显式传 `--overwrite` 才替换。
+- `download-tree PREFIX --output DIRECTORY` 递归下载 PREFIX 内的对象，输出目录不包含
+  PREFIX 这一层；下载前会枚举对象并检查所有本地输出冲突。
+- 下载先写同目录临时文件，回读大小并在对象具有 `content-sha256` metadata 时验证 SHA-256，
+  成功后才原子替换输出文件。旧对象没有该 metadata 时仍完成大小校验，但结果标记
+  `sha256_verified=false`。
+
+## 对象元数据查询
+
+- `head KEY --target TARGET` 直接调用对象存储的 `HeadObject`，不下载对象正文。
+- 成功返回大小、Content-Type、Cache-Control、ETag、VersionId 和 `content-sha256` metadata。
+- 只有明确的 `404`、`NoSuchKey` 或 `NotFound` 会被视作对象缺失；鉴权、网络或服务端错误
+  保持为 CLI 失败，调用方不得将其误判为缺失。
+
 ## CDN
 
 ```toml

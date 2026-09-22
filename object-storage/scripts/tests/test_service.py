@@ -9,7 +9,10 @@ import pytest
 from object_storage.models import (
     CdnConfig,
     CdnTaskResult,
+    DownloadResult,
+    ObjectHeadResult,
     ObjectStorageConfig,
+    RemoteObject,
     S3TargetConfig,
     UploadResult,
 )
@@ -18,11 +21,19 @@ from object_storage.target import TargetError
 
 
 class FakeTarget:
-    def __init__(self, *, skipped: bool = False, existing: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        skipped: bool = False,
+        existing: set[str] | None = None,
+        remote_objects: dict[str, bytes] | None = None,
+    ) -> None:
         self.skipped = skipped
         self.existing = existing or set()
+        self.remote_objects = remote_objects or {}
         self.writable_calls: list[tuple[str, bool]] = []
         self.upload_calls: list[tuple[Path, str]] = []
+        self.download_calls: list[tuple[str, Path]] = []
 
     def resolve_key(self, relative_key: str) -> str:
         return f"prefix/{relative_key}"
@@ -56,6 +67,43 @@ class FakeTarget:
             public_url="",
             skipped_unchanged=self.skipped,
             content_sha256="abc",
+        )
+
+    def list_prefix(self, object_prefix: str) -> list[RemoteObject]:
+        prefix = f"{object_prefix}/"
+        return [
+            RemoteObject(object_key=key, size=len(value))
+            for key, value in sorted(self.remote_objects.items())
+            if key.startswith(prefix)
+        ]
+
+    def download(self, object_key: str, output_path: Path) -> DownloadResult:
+        self.download_calls.append((object_key, output_path))
+        content = self.remote_objects[object_key]
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(content)
+        return DownloadResult(
+            target_name="archive",
+            bucket="bucket",
+            object_key=object_key,
+            output_path=str(output_path),
+            size=len(content),
+            content_sha256="",
+            sha256_verified=False,
+        )
+
+    def head(self, object_key: str) -> ObjectHeadResult:
+        content = self.remote_objects[object_key]
+        return ObjectHeadResult(
+            target_name="archive",
+            bucket="bucket",
+            object_key=object_key,
+            size=len(content),
+            content_type="",
+            cache_control="",
+            etag="etag",
+            version_id="",
+            content_sha256="",
         )
 
 
@@ -255,3 +303,70 @@ def test_upload_tree_without_destination_prefix_avoids_full_site_purge(tmp_path:
     assert result.uploaded_files == 2
     assert cdn.purged_paths == ["https://cdn.example.test/assets"]
     assert cdn.purged == ["https://cdn.example.test/index.html"]
+
+
+def test_download_resolves_target_prefix_and_refuses_existing_output(tmp_path: Path) -> None:
+    output = tmp_path / "file.txt"
+    output.write_text("existing", encoding="utf-8")
+    service = ObjectStorageService(_config(), target_factory=lambda _config: FakeTarget())
+
+    plan = service.plan_download("releases/file.txt", output_path=output)
+
+    assert plan.object_key == "prefix/releases/file.txt"
+    with pytest.raises(ValueError, match="already exists"):
+        service.download("releases/file.txt", output_path=output)
+
+
+def test_download_tree_preserves_relative_paths_and_reuses_target(tmp_path: Path) -> None:
+    target = FakeTarget(
+        remote_objects={
+            "prefix/releases/v1/assets/logo.txt": b"logo",
+            "prefix/releases/v1/index.html": b"index",
+        }
+    )
+    factory_calls = 0
+
+    def target_factory(_config: S3TargetConfig) -> FakeTarget:
+        nonlocal factory_calls
+        factory_calls += 1
+        return target
+
+    output = tmp_path / "dist"
+    service = ObjectStorageService(_config(), target_factory=target_factory)
+
+    result = service.download_tree("releases/v1", output_directory=output, workers=2)
+
+    assert factory_calls == 1
+    assert result.total_files == 2
+    assert result.downloaded_files == 2
+    assert result.failed_files == 0
+    assert (output / "assets" / "logo.txt").read_bytes() == b"logo"
+    assert (output / "index.html").read_bytes() == b"index"
+
+
+def test_download_tree_checks_every_output_before_writing(tmp_path: Path) -> None:
+    target = FakeTarget(
+        remote_objects={
+            "prefix/releases/v1/a.txt": b"a",
+            "prefix/releases/v1/b.txt": b"b",
+        }
+    )
+    output = tmp_path / "dist"
+    output.mkdir()
+    (output / "b.txt").write_text("existing", encoding="utf-8")
+    service = ObjectStorageService(_config(), target_factory=lambda _config: target)
+
+    with pytest.raises(ValueError, match="already exists"):
+        service.download_tree("releases/v1", output_directory=output)
+
+    assert target.download_calls == []
+
+
+def test_head_resolves_target_prefix() -> None:
+    target = FakeTarget(remote_objects={"prefix/releases/config.json": b"{}"})
+    service = ObjectStorageService(_config(), target_factory=lambda _config: target)
+
+    result = service.head("releases/config.json")
+
+    assert result.object_key == "prefix/releases/config.json"
+    assert result.size == 2

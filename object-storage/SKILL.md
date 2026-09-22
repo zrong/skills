@@ -4,7 +4,7 @@ description: |
   独立的 S3 兼容对象存储与 CDN 管理工具。用于把本地文件上传到 AWS S3、腾讯云 COS、
   阿里云 OSS、火山 TOS、MinIO 等 S3 API 兼容目标；支持多 target、对象 key 前缀、覆盖保护、
   SHA-256 内容去重、上传后尺寸校验、公开 URL，以及 CloudFront、腾讯云 CDN、火山引擎 CDN 的刷新、预热与任务查询。
-  当用户要求上传本地文件或递归上传目录到 bucket、比较远端对象是否变化、返回对象 URL、刷新 CDN 或预热资源时使用。
+  当用户要求上传或下载本地文件、递归传输目录到 bucket、比较远端对象是否变化、返回对象 URL、刷新 CDN 或预热资源时使用。
 ---
 
 # Object Storage Skill
@@ -78,14 +78,48 @@ uv run --project {SKILL_DIR}/scripts object-storage --non-interactive <command>
    例如 `/local/dist/assets/logo.png` 映射为
    `<target prefix>/releases/v1/assets/logo.png`。符号链接不会被上传。
 
+6. 下载单个对象默认拒绝覆盖本地文件；下载后校验远端大小，并在对象有
+   `content-sha256` metadata 时校验内容摘要：
+
+   ```bash
+   object-storage download releases/v1/index.html --target archive \
+     --output /local/dist/index.html --dry-run --json
+   object-storage download releases/v1/index.html --target archive \
+     --output /local/dist/index.html --json
+   ```
+
+7. 递归下载前缀使用 `download-tree`。它保留前缀内的相对路径，不包含前缀本身：
+
+   ```bash
+   object-storage download-tree releases/v1 --target archive \
+     --output /local/dist --workers 4 --dry-run --json
+   object-storage download-tree releases/v1 --target archive \
+     --output /local/dist --workers 4 --json
+   ```
+
+   `/bucket-prefix/releases/v1/assets/logo.png` 会保存为
+   `/local/dist/assets/logo.png`。开始写入前会检查整个批次的本地覆盖冲突。
+
+8. 仅检查对象是否存在及元数据时使用 `head`，不会下载对象正文：
+
+   ```bash
+   object-storage head releases/v1/index.html --target archive --json
+   ```
+
+   成功表示对象可读取；只有明确的对象不存在错误才可判断为缺失。权限、网络和服务端错误
+   保持失败，不能当成对象不存在。
+
 ## 命令
 
 | 命令 | 作用 |
 |---|---|
 | `doctor` / `list` | 校验并列出配置，不连接远端 |
 | `resolve-key KEY` | 显示 target prefix 处理后的最终 key |
+| `head KEY` | 读取单个对象的大小、类型、缓存头和摘要 metadata，不下载正文 |
 | `upload LOCAL_PATH` | 上传一个本地文件 |
 | `upload-tree DIRECTORY` | 默认递归上传目录内容并保留相对路径 |
+| `download KEY --output PATH` | 下载一个对象到本地文件 |
+| `download-tree PREFIX --output DIRECTORY` | 递归下载前缀内对象并保留相对路径 |
 | `cdn purge-url` | 按完整 URL 或 object key 刷新文件缓存 |
 | `cdn purge-path` | 按完整目录 URL 或 object key 刷新目录缓存 |
 | `cdn prefetch` | 腾讯云或火山引擎 CDN 资源预热 |
@@ -140,6 +174,14 @@ CloudFront 不支持预热；目录刷新转为 `/dir/*`。
   相对路径，不包含源目录名称。上传前会完成所有覆盖冲突预检，避免发现冲突前已写入部分文件。
 - `upload-tree --workers` 控制同时处理的文件数；每个大文件内部仍使用 target 的
   `max_concurrency` multipart 配置，按存储服务连接限制合理设置，避免并发乘积过大。
+- `download` 默认拒绝覆盖已有本地文件，传 `--overwrite` 才替换；写入使用同目录临时文件，
+  通过大小和可用 SHA-256 校验后才原子替换最终文件。
+- `download-tree PREFIX --output DIRECTORY` 的 `PREFIX` 位于 target `prefix` 之后，必须非空；
+  它会跳过 S3 目录标记、保留前缀内相对路径，并在开始写入前检查所有输出路径。
+- `download-tree --workers` 控制同时下载的文件数；每个大文件内部同样使用 target 的
+  `max_concurrency`，按服务端连接限制设置以避免并发乘积过大。
+- `head KEY` 用于只读存在性和元数据检查，返回大小、Content-Type、Cache-Control、ETag、
+  VersionId 和 `content-sha256`。成功即对象存在；仅 `does not exist` 是缺失，其他错误失败关闭。
 - `upload` 与 `upload-tree` 都支持 `--cache-control VALUE`。目录命令会把同一值应用于
   本次实际上传的所有文件；混合 HTML 与带内容哈希资源时不要强行使用一种策略，可拆分上传。
   省略参数覆盖对象时保留旧值，显式传参时替换旧值，新对象省略时保持未设置。
@@ -158,4 +200,8 @@ CloudFront 不支持预热；目录刷新转为 `/dir/*`。
 
 上传成功必须报告 target、bucket、object key、字节数、SHA-256、`cache_control` 和可用的公开 URL。
 目录上传还要报告总数、上传/跳过/失败数量、失败清单和合并后的 CDN 任务。
+下载成功报告 target、bucket、object key、本地输出路径、字节数、SHA-256 和是否完成摘要校验；
+目录下载还报告总数、成功/失败数量及失败清单。
+`head` 成功报告 target、bucket、object key、字节数、Content-Type、Cache-Control、ETag、
+VersionId 和 SHA-256 metadata。
 CDN 命令报告 operation、status、TaskId 与目标 URL；提交不代表缓存已经生效，不做虚假验证。

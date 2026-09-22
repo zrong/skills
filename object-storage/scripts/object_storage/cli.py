@@ -39,6 +39,11 @@ def build_parser() -> argparse.ArgumentParser:
     resolve.add_argument("--target")
     resolve.add_argument("--json", action="store_true")
 
+    head = subparsers.add_parser("head", help="Read object metadata without downloading content")
+    head.add_argument("key", help="Relative object key")
+    head.add_argument("--target")
+    head.add_argument("--json", action="store_true")
+
     upload = subparsers.add_parser("upload", help="Upload one local file")
     upload.add_argument("local_path")
     upload.add_argument("--target")
@@ -78,6 +83,25 @@ def build_parser() -> argparse.ArgumentParser:
     upload_tree.add_argument("--workers", type=int, default=4)
     upload_tree.add_argument("--dry-run", action="store_true")
     upload_tree.add_argument("--json", action="store_true")
+
+    download = subparsers.add_parser("download", help="Download one object to a local file")
+    download.add_argument("key", help="Relative object key")
+    download.add_argument("--target")
+    download.add_argument("--output", required=True, help="Local output file")
+    download.add_argument("--overwrite", action="store_true")
+    download.add_argument("--dry-run", action="store_true")
+    download.add_argument("--json", action="store_true")
+
+    download_tree = subparsers.add_parser(
+        "download-tree", help="Recursively download objects below a prefix"
+    )
+    download_tree.add_argument("prefix", help="Relative object-key prefix")
+    download_tree.add_argument("--target")
+    download_tree.add_argument("--output", required=True, help="Local output directory")
+    download_tree.add_argument("--overwrite", action="store_true")
+    download_tree.add_argument("--workers", type=int, default=4)
+    download_tree.add_argument("--dry-run", action="store_true")
+    download_tree.add_argument("--json", action="store_true")
 
     cdn = subparsers.add_parser("cdn", help="Manage CDN cache")
     cdn_sub = cdn.add_subparsers(dest="cdn_command", required=True)
@@ -227,8 +251,57 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         service = ObjectStorageService(config)
+        if command == "head":
+            result = service.head(cast(str, args.key), target_name=_optional_string(args, "target"))
+            _print(cast(dict[str, object], asdict(result)), as_json=as_json)
+            return 0
         if command == "cdn":
             return _run_cdn(args, service, as_json)
+        if command == "download":
+            overwrite = bool(args.overwrite)
+            if bool(args.dry_run):
+                plan = service.plan_download(
+                    cast(str, args.key),
+                    output_path=cast(str, args.output),
+                    target_name=_optional_string(args, "target"),
+                    overwrite=overwrite,
+                )
+                payload = cast(dict[str, object], asdict(plan))
+                payload["dry_run"] = True
+                _print(payload, as_json=as_json)
+                return 0
+            result = service.download(
+                cast(str, args.key),
+                output_path=cast(str, args.output),
+                target_name=_optional_string(args, "target"),
+                overwrite=overwrite,
+            )
+            _print(cast(dict[str, object], asdict(result)), as_json=as_json)
+            return 0
+        if command == "download-tree":
+            overwrite = bool(args.overwrite)
+            workers = cast(int, args.workers)
+            if bool(args.dry_run):
+                plan = service.plan_download_tree(
+                    cast(str, args.prefix),
+                    output_directory=cast(str, args.output),
+                    target_name=_optional_string(args, "target"),
+                    overwrite=overwrite,
+                    workers=workers,
+                )
+                payload = cast(dict[str, object], asdict(plan))
+                payload["dry_run"] = True
+                _print(payload, as_json=as_json)
+                return 0
+            result = service.download_tree(
+                cast(str, args.prefix),
+                output_directory=cast(str, args.output),
+                target_name=_optional_string(args, "target"),
+                overwrite=overwrite,
+                workers=workers,
+            )
+            _print(cast(dict[str, object], asdict(result)), as_json=as_json)
+            return 1 if result.failed_files else 0
         if command == "upload-tree":
             overwrite = bool(args.overwrite)
             if_changed = bool(args.if_changed)

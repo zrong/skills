@@ -100,6 +100,43 @@ class TreeUploadPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class DownloadPlan:
+    target_name: str
+    bucket: str
+    object_key: str
+    output_path: str
+    overwrite: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TreeDownloadPlan:
+    source_prefix: str
+    target_name: str
+    output_directory: str
+    files: list[DownloadPlan]
+    workers: int
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteObject:
+    object_key: str
+    size: int
+
+
+@dataclass(frozen=True, slots=True)
+class ObjectHeadResult:
+    target_name: str
+    bucket: str
+    object_key: str
+    size: int
+    content_type: str
+    cache_control: str
+    etag: str
+    version_id: str
+    content_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class CdnTaskResult:
     operation: str
     status: str
@@ -120,6 +157,13 @@ class UnchangedFile:
 class UploadFailure:
     source_path: str
     object_key: str
+    error: str
+
+
+@dataclass(frozen=True, slots=True)
+class DownloadFailure:
+    object_key: str
+    output_path: str
     error: str
 
 
@@ -155,3 +199,27 @@ class TreeUploadResult:
     results: list[UploadResult]
     failures: list[UploadFailure]
     cdn_tasks: list[CdnTaskResult]
+
+
+@dataclass(frozen=True, slots=True)
+class DownloadResult:
+    target_name: str
+    bucket: str
+    object_key: str
+    output_path: str
+    size: int
+    content_sha256: str
+    sha256_verified: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TreeDownloadResult:
+    source_prefix: str
+    target_name: str
+    output_directory: str
+    total_files: int
+    downloaded_files: int
+    failed_files: int
+    downloaded_bytes: int
+    results: list[DownloadResult]
+    failures: list[DownloadFailure]

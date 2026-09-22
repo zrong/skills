@@ -8,13 +8,14 @@ from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, Protocol, TypedDict, cast
 from urllib.parse import quote
+from uuid import uuid4
 
 import boto3
 from boto3.s3.transfer import TransferConfig
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import BotoCoreError, ClientError
 
-from .models import S3TargetConfig, UploadResult
+from .models import DownloadResult, ObjectHeadResult, RemoteObject, S3TargetConfig, UploadResult
 
 
 class TargetError(RuntimeError):
@@ -35,6 +36,22 @@ class S3ClientProtocol(Protocol):
         ExtraArgs: dict[str, object],
         Config: TransferConfig,
     ) -> None: ...
+
+    def download_file(
+        self,
+        Bucket: str,
+        Key: str,
+        Filename: str,
+        Config: TransferConfig,
+    ) -> None: ...
+
+    def list_objects_v2(
+        self,
+        *,
+        Bucket: str,
+        Prefix: str,
+        ContinuationToken: str | None = None,
+    ) -> Mapping[str, object]: ...
 
 
 class S3ClientOptions(TypedDict):
@@ -160,6 +177,61 @@ class S3Target:
             )
         return existing
 
+    def list_prefix(self, object_prefix: str) -> list[RemoteObject]:
+        prefix = f"{normalize_object_key(object_prefix).rstrip('/')}/"
+        continuation_token: str | None = None
+        objects: list[RemoteObject] = []
+        while True:
+            request: dict[str, str] = {"Bucket": self.config.bucket, "Prefix": prefix}
+            if continuation_token:
+                request["ContinuationToken"] = continuation_token
+            try:
+                response = self._client.list_objects_v2(**request)
+            except (BotoCoreError, ClientError) as exc:
+                raise TargetError(f"S3 list_objects_v2 failed for target {self.name}") from exc
+            raw_contents = response.get("Contents", [])
+            if not isinstance(raw_contents, list):
+                raise TargetError("S3 list_objects_v2 returned invalid contents")
+            for item in cast(list[object], raw_contents):
+                if not isinstance(item, Mapping):
+                    raise TargetError("S3 list_objects_v2 returned invalid object")
+                record = cast(Mapping[str, object], item)
+                key = record.get("Key")
+                size = record.get("Size")
+                if not isinstance(key, str) or not isinstance(size, int):
+                    raise TargetError("S3 list_objects_v2 returned invalid key or size")
+                if key.endswith("/"):
+                    continue
+                objects.append(RemoteObject(object_key=key, size=size))
+            if not response.get("IsTruncated"):
+                break
+            token = response.get("NextContinuationToken")
+            if not isinstance(token, str) or not token:
+                raise TargetError("S3 list_objects_v2 did not return a continuation token")
+            continuation_token = token
+        return objects
+
+    def head(self, object_key: str) -> ObjectHeadResult:
+        metadata = self._head(object_key)
+        if metadata is None:
+            raise TargetError(f"S3 object does not exist: {self.config.bucket}/{object_key}")
+        size = metadata.get("ContentLength")
+        if not isinstance(size, int):
+            raise TargetError("S3 head_object did not return object size")
+        content_type = metadata.get("ContentType")
+        cache_control = metadata.get("CacheControl")
+        return ObjectHeadResult(
+            target_name=self.name,
+            bucket=self.config.bucket,
+            object_key=object_key,
+            size=size,
+            content_type=content_type if isinstance(content_type, str) else "",
+            cache_control=cache_control if isinstance(cache_control, str) else "",
+            etag=str(metadata.get("ETag", "")).strip('"'),
+            version_id=str(metadata.get("VersionId", "")),
+            content_sha256=self._metadata_content_sha256(metadata),
+        )
+
     @staticmethod
     def _metadata_content_sha256(metadata: Mapping[str, object]) -> str:
         raw = metadata.get("Metadata")
@@ -266,4 +338,47 @@ class S3Target:
             content_sha256=content_sha256,
             metadata=metadata,
             skipped_unchanged=False,
+        )
+
+    def download(self, object_key: str, output_path: Path) -> DownloadResult:
+        metadata = self._head(object_key)
+        if metadata is None:
+            raise TargetError(f"S3 object does not exist: {self.config.bucket}/{object_key}")
+        remote_size = metadata.get("ContentLength")
+        if not isinstance(remote_size, int):
+            raise TargetError("S3 download could not determine object size")
+        expected_sha256 = self._metadata_content_sha256(metadata)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = output_path.with_name(f".{output_path.name}.{uuid4().hex}.part")
+        try:
+            self._client.download_file(
+                Bucket=self.config.bucket,
+                Key=object_key,
+                Filename=str(temporary_path),
+                Config=self._transfer_config,
+            )
+            local_size = temporary_path.stat().st_size
+            if local_size != remote_size:
+                raise TargetError(
+                    "S3 download size verification failed: "
+                    f"local={local_size}, remote={remote_size}"
+                )
+            actual_sha256 = calculate_file_sha256(temporary_path)
+            if expected_sha256 and actual_sha256 != expected_sha256:
+                raise TargetError("S3 download SHA-256 verification failed")
+            temporary_path.replace(output_path)
+        except TargetError:
+            raise
+        except (BotoCoreError, ClientError, OSError) as exc:
+            raise TargetError(f"S3 download failed for target {self.name}") from exc
+        finally:
+            temporary_path.unlink(missing_ok=True)
+        return DownloadResult(
+            target_name=self.name,
+            bucket=self.config.bucket,
+            object_key=object_key,
+            output_path=str(output_path),
+            size=remote_size,
+            content_sha256=actual_sha256,
+            sha256_verified=bool(expected_sha256),
         )
