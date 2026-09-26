@@ -167,13 +167,16 @@ def _check_imdb_override(imdb_id: str, eng_title: str, year: int | None,
         if info and cache is not None:
             cache.set(f"i:{imdb_id}", info)
     if not info:
+        # OMDb 不可用时的回退反查（标题为 TMDb 中文名或提供商英文名）
+        info = _lookup_via_jellyfin_imdb(imdb_id)
+    if not info:
         return True, f"无法反查 {imdb_id}（未配置 OMDb key 或网络失败），跳过验证", None
     problems = []
     if eng_title and not _titles_match(eng_title, info['title']):
-        problems.append(f"标题不符：文件「{eng_title}」vs OMDb「{info['title']} ({info.get('year')})」")
+        problems.append(f"标题不符：文件「{eng_title}」vs 反查「{info['title']} ({info.get('year')})」")
     oy = _year_int(info.get('year'))
     if year and oy and abs(oy - year) > 2:
-        problems.append(f"年份不符：文件 {year} vs OMDb {oy}")
+        problems.append(f"年份不符：文件 {year} vs 反查 {oy}")
     if problems:
         return False, f"IMDB ID {imdb_id} 疑似错误绑定：{'；'.join(problems)}", info
     return True, '', info
@@ -300,6 +303,11 @@ def _query_omdb_smart_uncached(title: str, year: int | None, base_url: str, api_
 
 def _parse_folder_name(name: str) -> dict:
     """解析 BT/字幕组风格的文件夹名，提取标题、年份、媒体类型和集数信息。"""
+    # 已有的元数据标签直接复用（含 imdbi-/imdb- 拼写变体）
+    m_imdb = re.search(r'\[(?:imdbid|imdbi|imdb)-(tt\d+)\]', name, re.IGNORECASE)
+    m_tmdb = re.search(r'\[tmdbid-(\d+)\]', name, re.IGNORECASE)
+    existing_imdb = m_imdb.group(1) if m_imdb else None
+    existing_tmdb = m_tmdb.group(1) if m_tmdb else None
     # […] 标签、国家/地区标记（美）(韩)、重复副本标记「复制(1)」都不是标题，剥掉
     name = re.sub(r'\[[^\]]*\]', ' ', name.strip())
     name = re.sub(r'[（(](?:美|韩|日|港|台|法|国|英|泰|俄|印|意|德|西)[）)]', ' ', name)
@@ -390,6 +398,8 @@ def _parse_folder_name(name: str) -> dict:
         'season': season,
         'ep_start': ep_start,
         'ep_end': ep_end,
+        'imdb_id': existing_imdb,
+        'tmdb_id': existing_tmdb,
     }
 
 
@@ -463,6 +473,167 @@ def _lookup_by_imdb_id(imdb_id: str, base_url: str, api_key: str) -> dict | None
     except Exception:
         pass
     return None
+
+
+def _query_via_jellyfin_search(title: str, year: int | None) -> dict | None:
+    """OMDb 查不到时的回退：借 Jellyfin 服务器的 RemoteSearch 搜索
+    （TMDb 等提供商支持中文标题）。返回 {'imdb_id','title','year'} 或 None。
+    未配置 [jellyfin] base_url/api_key 或搜索失败时返回 None。
+
+    分数相同时偏好年份较新的候选（同名翻拍通常要的是新版）；
+    目录名里的年份只是整理归类，与电影发布年份无关，不参与过滤。"""
+    cfg = _find_config()
+    base_url, api_key = _get_server_config(cfg)
+    if not base_url or not api_key:
+        return None
+    search_info: dict = {'Name': title}
+    # 不把年份放进请求：服务端按年过滤太死，文件名年份又常是下载/封装年。
+    # 年份只在我的评分里做偏好，搜不到再放宽
+    try:
+        with httpx.Client(base_url=base_url, timeout=30.0, headers={
+            "Authorization": (
+                f'MediaBrowser Token="{api_key}", Client="jellyfin-tool", '
+                'Device="jellyfin-tool", DeviceId="jellyfin-tool", Version="1.0"')
+        }) as client:
+            r = client.post('/Items/RemoteSearch/Movie', json={'SearchInfo': search_info})
+            if r.status_code >= 400:
+                return None
+            results = r.json()
+            if not results:
+                # 服务器偶发返回空（并发/抖动），停 1s 重试一次
+                import time
+                time.sleep(1)
+                r = client.post('/Items/RemoteSearch/Movie', json={'SearchInfo': search_info})
+                if r.status_code >= 400:
+                    return None
+                results = r.json()
+
+            tn0 = _norm_cmp(title)
+
+            def pick(year_filter: bool):
+                best = None
+                best_score = -1.0
+                for x in results:
+                    name = x.get('Name') or ''
+                    xy = x.get('ProductionYear')
+                    diff = abs(xy - year) if (xy and year and year_filter) else None
+                    if diff is not None and diff > 2:
+                        continue
+                    nn = _norm_cmp(name)
+                    score = _similarity(tn0, nn)
+                    if tn0 and nn and (tn0 in nn or nn in tn0):
+                        score += 0.5  # 中文名互相包含（如「未来水世界」命中「未来水世界」）
+                    if diff is not None:
+                        score += (2 - diff) * 0.05
+                    if score > best_score + 1e-9 or (
+                            abs(score - best_score) <= 1e-9 and best is not None
+                            and xy and (best.get('ProductionYear') or 0) < xy):
+                        best_score, best = score, x
+                return best
+
+            best = pick(year_filter=True)
+            if best is None and year:
+                # 文件名里的年份可能是下载/封装年而非发行年（2013终极神差 → 实为 1997），
+                # 放宽年份过滤重试；可信度由调用方的名称比对把关
+                best = pick(year_filter=False)
+            if best is None:
+                return None
+            ids = best.get('ProviderIds') or {}
+            imdb = ids.get('Imdb')
+            if not imdb and ids.get('Tmdb'):
+                # 搜索结果常只带 TMDb id；带 Tmdb id 再查一次，提供商会补全 Imdb
+                r2 = client.post('/Items/RemoteSearch/Movie',
+                                 json={'SearchInfo': {'ProviderIds': {'Tmdb': ids['Tmdb']}}})
+                if r2.status_code < 400:
+                    for x2 in r2.json():
+                        imdb = (x2.get('ProviderIds') or {}).get('Imdb')
+                        if imdb:
+                            break
+            if not imdb:
+                return None
+            return {'imdb_id': imdb, 'title': best.get('Name') or '',
+                    'year': str(best.get('ProductionYear') or '')}
+    except Exception:
+        return None
+
+
+_CN_DIGITS = dict(zip('一二三四五六七八九', '123456789'))
+
+
+def _norm_cmp(s: str) -> str:
+    """比较用规范化：中文数字转阿拉伯（十二猴子 vs 12只猴子），去掉所有标点/空白/间隔号
+    （「本杰明巴顿奇事」vs「本杰明·巴顿奇事」）。"""
+    s = (s or '').lower()
+    s = re.sub(r'([一二三四五六七八九])十([一二三四五六七八九]?)',
+               lambda m: _CN_DIGITS[m.group(1)] + (_CN_DIGITS.get(m.group(2)) or '0'), s)
+    s = re.sub(r'十([一二三四五六七八九])', lambda m: '1' + _CN_DIGITS[m.group(1)], s)
+    s = re.sub(r'[一二三四五六七八九]', lambda m: _CN_DIGITS[m.group(0)], s)
+    return re.sub(r'[^0-9a-z一-鿿㐀-䶿]+', '', s)
+
+
+def _lookup_via_jellyfin_imdb(imdb_id: str) -> dict | None:
+    """OMDb 不可用时的反查回退：用 Jellyfin RemoteSearch 按 IMDb id 取标题和年份。
+    优先返回带 Imdb 标记的提供商结果（标题为英文原名）。"""
+    cfg = _find_config()
+    base_url, api_key = _get_server_config(cfg)
+    if not base_url or not api_key:
+        return None
+    try:
+        with httpx.Client(base_url=base_url, timeout=30.0, headers={
+            "Authorization": (
+                f'MediaBrowser Token="{api_key}", Client="jellyfin-tool", '
+                'Device="jellyfin-tool", DeviceId="jellyfin-tool", Version="1.0"')
+        }) as client:
+            r = client.post('/Items/RemoteSearch/Movie',
+                            json={'SearchInfo': {'ProviderIds': {'Imdb': imdb_id}}})
+            if r.status_code >= 400:
+                return None
+            results = r.json()
+            for x in results:
+                if (x.get('ProviderIds') or {}).get('Imdb'):
+                    return {'title': x.get('Name') or '', 'year': str(x.get('ProductionYear') or '')}
+            if results:
+                return {'title': results[0].get('Name') or '',
+                        'year': str(results[0].get('ProductionYear') or '')}
+    except Exception:
+        pass
+    return None
+
+
+def _tmdb_to_imdb(tmdb_id: str) -> str | None:
+    """用 Jellyfin RemoteSearch 把文件名自带的 [tmdbid-…] 补全成 IMDb id。"""
+    cfg = _find_config()
+    base_url, api_key = _get_server_config(cfg)
+    if not base_url or not api_key:
+        return None
+    try:
+        with httpx.Client(base_url=base_url, timeout=30.0, headers={
+            "Authorization": (
+                f'MediaBrowser Token="{api_key}", Client="jellyfin-tool", '
+                'Device="jellyfin-tool", DeviceId="jellyfin-tool", Version="1.0"')
+        }) as client:
+            r = client.post('/Items/RemoteSearch/Movie',
+                            json={'SearchInfo': {'ProviderIds': {'Tmdb': tmdb_id}}})
+            if r.status_code < 400:
+                for x in r.json():
+                    imdb = (x.get('ProviderIds') or {}).get('Imdb')
+                    if imdb:
+                        return imdb
+    except Exception:
+        pass
+    return None
+
+
+def _server_hit_trustworthy(alt: dict, parsed: dict, year: int | None) -> bool:
+    """RemoteSearch 命中是否可信：中/英标题规范化后互相包含或高度相似，或年份相差 ≤1。
+    两者都不沾边的命中视为不可信（防止 TMDb 返回同名异物）。"""
+    cn, an = _norm_cmp(parsed['cjk_title']), _norm_cmp(alt['title'])
+    name_hit = bool(
+        (cn and an and (cn in an or an in cn or _similarity(cn, an) >= 0.7))
+        or _titles_match(parsed['eng_title'], alt['title']))
+    ay = _year_int(alt.get('year'))
+    yr_hit = bool(year and ay and abs(ay - year) <= 1)
+    return name_hit or yr_hit
 
 
 def _parse_ep_from_name(name: str) -> tuple[int | None, int | None]:
@@ -600,6 +771,10 @@ def rename_folder(folder, batch, media_type, title_override, year_override, imdb
 
     if batch:
         subdirs = sorted([d for d in base.iterdir() if d.is_dir() and d.name not in excludes])
+        skipped_tagged = [d.name for d in subdirs if IMDB_TAG.search(d.name)]
+        subdirs = [d for d in subdirs if not IMDB_TAG.search(d.name)]
+        if skipped_tagged:
+            click.echo(f"跳过 {len(skipped_tagged)} 个已带 [imdbid-] 的子目录（无需重命名）。")
         failures = []
         for d in subdirs:
             click.echo(f"\n{'='*60}\n处理：{d.name}\n{'='*60}")
@@ -656,6 +831,13 @@ def _rename_one(
         return False
 
     # 获取官方标题和 IMDB ID
+    # 文件名自带标签直接复用：[imdbid-]/[imdb-] 变体直接用，[tmdbid-] 经服务器补全
+    builtin = parsed.get('imdb_id')
+    if not builtin and parsed.get('tmdb_id'):
+        builtin = _tmdb_to_imdb(parsed['tmdb_id'])
+        if builtin:
+            click.echo(f"文件名 [tmdbid-{parsed['tmdb_id']}] → 补全 IMDb {builtin}")
+    imdb_id_override = imdb_id_override or builtin
     if imdb_id_override:
         ok, msg, info = _check_imdb_override(imdb_id_override, parsed['eng_title'], year,
                                              base_url, api_key)
@@ -664,6 +846,9 @@ def _rename_one(
         if not ok:
             if force_imdb:
                 click.echo("--force-imdb 已指定，强制使用该 ID")
+            elif dry_run:
+                # 预览模式不拦截：标注出来让用户在终审时核对
+                click.echo(f"⚠ 覆盖 ID 待核对：{msg}")
             elif yes:
                 click.echo("错误：--yes 模式下拒绝采用可疑 IMDB ID；确认无误请加 --force-imdb", err=True)
                 return False
@@ -678,8 +863,35 @@ def _rename_one(
         imdb_id = imdb_id_override
         click.echo(f"使用 IMDB ID {imdb_id} → {official_title} ({official_year})")
     else:
-        click.echo(f"查询 OMDb：「{search_title}」({year}, {actual_type})...")
-        result = _query_omdb(search_title, year, actual_type, base_url, api_key)
+        result = {'found': False, 'candidates': []}
+        if parsed['eng_title'] or title_override:
+            click.echo(f"查询 OMDb：「{search_title}」({year}, {actual_type})...")
+            result = _query_omdb(search_title, year, actual_type, base_url, api_key)
+            cleaned = _clean_search_title(search_title)
+            if not result['found'] and cleaned != search_title:
+                # 原标题优先；带续集序号/剪辑版标记的标题（2 The Godfather Part II）
+                # 再试清洗后的标题（但不能反过来，12 Rounds 的 12 是片名）
+                result = _query_omdb(cleaned, year, actual_type, base_url, api_key)
+        else:
+            click.echo(f"纯中文名，直接查 RemoteSearch：「{search_title}」({year or '?'}, {actual_type})...")
+        if not result['found'] and actual_type == 'movie':
+            # 回退：借 Jellyfin RemoteSearch（TMDb 等提供商支持中文标题）
+            alt = _query_via_jellyfin_search(search_title, year)
+            if alt and not _server_hit_trustworthy(alt, parsed, year):
+                click.echo(f"⚠ RemoteSearch 命中「{alt['title']}」({alt['year']}) 与文件名标题/年份均不吻合，不可信")
+                alt = None
+            if alt:
+                ok, msg, info = _check_imdb_override(alt['imdb_id'], parsed['eng_title'],
+                                                     year, base_url, api_key)
+                cn, an = _norm_cmp(parsed['cjk_title']), _norm_cmp(alt['title'])
+                if not (cn and an and cn == an):
+                    click.echo(f"⚠ 经 RemoteSearch 命中「{alt['title']}」({alt['year']}) [{alt['imdb_id']}]，中文名不完全一致，请人工核对")
+                if msg and not ok:
+                    click.echo(f"⚠ {msg}")
+                result = {'found': True, 'imdb_id': alt['imdb_id'],
+                          'title': (info or {}).get('title') or alt['title'],
+                          'year': (info or {}).get('year') or alt['year'],
+                          'candidates': []}
         if not result['found']:
             if result['candidates']:
                 click.echo("找到多个候选，请用 --imdb-id 指定：")
@@ -887,6 +1099,9 @@ def rename_flat(directory, keep_prefix, imdb_overrides, force_imdb, excludes, no
         if _norm_key(label) in excluded:
             click.echo(f"跳过（--exclude）：{label}")
             continue
+        if IMDB_TAG.search(video.name):
+            click.echo(f"跳过（已带 imdbid）：{label}")
+            continue
         if multi_video:
             click.echo(f"提示：{label} 组内有 {len(g['videos'])} 个视频，按碟片标记加 - cdN 后缀")
 
@@ -905,7 +1120,13 @@ def rename_flat(directory, keep_prefix, imdb_overrides, force_imdb, excludes, no
         )
 
         warnings: list[str] = []
-        ov = overrides.get(_norm_key(label)) or overrides.get('*')
+        # 文件名自带标签直接复用：[imdbid-]/[imdb-] 变体直接用，[tmdbid-] 经服务器补全
+        builtin_imdb = parsed.get('imdb_id')
+        if not builtin_imdb and parsed.get('tmdb_id'):
+            builtin_imdb = _tmdb_to_imdb(parsed['tmdb_id'])
+            if builtin_imdb:
+                click.echo(f"  文件名 [tmdbid-{parsed['tmdb_id']}] → 补全 IMDb {builtin_imdb}")
+        ov = overrides.get(_norm_key(label)) or overrides.get('*') or builtin_imdb
         if ov:
             ok, msg, info = _check_imdb_override(ov, parsed['eng_title'], parsed['year'],
                                                  base_url, api_key,
@@ -915,6 +1136,9 @@ def rename_flat(directory, keep_prefix, imdb_overrides, force_imdb, excludes, no
             if not ok:
                 if force_imdb:
                     click.echo("  --force-imdb 已指定，强制使用该 ID")
+                elif dry_run:
+                    # 预览模式不拦截：标注出来让用户在终审清单里核对
+                    warnings.append(f"覆盖 ID 待核对：{msg}")
                 elif yes:
                     click.echo("  拒绝采用（--yes 模式）；确认无误请加 --force-imdb", err=True)
                     failures.append(label)
@@ -935,8 +1159,32 @@ def rename_flat(directory, keep_prefix, imdb_overrides, force_imdb, excludes, no
                 failures.append(label)
                 review.append((label, None, ['无法解析标题']))
                 continue
-            click.echo(f"查询 OMDb：「{search_title}」({parsed['year'] or '?'})...")
-            result = _query_omdb_smart(search_title, parsed['year'], base_url, api_key, cache, no_cache)
+            result = {'found': False, 'candidates': []}
+            if parsed['eng_title']:
+                # 有英文标题走 OMDb；纯中文名 OMDb 搜不动，直接用 RemoteSearch
+                click.echo(f"查询 OMDb：「{search_title}」({parsed['year'] or '?'})...")
+                result = _query_omdb_smart(search_title, parsed['year'], base_url, api_key, cache, no_cache)
+            if not result['found']:
+                # 回退：借 Jellyfin RemoteSearch（TMDb 等提供商支持中文标题）
+                alt = _query_via_jellyfin_search(search_title, parsed['year'])
+                if alt and not _server_hit_trustworthy(alt, parsed, parsed['year']):
+                    click.echo(f"  ⚠ RemoteSearch 命中「{alt['title']}」({alt['year']}) 与文件名标题/年份均不吻合，不可信")
+                    alt = None
+                if alt:
+                    ok, msg, info = _check_imdb_override(alt['imdb_id'], parsed['eng_title'],
+                                                         parsed['year'], base_url, api_key, cache)
+                    cn, an = _norm_cmp(parsed['cjk_title']), _norm_cmp(alt['title'])
+                    exact = bool(cn and an and cn == an)
+                    note = None
+                    if not exact:
+                        note = '经 Jellyfin RemoteSearch 命中（中文名不完全一致，请人工核对）'
+                    if msg and not ok:
+                        note = f"{note}；{msg}" if note else msg
+                    result = {'found': True, 'imdb_id': alt['imdb_id'],
+                              'title': (info or {}).get('title') or alt['title'],
+                              'year': (info or {}).get('year') or alt['year'],
+                              'warning': note,
+                              'searched': search_title, 'candidates': []}
             if not result['found']:
                 click.echo("未找到可靠匹配，请用 --imdb-id 手动指定：", err=True)
                 for i, c in enumerate(result['candidates'][:10], 1):
