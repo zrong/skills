@@ -1624,19 +1624,29 @@ def verify(directory, clean_orphans, yes):
 
     # 孤儿媒体文件检测：nfo/图片的 stem 匹配不到目录下任何视频
     # （典型来源：错误绑定时残留的旧 imdbid nfo）
+    # SMB 8.3 短文件名（如 T1BP8W~4.JPG）无法判断归属——视频和旁挂图的长名
+    # 会被映射成互不相关的短名，强行匹配会把真 sidecar 误判成孤儿，一律跳过。
+    MANGLED_83 = re.compile(r'^[A-Za-z0-9]{2,6}~\w')
     video_stems = [f.stem for f in base.iterdir()
                    if f.is_file() and f.suffix.lower() in VIDEO_EXTS]
     orphans: list[Path] = []
+    unjudgable = 0
     for f in sorted(base.iterdir()):
         if not f.is_file():
             continue
         ext = f.suffix.lower()
         if ext != '.nfo' and ext not in IMAGE_EXTS:
             continue
+        if f.name.startswith('._') or MANGLED_83.match(f.stem):
+            unjudgable += 1
+            continue
         stem = IMG_SUFFIX.sub('', f.stem) if ext in IMAGE_EXTS else f.stem
         if not any(stem == v or stem.startswith(v + '.') or stem.startswith(v + '-')
                    for v in video_stems):
             orphans.append(f)
+    if unjudgable:
+        click.echo(f"\n? 跳过 {unjudgable} 个无法判别的文件（SMB 8.3 短文件名或 ._ 元数据），"
+                   "请直接到服务器上检查")
     if orphans:
         click.echo(f"\n🗑 孤儿媒体文件（stem 匹配不到任何视频，可能是旧错误命名的残留）：{len(orphans)} 个")
         for f in orphans:
