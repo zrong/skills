@@ -223,6 +223,7 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 ### 2026-09-26
 
 - 升级 jellyfin skill：从单一重命名工具扩展为命名与服务器维护工具集。`rename` 更名 `rename-folder`，`--imdb-id` 新增 OMDb 反查验证（防人工记错 ID）与 `--force-imdb` 兜底；新增 `rename-flat`（平铺目录批量重命名，含 omdb_cache.json 缓存与 OMDb 脏数据过滤）、`verify`/`retag`（存量错绑体检与只换标签修复）、`server refresh/images/identify/check`（Jellyfin API 刷新、海报诊断、重新识别、DB 对账）与 `de-localart`（清理本地旧图/.nfo 让位在线刮削）；配置支持 `[jellyfin]` 根段与 `~/.agents/agent_config.toml` 兜底，补充 `agent_config.example.toml`，SKILL.md 重写并收录实战教训。
+- jellyfin 实战加固：OMDb 配额耗尽/网络故障时不再整批退出，自动降级 Jellyfin RemoteSearch（TMDb 支持中文标题）并按标题/年份可信度校验命中，复用文件名已有的 `[imdbid-]`/`[tmdbid-]` 标签；BT 命名解析强化（中文质量词/英文分辨率编码噪声清洗、括号与粘连年份、国家/地区/复制副本标记剥除）并支持多 CD/多碟电影 `- cdN` 堆叠命名；`verify` 跳过 SMB 8.3 短文件名与 `._` AppleDouble 元数据防止误判孤儿文件。
 
 ### 2026-09-22
 
