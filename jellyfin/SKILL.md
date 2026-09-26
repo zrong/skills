@@ -1,21 +1,29 @@
 ---
 name: jellyfin
-description: Jellyfin 媒体库文件命名工具。当用户需要按照 Jellyfin 命名规范重命名电影/剧集文件夹和文件、获取 IMDB ID、处理 BT/字幕组风格的媒体文件名（含点分隔、中英混合、质量标记如 1080P.X264.AAC）时使用。支持 clean（批量去除空格）和 rename（智能重命名 + IMDB ID 查询，支持电影和剧集）。
+description: Jellyfin 媒体库命名与服务器维护工具。当用户需要按照 Jellyfin 命名规范重命名电影/剧集文件夹和文件（rename-folder）、处理多部电影共用一个目录的平铺目录批量重命名（rename-flat，如 TopNNN. 排序前缀的 IMDB Top250 合集）、获取或校验 IMDB ID（verify 批量校验文件名 imdbid 与 OMDb 反查是否匹配并检测孤儿 nfo/图片）、只替换文件名中的 imdbid 标签（retag）、处理 BT/字幕组风格媒体文件名（含点分隔、中英混合、质量标记如 1080P.X264.AAC）、清理本地旧海报/nfo 让位在线刮削（de-localart）、调用 Jellyfin API 刷新媒体库/诊断海报不更新（server refresh/images）、纠正错误刮削重新识别（server identify）、或比对 Jellyfin 元数据与文件名找出错绑（server check）时使用。
 ---
 
 # Jellyfin 媒体库重命名工具
 
 ## 配置
 
-在 `agent_config.toml` 中添加 OMDb 配置（从 https://www.omdbapi.com/apikey.aspx 免费申请 API Key）：
+在 `agent_config.toml` 中添加（完整示例见 `agent_config.example.toml`）：
 
 ```toml
+# Jellyfin 服务器（server / de-localart --refresh 需要）
+# api_key 在 Jellyfin 控制台 → 高级 → API 密钥 生成
+[jellyfin]
+base_url = "http://localhost:8096"
+api_key = ""
+
+# OMDb（rename-folder / rename-flat 查 IMDB ID 需要）
+# 从 https://www.omdbapi.com/apikey.aspx 免费申请
 [jellyfin.omdb]
 base_url = "http://www.omdbapi.com"
 api_key = "your_api_key_here"
 ```
 
-配置文件搜索顺序：当前目录 → skill 目录 → git 根目录。
+配置文件搜索顺序：当前目录 → skill 目录 → git 根目录 → `~/.agents/agent_config.toml`。
 
 ## 执行方式
 
@@ -32,14 +40,11 @@ uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" <com
 遍历指定目录下的所有子文件夹，去掉文件夹名和文件名中的空格，图片重命名为 `{视频名}-poster{ext}`。
 
 ```bash
-# 预览（不执行）
 uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" clean /path/to/media --dry-run
-
-# 执行（跳过确认，适合 agent 使用）
 uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" clean /path/to/media --yes
 ```
 
-### rename — 智能重命名（Jellyfin 规范 + IMDB ID）
+### rename-folder — 智能重命名（一部电影一个子文件夹）
 
 解析 BT/字幕组风格的文件夹名，查询 OMDb API 获取 IMDB ID，按 Jellyfin 标准重命名。
 
@@ -53,29 +58,218 @@ uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" clea
 
 ```bash
 # 单个文件夹（自动检测是电影还是剧集）
-uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename "/path/to/Movie.Name.2020.1080P" --dry-run
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename-folder "/path/to/Movie.Name.2020.1080P" --dry-run
 
 # 批量处理整个目录（--exclude 跳过无需处理的子目录，可多次使用）
-uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename /path/to/Movies/ --batch --exclude Film --exclude H --dry-run
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename-folder /path/to/Movies/ --batch --exclude Film --exclude H --dry-run
 
 # 手动指定标题（当自动解析不准时）
-uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename "/path/to/folder" --title "The Matrix" --year 1999
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename-folder "/path/to/folder" --title "The Matrix" --year 1999
 
 # 手动指定 IMDB ID（当 API 返回候选列表时使用）
-uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename "/path/to/folder" --imdb-id tt0133093 --yes
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename-folder "/path/to/folder" --imdb-id tt0133093 --yes
 
 # 强制指定为剧集类型
-uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename "/path/to/folder" --type series
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename-folder "/path/to/folder" --type series
+```
+
+### rename-flat — 平铺目录智能重命名（多部电影共用一个目录）
+
+适用于无电影子文件夹、所有文件平铺在一个目录的场景（如 IMDB Top250 合集，
+文件名带 `TopNNN.` 排序前缀）。
+
+**分组规则**：按文件名公共前缀分组（`Top001.肖申克的救赎.The.Shawshank...` 中的
+`Top001.`），组内含视频的视为一部电影；无前缀的文件按 stem（去掉 `-poster` 等
+图片后缀）分组，无视频的孤儿组（如无前缀字幕）尝试并入视频 stem 为其前缀的组。
+
+**输出格式**（`--keep-prefix` 时保留前缀，排序不能丢）：
+
+```
+Top001.肖申克的救赎 The Shawshank Redemption (1994) [imdbid-tt0111161].mkv
+```
+
+标题/年份从**视频文件名**解析（逻辑与 rename-folder 一致）。组内其他文件跟随：
+- 图片：保留现有 `-poster`/`-backdrop`/`-landscape`/`-logo` 后缀关键字只换 stem；无后缀的默认加 `-poster`
+- `.nfo`：同名 stem + `.nfo`
+- 字幕：stem 与视频相同（或仅多 `.chn` 等语言标签）的跟随改名；同前缀单视频组内不完全匹配的字幕也会跟随并保留语言标签
+
+API 结果缓存在目录下的 `omdb_cache.json`，失败/中断重跑不重复请求；OMDb 间歇
+返回垃圾数据时用 `--no-cache` 强制重查（结果会覆盖缓存）。
+
+```bash
+# 预览（务必先 --dry-run 看终审清单）
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename-flat /path/to/IMDBTop250 --keep-prefix --dry-run
+
+# 对可疑匹配手动指定 IMDB ID 后重跑（已成功的命中缓存，不重复请求）
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename-flat /path/to/IMDBTop250 --keep-prefix \
+  --imdb-id Top003=tt0071562 --imdb-id Top057=tt0050083 --yes
+
+# 跳过某些组
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" rename-flat /path/to/dir --exclude Top099 --dry-run
+```
+
+**终审清单**：`--dry-run` 和执行结束后都会输出全部「prefix → 新名」清单，
+对可疑标题（双年份、年份与原名不符超出 ±2、相似度低）用 ⚠ 单独标注，未匹配的用 ✗。
+
+### verify — 批量校验文件名中的 IMDB ID
+
+人工凭记忆指定的 IMDB ID 极易记错（实战中 4 个全错：tt0406662 实际是 The Coiner，
+Se7en 记成 tt0113227 实际是 Die Grube）。verify 扫描目录下所有带
+`[imdbid-ttXXX]` 的视频文件/子文件夹，逐个用 OMDb `i=` 反查，标题相似度低或
+年份偏差 >2 的列入可疑清单。结果写入 `omdb_cache.json` 缓存，重跑零成本。
+同时检测孤儿媒体文件：nfo/图片的 stem 匹配不到目录下任何视频的列为垃圾
+（典型来源：错误绑定时期残留的旧 imdbid 文件），仅列出不动手。
+
+```bash
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" verify /path/to/IMDBTop250
+```
+
+### retag — 只改文件名中的 imdbid 标签
+
+`server check` / `verify` 发现错绑后，文件名里的 imdbid 往往也要改。retag 只替换
+`[imdbid-ttXXX]` 标签，文件名其余部分原样保留（不像 rename-flat 会按 OMDb 官方
+标题重建整个文件名）；带同一旧标签的旁挂文件（图片/nfo/字幕）一起改。新 id 会先
+经 OMDb 反查验证，不符则拒绝（`--force-imdb` 强制）。
+
+```bash
+# 目录批量：可传多个映射
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" retag /path/to/IMDBTop250 tt0113227=tt0114369 tt0406662=tt0381061 --dry-run
+
+# 单文件：旧 id 从文件名读取
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" retag "/path/Top245.七宗罪 Se7en (1995) [imdbid-tt0113227].mkv" tt0114369 --yes
+```
+
+另外，`rename-folder` / `rename-flat` 的 `--imdb-id` 现在都会先经 OMDb 反查验证：
+相似度低时警告并要求确认；`--yes` 非交互模式下直接拒绝采用，确认无误后需加
+`--force-imdb` 强制使用。
+
+### server refresh — 触发媒体库全量刷新
+
+对指定库（库名或路径）调用
+`POST /Items/{id}/Refresh?Recursive=true&MetadataRefreshMode=FullRefresh&ImageRefreshMode=FullRefresh`，
+`--replace-metadata` / `--replace-images` 分别透传 `ReplaceAllMetadata=true` /
+`ReplaceAllImages=true`。
+
+```bash
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" server refresh 电影 --replace-images
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" server refresh /volume1/media/movies --replace-metadata --replace-images
+```
+
+### server images — 诊断「海报为什么没更新」
+
+列出某目录下所有电影的 ImageInfos（类型、尺寸、大小、来源路径）：
+
+```bash
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" server images /volume1/media/movies
+```
+
+### server identify — 纠正错误刮削（重新识别）
+
+关键认知：Jellyfin 首次刮削后会把 ProviderIds 缓存在条目上，之后
+ReplaceAllMetadata 刷新也只沿用旧 ID，**改文件名里的 imdbid 不会触发重新识别**。
+唯一正确修法是「识别」流程：本命令调 `POST /Items/RemoteSearch/Movie`
+（`SearchInfo.ProviderIds.Imdb` + 文件名解析出的 Name/Year 提示），取
+ProviderIds.Imdb 与目标一致的首个结果，再 `POST /Items/RemoteSearch/Apply/{itemId}`
+（不替换现有图片）。
+
+Apply 前会自动把同名 `.nfo` 改名为 `.nfo.bak`：否则 Jellyfin 会把当前（可能是
+错的）元数据写回 nfo，而本地 nfo 优先级最高，会把 Apply 的结果再压回去。
+
+```bash
+# 单文件：imdbid 从文件名读取，也可 --imdb-id 覆盖
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" server identify "/path/Top245.七宗罪 Se7en (1995) [imdbid-tt0114369].mkv" --dry-run
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" server identify "/path/file.mkv" --imdb-id tt0114369 --yes
+
+# 目录批量：每个文件从自己的文件名读取 [imdbid-ttXXX]（目录模式不接受 --imdb-id）
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" server identify /path/to/IMDBTop250 --dry-run
+```
+
+注意 ItemId 时效：文件改名会让 Jellyfin 删除旧条目、新建条目，ItemId 随之变化。
+本命令每次都实时按路径查询当前条目，不缓存 ItemId；文件刚改名后库中可能还没有
+新条目，需先 `server refresh` 扫库。
+
+### server check — 诊断对账（DB 元数据 vs 文件名）
+
+批量比对目录下所有视频的文件名与 Jellyfin DB 元数据，输出分类清单：
+
+- **✗ 需要 identify**：IMDB 错绑（文件 id ≠ DB ProviderIds.Imdb，如文件「七宗罪」
+  DB 名「Die Grube」）、无法确认绑定时标题完全对不上、年份偏差 ≥2（如
+  12 Angry Men 刮成 1997 电视电影版）——逐条给出修复命令
+- **⚠ 年份口径差异**：产地年 vs 发行年（千与千寻 2001/2003），正常仅标注
+- **ℹ 译名差异**：IMDB 一致但译名不同（无间行者/无间道风云），无需处理
+- **? 未入库**：文件未扫描进库，提示先 `server refresh`
+
+```bash
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" server check /path/to/IMDBTop250
+```
+
+### de-localart — 本地旧图/.nfo 让位在线刮削
+
+Jellyfin 本地图片优先级高于在线刮削，旧海报会永久挡住在线海报（前端表现为
+视频截图缩略图）。本命令把目录（含子目录）下匹配 `-(poster|backdrop|landscape|logo|fanart)`
+的图片（含 `extrafanart/` 内的）和所有 `.nfo` 移动到 `<目录>_oldart_backup/`
+（默认）或 `--delete` 直接删除。
+
+```bash
+# 预览 → 执行 → 执行并自动刷新库拉取在线图
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" de-localart /path/to/movies --dry-run
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" de-localart /path/to/movies --yes
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" de-localart /path/to/movies --yes --refresh
 ```
 
 ## 典型工作流
 
-1. **先预览**：总是先用 `--dry-run` 查看解析结果是否正确
-2. **清理噪声文件夹名**：文件夹名若混入站点广告（如「xxx.电影港 地址发布页 www.dygang.me 收藏不迷路」），中文名会被整段带入新名称，先 `mv` 清理成干净的中文标题再 rename
+1. **先预览**：总是先用 `--dry-run` 查看解析结果和终审清单
+2. **清理噪声文件夹名**：文件夹名若混入站点广告（如「xxx.电影港 地址发布页 www.dygang.me 收藏不迷路」），中文名会被整段带入新名称，先 `mv` 清理成干净的中文标题再 rename-folder
 3. **处理候选列表**：若 API 返回多个候选，从列表选择正确的 IMDB ID 后用 `--imdb-id` 重试
 4. **指定 IMDB ID 时同时给 --title/--year**：OMDb API 偶发超时，`--imdb-id` 查询失败时会回退到 `--title/--year`，同时提供可保证回退名称也正确
-5. **批量处理**：使用 `--batch` 时，失败的文件夹会在末尾汇总，逐一用 `--imdb-id` 补处理
+5. **批量处理**：使用 `--batch`（rename-folder）或 rename-flat 时，失败的条目会在末尾汇总，逐一用 `--imdb-id` 补处理；rename-flat 有 omdb_cache.json 缓存，重跑不重复请求
 6. **确认执行**：预览无误后去掉 `--dry-run` 加 `--yes` 执行
+7. **海报不更新**：先 `server images <路径>` 看 Jellyfin 实际用的是哪张图；若是本地旧图挡住了在线刮削，用 `de-localart` 移除后 `server refresh --replace-images`
+
+## 教训（IMDBTop250 平铺目录实战）
+
+- **本地图片/.nfo 会压制在线刮削海报**：Jellyfin 本地图片优先级高于在线刮削，
+  旧海报会永久挡住在线海报（前端表现为视频截图缩略图）。要让在线海报生效，
+  必须先用 `de-localart` 移除本地图，再刷新库。
+- **OMDb 脏数据的识别特征**：同一 api_key 会间歇返回垃圾数据。可疑特征包括
+  标题含 `(YYYY) (YYYY)` 双年份、含 `/`（会生成非法路径）、`Making of`、
+  `Unmasked`、`Live on Stage` 类字样；这些年份容差 ±2 外的候选会被自动排除/降权，
+  命中结果在终审清单中以 ⚠ 标注。文件名开头的续集序号（`2 The Godfather Part II`、
+  `5- Star Wars V-`）和尾部剪辑版标记（DC/SP/EXT/UNRATED/ReCut/Redux）会在搜索前自动清洗；
+  OMDb 年份常比文件名年份 +1（美国上映年 vs 产地年），±2 内视为正常。
+- **平铺目录的分组规则**：`TopNNN.` 这类排序前缀是分组依据，重命名时务必加
+  `--keep-prefix` 保留，否则合集顺序丢失；无前缀文件按 stem 分组，字幕等孤儿文件
+  只有 stem 能匹配上视频时才会跟随改名。
+- **影史名片直接手动 `--imdb-id` 最快**：Top250 这类名字的搜索结果候选多、
+  重拍/同名干扰大，逐部调试搜索词不如查好 IMDB ID 一次性
+  `--imdb-id TopNNN=ttXXXX` 传入，配合缓存重跑零成本。
+- **手动 IMDB ID 必须验证（血的教训）**：人工凭记忆指定的 4 个 IMDB ID 全是错的
+  （tt0406662 实际是 The Coiner；Se7en 记成 tt0113227 实际是 Die Grube，正确是
+  tt0114369）。`--imdb-id` 现在一律先 OMDb 反查比对，批量存量用 `verify` 体检。
+- **ProviderIds 缓存导致"永远刮不回来"**：Jellyfin 首次刮削后把 ProviderIds 缓存在
+  条目上，ReplaceAllMetadata 刷新也只沿用旧 ID；改文件名里的 imdbid 不会触发重新
+  识别。唯一修法是 `server identify`。
+- **nfo 回压坑**：identify Apply 前必须移走同名 .nfo，否则 Jellyfin 把当前（可能是
+  错的）元数据写回 nfo，本地 nfo 优先级最高，会把 Apply 结果再压回去（实战踩过：
+  Apply 成功 → 几分钟后被旧 nfo 覆盖回脏数据）。`server identify` 已自动处理
+  （改名为 .bak）。
+- **ItemId 会失效**：文件改名触发 Jellyfin 删除旧条目、新建条目，ItemId 随之变化。
+  所有按 ItemId 操作的流程（identify/refresh）必须在改名后重新按路径查询当前
+  ItemId，不能复用改名前缓存的。
+- **RemoteSearch 首结果可能不带 Imdb**：按 IMDB ID 搜索时，部分提供商（如 TMDb
+  中文条目）返回的结果 ProviderIds 里没有 Imdb，盲目取第一个会绑错来源——
+  `server identify` 会优先选 ProviderIds.Imdb 与目标一致的结果。
+- **对账先看 IMDB 再看名字**：DB 名与文件名中文名对不上时，若两边 IMDB ID 一致，
+  只是译名差异（无间行者/无间道风云），不是错绑；IMDB 不一致才是真正的错误绑定。
+
+## 修复工具链总结
+
+上游防止制造问题：`--imdb-id` 反查验证 + `--force-imdb` 兜底；`verify` 批量体检存量
+（含孤儿媒体文件检测）。
+出问题后的修复链：`server check` 对账找错绑 → `retag` 修正文件名里的 imdbid（只换
+标签不动其他）→ `server identify` 重新识别 → `server refresh` / `de-localart --refresh`
+刷新拉图。
 
 ## 支持的文件格式
 

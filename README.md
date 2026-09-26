@@ -166,12 +166,16 @@ FileBrowser Quantum 文件管理与传输工具。
 
 ### jellyfin
 
-Jellyfin 媒体库文件命名工具。按 Jellyfin 标准批量重命名电影/剧集文件夹和文件。
+Jellyfin 媒体库命名与服务器维护工具。按 Jellyfin 标准重命名电影/剧集，并修复错误刮削。
 
-- 当用户需要整理 Jellyfin 媒体库、重命名媒体文件夹、获取 IMDB ID 时自动激活
+- 当用户需要整理 Jellyfin 媒体库、重命名媒体文件夹、获取/校验 IMDB ID、修复海报不更新、纠正错误刮削时自动激活
 - 支持解析 BT/字幕组命名风格（点分隔、中英混合、质量标记如 `1080P.X264.AAC`）
 - `clean`：批量去除文件名中的空格，图片重命名为 poster 格式
-- `rename`：查询 OMDb API 获取 IMDB ID，重命名为 `Movie (year) [imdbid-ttXXXX]` 格式，支持电影和剧集
+- `rename-folder`：查询 OMDb API 获取 IMDB ID，重命名为 `Movie (year) [imdbid-ttXXXX]` 格式，支持电影和剧集；`--imdb-id` 先经 OMDb 反查验证防手填错
+- `rename-flat`：平铺目录（多部电影共用一个目录，如 TopNNN. 前缀合集）批量重命名，带终审清单与 OMDb 缓存
+- `verify` / `retag`：批量校验文件名中的 IMDB ID 并只替换标签修复错绑
+- `server refresh/images/identify/check`：调用 Jellyfin API 刷新媒体库、诊断海报来源、重新识别错误刮削、比对 DB 元数据与文件名
+- `de-localart`：清理本地旧海报/.nfo 让位在线刮削，可自动刷新库
 
 ### vikunja
 
@@ -215,6 +219,10 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 - [`shared/agent-config`](shared/agent-config/README.md)：`agent_config.toml` 的跨平台查找、全局兜底、显式路径、配置示例和测试模板。创建新 skill 时复制实现，运行时不依赖仓库共享目录。
 
 ## 更新记录
+
+### 2026-09-26
+
+- 升级 jellyfin skill：从单一重命名工具扩展为命名与服务器维护工具集。`rename` 更名 `rename-folder`，`--imdb-id` 新增 OMDb 反查验证（防人工记错 ID）与 `--force-imdb` 兜底；新增 `rename-flat`（平铺目录批量重命名，含 omdb_cache.json 缓存与 OMDb 脏数据过滤）、`verify`/`retag`（存量错绑体检与只换标签修复）、`server refresh/images/identify/check`（Jellyfin API 刷新、海报诊断、重新识别、DB 对账）与 `de-localart`（清理本地旧图/.nfo 让位在线刮削）；配置支持 `[jellyfin]` 根段与 `~/.agents/agent_config.toml` 兜底，补充 `agent_config.example.toml`，SKILL.md 重写并收录实战教训。
 
 ### 2026-09-22
 
