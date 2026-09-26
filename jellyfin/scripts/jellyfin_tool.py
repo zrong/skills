@@ -943,6 +943,218 @@ def rename_flat(directory, keep_prefix, imdb_overrides, force_imdb, excludes, no
 
 
 # ---------------------------------------------------------------------------
+# server：Jellyfin API 集成（配置在 [jellyfin] 根段的 base_url/api_key）
+# ---------------------------------------------------------------------------
+
+@cli.group()
+def server():
+    """Jellyfin 服务器 API 操作（需要 [jellyfin] 的 base_url/api_key）。"""
+
+
+def _server_client() -> httpx.Client:
+    cfg = _find_config()
+    base_url, api_key = _get_server_config(cfg)
+    if not base_url or not api_key:
+        click.echo(
+            "错误：未配置 Jellyfin 服务器。请在 agent_config.toml 的 [jellyfin] 段添加：\n"
+            '  base_url = "http://localhost:8096"\n'
+            '  api_key = "<控制台 → 高级 → API 密钥 生成的 key>"',
+            err=True,
+        )
+        sys.exit(1)
+    return httpx.Client(
+        base_url=base_url,
+        timeout=30.0,
+        headers={
+            "Authorization": (
+                f'MediaBrowser Token="{api_key}", Client="jellyfin-tool", '
+                'Device="jellyfin-tool", DeviceId="jellyfin-tool", Version="1.0"'
+            )
+        },
+    )
+
+
+def _server_request(client: httpx.Client, method: str, url: str, **kw) -> httpx.Response:
+    try:
+        r = client.request(method, url, **kw)
+    except httpx.ConnectError:
+        click.echo(f"错误：无法连接 Jellyfin 服务器 ({client.base_url})", err=True)
+        sys.exit(1)
+    if r.status_code in (401, 403):
+        click.echo("错误：Jellyfin 认证失败，请检查 [jellyfin] api_key（控制台 → 高级 → API 密钥）", err=True)
+        sys.exit(1)
+    if r.status_code >= 400:
+        click.echo(f"Jellyfin API 错误：{method} {url} → HTTP {r.status_code} {r.text[:200]}", err=True)
+        sys.exit(1)
+    return r
+
+
+def _first_user_id(client: httpx.Client) -> str:
+    users = _server_request(client, 'GET', '/Users').json()
+    if not users:
+        click.echo("错误：Jellyfin 服务器上没有用户", err=True)
+        sys.exit(1)
+    return users[0]['Id']
+
+
+def _server_refresh(library: str, replace_metadata: bool, replace_images: bool) -> None:
+    """按库名或路径找到媒体库并触发全量刷新。"""
+    client = _server_client()
+    folders = _server_request(client, 'GET', '/Library/VirtualFolders').json()
+    lib_norm = library.rstrip('/\\').lower()
+    target = None
+    for vf in folders:
+        name = (vf.get('Name') or '').lower()
+        locs = [str(l).rstrip('/\\').lower() for l in (vf.get('Locations') or [])]
+        if name == lib_norm or lib_norm in locs or any(
+                l.endswith('/' + lib_norm) or lib_norm.endswith('/' + l) for l in locs):
+            target = vf
+            break
+    if target is None:
+        click.echo(f"错误：找不到库「{library}」。可用库：", err=True)
+        for vf in folders:
+            click.echo(f"  - {vf.get('Name')}  ({', '.join(vf.get('Locations') or [])})", err=True)
+        sys.exit(1)
+
+    item_id = target.get('ItemId')
+    if not item_id:
+        uid = _first_user_id(client)
+        views = _server_request(client, 'GET', f'/Users/{uid}/Views').json()
+        for it in views.get('Items', []):
+            if (it.get('Name') or '').lower() == (target.get('Name') or '').lower():
+                item_id = it['Id']
+                break
+    if not item_id:
+        click.echo(f"错误：无法解析库「{target.get('Name')}」的 ItemId", err=True)
+        sys.exit(1)
+
+    params = {
+        'Recursive': 'true',
+        'MetadataRefreshMode': 'FullRefresh',
+        'ImageRefreshMode': 'FullRefresh',
+    }
+    if replace_metadata:
+        params['ReplaceAllMetadata'] = 'true'
+    if replace_images:
+        params['ReplaceAllImages'] = 'true'
+    _server_request(client, 'POST', f'/Items/{item_id}/Refresh', params=params)
+    click.echo(f"已触发刷新：{target.get('Name')} (ItemId={item_id})")
+
+
+@server.command(name='refresh')
+@click.argument('library')
+@click.option('--replace-metadata', is_flag=True, help='附加 ReplaceAllMetadata=true（替换全部元数据）')
+@click.option('--replace-images', is_flag=True, help='附加 ReplaceAllImages=true（替换全部图片）')
+def server_refresh(library, replace_metadata, replace_images):
+    """对指定库（库名或路径）触发 POST /Items/{id}/Refresh 全量刷新。"""
+    _server_refresh(library, replace_metadata, replace_images)
+
+
+@server.command(name='images')
+@click.argument('path')
+def server_images(path):
+    """列出某目录下所有电影的 ImageInfos，用于诊断「海报为什么没更新」。"""
+    client = _server_client()
+    uid = _first_user_id(client)
+    prefix = path.rstrip('/\\').replace('\\', '/')
+    matched = []
+    start = 0
+    while True:
+        d = _server_request(client, 'GET', f'/Users/{uid}/Items', params={
+            'Recursive': 'true', 'IncludeItemTypes': 'Movie',
+            'Fields': 'Path,ProductionYear', 'StartIndex': start, 'Limit': 500,
+        }).json()
+        items = d.get('Items', [])
+        for it in items:
+            p = (it.get('Path') or '').replace('\\', '/')
+            if p == prefix or p.startswith(prefix + '/'):
+                matched.append(it)
+        start += len(items)
+        if not items or start >= d.get('TotalRecordCount', 0):
+            break
+    if not matched:
+        click.echo(f"该目录下没有匹配到电影：{path}")
+        return
+    click.echo(f"共 {len(matched)} 部电影：")
+    for it in matched:
+        infos = _server_request(client, 'GET', f"/Items/{it['Id']}/Images").json()
+        click.echo(f"\n{it.get('Name')} ({it.get('ProductionYear') or '?'})")
+        click.echo(f"  路径：{it.get('Path')}")
+        if not infos:
+            click.echo("  (无图片)")
+        for info in infos:
+            size_kb = (info.get('Size') or 0) / 1024
+            wh = f"{info.get('Width') or '?'}x{info.get('Height') or '?'}"
+            click.echo(f"  {str(info.get('ImageType')):<10} {wh:>9}  {size_kb:>6.0f} KB  {info.get('Path') or ''}")
+
+
+# ---------------------------------------------------------------------------
+# de-localart：本地旧图/.nfo 让位在线刮削
+# ---------------------------------------------------------------------------
+
+LOCALART_SUFFIX = re.compile(r'-(poster|backdrop|landscape|logo|fanart\d*)$', re.IGNORECASE)
+
+
+@cli.command(name='de-localart')
+@click.argument('directory', default='.', type=click.Path(exists=True, file_okay=False))
+@click.option('--delete', 'do_delete', is_flag=True, help='直接删除而不是移动到备份目录')
+@click.option('--refresh', 'do_refresh', is_flag=True, help='完成后直接调用 server refresh 刷新库（拉取在线图）')
+@click.option('--yes', '-y', is_flag=True, help='跳过确认，直接执行')
+@click.option('--dry-run', is_flag=True, help='只预览，不执行')
+def de_localart(directory, do_delete, do_refresh, yes, dry_run):
+    """移除本地旧图和 .nfo，让位给 Jellyfin 在线刮削。
+
+    Jellyfin 本地图片优先级高于在线刮削，旧海报会永久挡住在线海报（前端表现为
+    视频截图缩略图）。本命令把目录（含子目录）下匹配
+    -(poster|backdrop|landscape|logo|fanart) 的图片（含 extrafanart/ 目录内的）
+    和所有 .nfo 移动到 <目录>_oldart_backup/（默认）或用 --delete 直接删除。
+    """
+    base = Path(directory).resolve()
+    backup = base.parent / f"{base.name}_oldart_backup"
+    targets = []
+    for f in sorted(base.rglob('*')):
+        if not f.is_file():
+            continue
+        ext = f.suffix.lower()
+        if ext == '.nfo':
+            targets.append(f)
+        elif ext in IMAGE_EXTS and (LOCALART_SUFFIX.search(f.stem)
+                                    or f.parent.name.lower() == 'extrafanart'):
+            targets.append(f)
+
+    if not targets:
+        click.echo("没有找到本地图片或 .nfo 文件。")
+        return
+    action = "删除" if do_delete else f"移动到 {backup}/"
+    click.echo(f"共 {len(targets)} 个文件将被{action}：")
+    for f in targets:
+        click.echo(f"  {f.relative_to(base)}")
+
+    if dry_run:
+        click.echo("[预览模式，未执行]")
+        return
+    if not yes:
+        if click.prompt("确认执行？[y/N]", default='N').lower() != 'y':
+            click.echo("已取消。")
+            return
+    for f in targets:
+        if do_delete:
+            f.unlink()
+        else:
+            dst = backup / f.relative_to(base)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(f), str(dst))
+    click.echo("完成。")
+
+    if do_refresh:
+        _server_refresh(str(base), replace_metadata=False, replace_images=True)
+    else:
+        click.echo("\n提示：请刷新库以拉取在线海报（本地图片已让位）：")
+        click.echo(f'  jellyfin_tool.py server refresh "{base}" --replace-images')
+        click.echo("  或重跑本命令时加 --refresh 自动刷新。")
+
+
+# ---------------------------------------------------------------------------
 # verify：批量校验文件名中的 [imdbid-ttXXX] 与 OMDb 反查是否匹配
 # ---------------------------------------------------------------------------
 
@@ -1182,6 +1394,252 @@ def retag(path, mappings, force_imdb, yes, dry_run):
             click.echo(f"⚠ 另有 {rejected} 个映射被验证拒绝，未执行。", err=True)
         sys.exit(1)
 
+
+# ---------------------------------------------------------------------------
+# server identify / check：错误刮削修复工具链
+# ---------------------------------------------------------------------------
+
+
+def _all_movies_by_path(client: httpx.Client, uid: str) -> dict[str, dict]:
+    """拉取全部电影（含 Path/ProviderIds/ProductionYear），按规范化路径建索引。
+
+    文件改名会让 Jellyfin 删除旧条目、新建条目，ItemId 随之变化——所以任何
+    按 ItemId 的操作（identify/refresh）都必须实时按路径查询当前条目，
+    不能复用改名前缓存的 ItemId。
+    """
+    items: dict[str, dict] = {}
+    start = 0
+    while True:
+        d = _server_request(client, 'GET', f'/Users/{uid}/Items', params={
+            'Recursive': 'true', 'IncludeItemTypes': 'Movie',
+            'Fields': 'Path,ProductionYear,ProviderIds', 'StartIndex': start, 'Limit': 500,
+        }).json()
+        batch = d.get('Items', [])
+        for it in batch:
+            p = (it.get('Path') or '').replace('\\', '/')
+            if p:
+                items[p] = it
+        start += len(batch)
+        if not batch or start >= d.get('TotalRecordCount', 0):
+            break
+    return items
+
+
+def _find_item_for_file(items: dict[str, dict], local: Path):
+    """按服务器路径精确匹配本地文件对应的条目；本地挂载点与服务器路径不一致时
+    （如 macOS 挂载 SMB 到 /Volumes/xxx），退化为按文件名匹配（要求唯一）。"""
+    norm = str(local).replace('\\', '/')
+    if norm in items:
+        return items[norm]
+    hits = [it for p, it in items.items() if p.rsplit('/', 1)[-1] == local.name]
+    return hits[0] if len(hits) == 1 else None
+
+
+@server.command(name='identify')
+@click.argument('path', type=click.Path(exists=True))
+@click.option('--imdb-id', 'imdb_id', default=None,
+              help='手动指定 IMDB ID；不传则从文件名的 [imdbid-ttXXX] 读取（目录模式必须如此）')
+@click.option('--yes', '-y', is_flag=True, help='跳过确认，直接执行')
+@click.option('--dry-run', is_flag=True, help='只预览，不执行')
+def server_identify(path, imdb_id, yes, dry_run):
+    """纠正错误刮削：通过「识别」流程把条目重新绑定到正确的 IMDB ID。
+
+    Jellyfin 首次刮削后会把 ProviderIds 缓存在条目上，之后 ReplaceAllMetadata
+    刷新也只沿用旧 ID；改文件名里的 imdbid 不会触发重新识别，必须走识别流程：
+    取 ProviderIds.Imdb 与目标一致的首个结果，再 POST /Items/RemoteSearch/Apply/{itemId}。
+
+    Apply 前会先移走同名 .nfo（改名为 .bak）：否则 Jellyfin 会把当前（可能是错的）
+    元数据写回 nfo，本地 nfo 优先级最高，会把 Apply 的结果再压回去。
+
+    传目录时批量处理目录下所有文件名带 [imdbid-ttXXX] 的视频。
+    """
+    p = Path(path).resolve()
+    targets: list[tuple[Path, str]] = []
+    if p.is_dir():
+        if imdb_id:
+            click.echo("错误：目录模式从每个文件名读取 [imdbid-ttXXX]，不接受 --imdb-id", err=True)
+            sys.exit(1)
+        for f in sorted(p.iterdir()):
+            if f.is_file() and f.suffix.lower() in VIDEO_EXTS:
+                m = IMDB_TAG.search(f.name)
+                if m:
+                    targets.append((f, m.group(1)))
+        if not targets:
+            click.echo("目录下没有文件名带 [imdbid-ttXXX] 的视频。")
+            return
+    else:
+        tid = imdb_id
+        if not tid:
+            m = IMDB_TAG.search(p.name)
+            tid = m.group(1) if m else None
+        if not tid:
+            click.echo("错误：文件名中没有 [imdbid-ttXXX]，请用 --imdb-id 指定", err=True)
+            sys.exit(1)
+        targets.append((p, tid))
+
+    client = _server_client()
+    uid = _first_user_id(client)
+    items = _all_movies_by_path(client, uid)
+
+    plan = []
+    for f, tid in targets:
+        parsed = _parse_renamed_name(f.stem)
+        item = _find_item_for_file(items, f)
+        plan.append((f, tid, parsed, item))
+
+    click.echo(f"共 {len(plan)} 个识别任务：")
+    for f, tid, parsed, item in plan:
+        hint = f"{parsed['eng_title'] or parsed['cjk_title']} ({parsed['year'] or '?'})"
+        if item:
+            click.echo(f"  {f.name}\n    当前 DB：{item.get('Name')} ({item.get('ProductionYear') or '?'})"
+                       f" [{((item.get('ProviderIds') or {}).get('Imdb')) or '无 imdb'}]"
+                       f"\n    识别为：{hint} [{tid}]")
+        else:
+            click.echo(f"  {f.name}\n    识别为：{hint} [{tid}]  ⚠ 库中未找到对应条目（需先扫库）")
+
+    if dry_run:
+        click.echo("[预览模式，未执行]")
+        return
+    if not yes:
+        if click.prompt("\n确认执行识别？[y/N]", default='N').lower() != 'y':
+            click.echo("已取消。")
+            return
+
+    failures = []
+    for f, tid, parsed, item in plan:
+        if not item:
+            click.echo(f"✗ {f.name}：库中未找到对应条目，跳过（先 server refresh 扫库）", err=True)
+            failures.append(f.name)
+            continue
+        # 1) Apply 前移走同名 .nfo，防止旧元数据回压
+        nfo = f.with_suffix('.nfo')
+        if nfo.exists():
+            bak = nfo.with_name(nfo.name + '.bak')
+            shutil.move(str(nfo), str(bak))
+            click.echo(f"  已移走同名 nfo → {bak.name}")
+        # 2) RemoteSearch：IMDB ID + 文件名解析出的 Name/Year 提示
+        search_info: dict = {'ProviderIds': {'Imdb': tid}}
+        if parsed['eng_title'] or parsed['cjk_title']:
+            search_info['Name'] = parsed['eng_title'] or parsed['cjk_title']
+        if parsed['year']:
+            search_info['Year'] = parsed['year']
+        results = _server_request(client, 'POST', '/Items/RemoteSearch/Movie',
+                                  json={'SearchInfo': search_info}).json()
+        if not results:
+            click.echo(f"✗ {f.name}：RemoteSearch 无结果（{tid}）", err=True)
+            failures.append(f.name)
+            continue
+        # 优先取 ProviderIds.Imdb 与目标一致的结果（首结果可能来自无 Imdb 的提供商）
+        best = next((r for r in results
+                     if (r.get('ProviderIds') or {}).get('Imdb', '').lower() == tid.lower()),
+                    results[0])
+        # 3) Apply 第一个结果（不替换现有图片）
+        _server_request(client, 'POST', f"/Items/RemoteSearch/Apply/{item['Id']}",
+                        params={'replaceAllImages': 'false'}, json=best)
+        click.echo(f"✓ {f.name}\n    → {best.get('Name')} ({best.get('ProductionYear') or '?'}) [{tid}]")
+
+    click.echo("\n提示：旧 nfo 已备份为 .bak；待 Jellyfin 用新元数据重新生成 nfo 后可删除 .bak。")
+    if failures:
+        click.echo(f"失败 {len(failures)} 个：")
+        for n in failures:
+            click.echo(f"  - {n}")
+        sys.exit(1)
+
+
+@server.command(name='check')
+@click.argument('directory', type=click.Path(exists=True, file_okay=False))
+def server_check(directory):
+    """诊断对账：批量比对 Jellyfin DB 元数据 vs 文件名。
+
+    输出三类结果：
+    ✗ 脏标题/错误绑定（DB 名与文件名完全对不上、IMDB 错绑）或年份偏差 ≥2
+      （如 12 Angry Men 刮成 1997 电视电影版）→ 需 server identify 修复
+    ⚠ 年份偏差 ±1（产地年 vs 发行年，正常，仅标注）
+    ✓ 正常
+    """
+    base = Path(directory).resolve()
+    files = [f for f in sorted(base.iterdir())
+             if f.is_file() and f.suffix.lower() in VIDEO_EXTS]
+    if not files:
+        click.echo("目录下没有视频文件。")
+        return
+    client = _server_client()
+    uid = _first_user_id(client)
+    items = _all_movies_by_path(client, uid)
+
+    need_identify = []
+    year_notes = []
+    trans_notes = []
+    missing = []
+    ok_count = 0
+    for f in files:
+        parsed = _parse_renamed_name(f.stem)
+        if not parsed['eng_title'] and not parsed['cjk_title']:
+            fp = _parse_folder_name(f.stem)
+            parsed['eng_title'], parsed['cjk_title'] = fp['eng_title'], fp['cjk_title']
+            parsed['year'] = parsed['year'] or fp['year']
+        label = parsed['cjk_title'] or parsed['eng_title'] or f.stem
+        item = _find_item_for_file(items, f)
+        if item is None:
+            missing.append(f.name)
+            continue
+        db_name = item.get('Name') or ''
+        db_year = item.get('ProductionYear')
+        db_imdb = (item.get('ProviderIds') or {}).get('Imdb') or ''
+        fn_imdb = parsed['imdb_id'] or ''
+        name_ok = bool(
+            (parsed['cjk_title'] and (parsed['cjk_title'] in db_name or db_name in parsed['cjk_title']))
+            or (parsed['eng_title'] and _titles_match(parsed['eng_title'], db_name)))
+        year_diff = abs(db_year - parsed['year']) if (parsed['year'] and db_year) else 0
+        imdb_same = bool(fn_imdb and db_imdb and fn_imdb.lower() == db_imdb.lower())
+
+        problems = []
+        if fn_imdb and db_imdb and not imdb_same:
+            # 错绑：文件名 id 与 DB ProviderIds.Imdb 不一致（如七宗罪刮成 Die Grube）
+            problems.append(f"IMDB 错绑：文件 {fn_imdb} vs DB {db_imdb}")
+        if not name_ok and (parsed['cjk_title'] or parsed['eng_title']):
+            if imdb_same:
+                # IMDB 一致只是译名不同（无间行者/无间道风云），不是错绑
+                trans_notes.append(f"  {label}：文件译名 vs DB「{db_name}」")
+            else:
+                problems.append(
+                    f"标题不符：文件「{parsed['cjk_title']} {parsed['eng_title']}」vs DB「{db_name}」")
+        if year_diff:
+            if imdb_same or year_diff == 1:
+                # 产地年 vs 发行年口径差异（同 IMDB 时不代表错绑，如千与千寻 2001/2003）
+                year_notes.append(f"  {label}：文件 {parsed['year']} vs DB {db_year}")
+            else:
+                problems.append(f"年份偏差 {year_diff} 年：文件 {parsed['year']} vs DB {db_year}（可能错绑版本）")
+        if problems:
+            need_identify.append((f, label, db_name, db_year, db_imdb, problems))
+        else:
+            ok_count += 1
+
+    click.echo(f"\n{'='*60}\n对账结果：{base}（{len(files)} 个视频）\n{'='*60}")
+    click.echo(f"✓ 正常：{ok_count} 部")
+    if year_notes:
+        click.echo(f"\n⚠ 年份口径差异（产地年 vs 发行年，无需处理）：{len(year_notes)} 部")
+        for n in year_notes:
+            click.echo(n)
+    if trans_notes:
+        click.echo(f"\nℹ 译名差异（IMDB 一致，无需处理）：{len(trans_notes)} 部")
+        for n in trans_notes:
+            click.echo(n)
+    if missing:
+        click.echo(f"\n? 未入库/未扫描：{len(missing)} 部（先 server refresh 扫库）")
+        for n in missing:
+            click.echo(f"  {n}")
+    if need_identify:
+        click.echo(f"\n✗ 需要 identify 修复：{len(need_identify)} 部")
+        for f, label, db_name, db_year, db_imdb, problems in need_identify:
+            click.echo(f"\n  {label}：DB「{db_name}」({db_year or '?'}) [{db_imdb or '无 imdb'}]")
+            for prob in problems:
+                click.echo(f"    ⚠ {prob}")
+            if f.stem and IMDB_TAG.search(f.stem):
+                click.echo(f'    修复：jellyfin_tool.py server identify "{f}"')
+            else:
+                click.echo(f'    修复：jellyfin_tool.py server identify "{f}" --imdb-id ttXXXXXXX')
+        sys.exit(1)
 
 
 if __name__ == '__main__':
