@@ -19,6 +19,53 @@ SUBTITLE_EXTS = {".srt", ".ass", ".ssa", ".sub", ".vtt"}
 EPISODE_PATTERN = re.compile(r'(?:EP?|S\d+E?)(\d+)(?:[_\-](?:EP?|E)?(\d+))?', re.IGNORECASE)
 SEASON_PATTERN = re.compile(r'S(\d+)E\d+', re.IGNORECASE)
 YEAR_PATTERN = re.compile(r'^(19|20)\d{2}$')
+CD_MARKER = re.compile(r'(?:^|[-._\s\[\]一-鿿㐀-䶿])(cd|disc|dvd|part|pt)\s*(\d{1,2})(?=[-._\s\[\]]|$)', re.IGNORECASE)
+
+# BT 组喜欢在标题后塞中文质量词，CJK 提取时会粘进标题（「真实的谎言.BD中英双字1024高清」
+# → 中文名变成「真实的谎言中英双字高清」），搜索前必须剥掉
+CJK_NOISE = ['中英双字', '国英双语', '国粤双语', '国语中字', '中英字幕', '中文字幕', '导演剪辑版',
+             '终极剪辑版', '未删减版', '无删减版', '修复版', '完整版', '加长版', '终极版', '收藏版',
+             '纪念版', '重制版', '特别版', '抢先版', '清晰版', '纯净版', '剪辑版', '中西双字',
+             '精译版', '无水印', '国语四川话', '国英台粤', '英国粤台', '国粤日', '国粤', '国英',
+             '佛兰芒语', '西班牙', '葡萄牙', '意大利', '俄罗斯', '波兰语', '印度语', '无删减',
+             '未删减', '中文', '国语', '粤语', '英语', '日语', '韩语', '泰语', '法语', '德语',
+             '双字', '双语', '三语', '四语', '中字', '字幕', '中英', '配音', '特效', '超清',
+             '高清', '标清', '蓝光', '熟肉', '生肉', '台版', '英版', '美版', '韩版', '日版',
+             '港版', '修正']
+
+
+def _strip_cjk_noise(s: str) -> str:
+    """反复剥掉 CJK 标题里的质量/版本/语言噪声词（长的先剥，剥到不动为止）。"""
+    orig = s
+    prev = None
+    while prev != s:
+        prev = s
+        for w in CJK_NOISE:
+            s = s.replace(w, '')
+    if s != orig and s.endswith('版'):
+        s = s[:-1]  # 「中英双字版」剥完剩下的孤零零的「版」
+    return s
+
+
+# 英文侧的发布质量噪声：分辨率/编码/来源/语言标签等。整体可拼接匹配
+# （「BD1024」= BD+1024、「HD1280」= HD+1280 也视为噪声）。
+# 注意：纯数字仅 4 位以上或带 p/bit/k 后缀才算噪声，避免误杀「300」「9」这类片名
+ENG_NOISE = re.compile(
+    r'(?:\d{3,4}x\d{3,4}|\d{4,}(?:p|bit|k)?|\d+(?:p|bit|k)|\d+\.\d+|'
+    r'bd|hd|dvd|web|web-?dl|hdrip|bdrip|dvdrip|webrip|hdtv|blu-?ray|remux|'
+    r'xvid|divx|x26[45]|h\.?26[45]|avc|hevc|aac|ac3|eac3|mp3|dts|flac|'
+    r'3d|imax|extended|proper|repack|r5|cam|tc|ts|mp4|mkv|avi|scr|screener|ppv|hdcam|'
+    r'chs|cht|chn|zho|eng|jpn|kor|subs?)*', re.IGNORECASE)
+
+
+def _is_eng_noise(token: str) -> bool:
+    return bool(token) and bool(ENG_NOISE.fullmatch(token))
+
+
+def _cd_marker(stem: str) -> str | None:
+    """文件名中的碟片标记（cd1/disc2/part3，可在任意 token 位置），返回规范化小写如 'cd1'。"""
+    m = CD_MARKER.search(stem)
+    return f"{m.group(1).lower()}{m.group(2)}" if m else None
 
 
 def _find_config() -> dict:
@@ -253,7 +300,11 @@ def _query_omdb_smart_uncached(title: str, year: int | None, base_url: str, api_
 
 def _parse_folder_name(name: str) -> dict:
     """解析 BT/字幕组风格的文件夹名，提取标题、年份、媒体类型和集数信息。"""
-    tokens = re.split(r'[._]+', name.strip())
+    # […] 标签、国家/地区标记（美）(韩)、重复副本标记「复制(1)」都不是标题，剥掉
+    name = re.sub(r'\[[^\]]*\]', ' ', name.strip())
+    name = re.sub(r'[（(](?:美|韩|日|港|台|法|国|英|泰|俄|印|意|德|西)[）)]', ' ', name)
+    name = re.sub(r'[-_]?复制\s*[（(]\d+[）)]\s*$', '', name)
+    tokens = re.split(r'[._\s]+', name)
 
     year = None
     year_idx = None
@@ -262,6 +313,12 @@ def _parse_folder_name(name: str) -> dict:
             year = int(t)
             year_idx = i
             break
+    if year is None:
+        # 括号年份：「阿波罗11号 Apollo 11 (2019)」
+        m = re.search(r'\((\d{4})\)', name)
+        if m and YEAR_PATTERN.match(m.group(1)):
+            year = int(m.group(1))
+            tokens = [re.sub(r'\(\d{4}\)', ' ', t) for t in tokens]
 
     title_tokens = tokens[:year_idx] if year_idx is not None else tokens
     after_tokens = tokens[year_idx + 1:] if year_idx is not None else []
@@ -269,12 +326,40 @@ def _parse_folder_name(name: str) -> dict:
     cjk_parts = []
     eng_parts = []
     for t in title_tokens:
-        if re.fullmatch(r'[一-鿿㐀-䶿]+\d+', t):
-            # 「教父2」「大话西游2」：CJK 后紧跟的数字是续集序号，属于中文标题
-            cjk_parts.append(t)
+        if not t.strip():
             continue
-        cjk = re.sub(r'[^一-鿿㐀-䶿]', '', t)
-        eng = re.sub(r'[一-鿿㐀-䶿]', '', t).strip()
+        m = re.match(r'^(.*?[一-鿿㐀-䶿A-Za-z])[-–—]((?:19|20)\d{2})$', t)
+        if m:
+            # 尾部粘连年份：「X特遣队：全员集结-2021」「黑豹2-2022」
+            if year is None:
+                year = int(m.group(2))
+            t = m.group(1)
+        m = re.match(r'^((?:19|20)\d{2})([一-鿿㐀-䶿].*)$', t)
+        if m:
+            # 粘连年份前缀：「2013终极神差」→ 年份 2013 + 中文名 终极神差
+            if year is None:
+                year = int(m.group(1))
+            c = _strip_cjk_noise(m.group(2))
+            if c:
+                cjk_parts.append(c)
+            continue
+        if re.search(r'[一-鿿㐀-䶿]', t) and not re.search(r'[A-Za-z]', t):
+            # 纯 CJK+数字 token，整个属于中文片名：「教父2」「阿波罗11号」「12只猴子」
+            c = _strip_cjk_noise(t)
+            if c:
+                cjk_parts.append(c)
+            continue
+        raw_cjk = re.sub(r'[^一-鿿㐀-䶿：·，。！？（）、—…「」『』]', '', t)
+        cjk = _strip_cjk_noise(raw_cjk)
+        eng = re.sub(r'^[^0-9A-Za-z]+|[^0-9A-Za-z]+$', '',
+                     re.sub(r'[一-鿿㐀-䶿]', '', t)).strip()
+        if cjk and eng and (len(eng) <= 2 or (len(eng) == 3 and re.search(r'\d', eng))):
+            # 混合短尾/短头 token：「食人鱼3D」「3D豪情」「X特遣队」—— eng 部分是片名
+            # 而非质量标记，按原始顺序合并（前缀就前置，后缀就后置）
+            cjk = (eng + cjk) if re.match(r'^[0-9A-Za-z]', t) else (cjk + eng)
+            eng = ''
+        if _is_eng_noise(eng):
+            eng = ''
         if cjk:
             cjk_parts.append(cjk)
         if eng:
@@ -547,8 +632,15 @@ def _rename_one(
 ) -> bool:
     """处理单个文件夹的重命名，返回 True 表示成功。"""
     parsed = _parse_folder_name(folder.name)
-    search_title = title_override or _clean_search_title(parsed['eng_title']) or parsed['cjk_title']
+    search_title = title_override or parsed['eng_title'] or parsed['cjk_title']
     year = year_override or parsed['year']
+    if year is None:
+        # 文件夹名无年份时，尝试从内部视频文件名解析（如「三个白痴/…2009…cd1.avi」）
+        for vf in sorted(folder.iterdir()):
+            if vf.is_file() and vf.suffix.lower() in VIDEO_EXTS:
+                year = _parse_folder_name(vf.stem)['year']
+                if year:
+                    break
     actual_type = parsed['media_type'] if media_type == 'auto' else media_type
 
     click.echo(
@@ -613,6 +705,9 @@ def _rename_one(
     video_renames: list[tuple[Path, Path]] = []
     poster_done = False
     fanart_count = 0
+    videos = [f for f in sorted(folder.iterdir())
+              if f.is_file() and f.suffix.lower() in VIDEO_EXTS]
+    multi_video = len(videos) > 1
     for f in sorted(folder.iterdir()):
         if f.is_dir():
             continue
@@ -624,6 +719,14 @@ def _rename_one(
                     new_name = _ep_filename(display_title, parsed['season'], ep, ep_end_local, f.suffix)
                 else:
                     new_name = f.name
+            elif multi_video:
+                # 多 CD/多碟电影：带碟片标记的加 " - cdN" 后缀（Jellyfin 堆叠识别）；
+                # 无标记的（sample/花絮/不同版本）跳过，避免同名互相覆盖
+                marker = _cd_marker(f.stem)
+                if not marker:
+                    click.echo(f"  跳过（多视频目录中无碟片标记）：{f.name}")
+                    continue
+                new_name = f"{new_folder_name} - {marker}{f.suffix}"
             else:
                 new_name = f"{new_folder_name}{f.suffix}"
             file_renames.append((f, folder / new_name))
@@ -703,7 +806,11 @@ def _flat_groups(base: Path) -> list[dict]:
             key = 'p:' + _norm_key(prefix)
         else:
             prefix = ''
-            key = 's:' + IMG_SUFFIX.sub('', f.stem).lower()
+            key_stem = IMG_SUFFIX.sub('', f.stem)
+            # 尾部碟片标记不参与分组：大鱼cd1 / 大鱼cd2 是同一部电影
+            key_stem = re.sub(r'(?:cd|disc|dvd|part|pt)\s*\d{1,2}$', '', key_stem,
+                              flags=re.IGNORECASE).rstrip('._- ')
+            key = 's:' + key_stem.lower()
         g = groups.setdefault(key, {'prefix': prefix, 'files': []})
         if prefix and not g['prefix']:
             g['prefix'] = prefix
@@ -776,15 +883,20 @@ def rename_flat(directory, keep_prefix, imdb_overrides, force_imdb, excludes, no
         video = g['videos'][0]
         prefix = g['prefix']
         label = prefix or video.stem
+        multi_video = len(g['videos']) > 1
         if _norm_key(label) in excluded:
             click.echo(f"跳过（--exclude）：{label}")
             continue
-        if len(g['videos']) > 1:
-            click.echo(f"警告：{label} 组内有 {len(g['videos'])} 个视频，使用 {video.name}")
+        if multi_video:
+            click.echo(f"提示：{label} 组内有 {len(g['videos'])} 个视频，按碟片标记加 - cdN 后缀")
 
         stem = video.stem
         if prefix and stem.startswith(prefix):
             stem = stem[len(prefix):]
+        if multi_video:
+            # 多碟组：解析标题前去掉尾部碟片标记（大鱼cd1 → 大鱼）
+            stem = re.sub(r'(?:cd|disc|dvd|part|pt)\s*\d{1,2}$', '', stem,
+                          flags=re.IGNORECASE).rstrip('._- ')
         parsed = _parse_folder_name(stem)
         click.echo(f"\n{'='*60}\n处理：{label}")
         click.echo(
@@ -861,10 +973,16 @@ def rename_flat(directory, keep_prefix, imdb_overrides, force_imdb, excludes, no
         for f in sorted(g['files']):
             ext = f.suffix.lower()
             dst = None
-            if f == video:
+            if f == video and not multi_video:
                 dst = base / f"{new_stem}{f.suffix}"
             elif ext in VIDEO_EXTS:
-                click.echo(f"  跳过（组内额外视频）：{f.name}")
+                # 多 CD/多碟电影：带碟片标记的加 " - cdN" 后缀（Jellyfin 堆叠识别）；
+                # 无标记的（sample/花絮/不同版本）跳过，避免同名互相覆盖
+                marker = _cd_marker(f.stem)
+                if marker:
+                    dst = base / f"{new_stem} - {marker}{f.suffix}"
+                else:
+                    click.echo(f"  跳过（多视频组中无碟片标记）：{f.name}")
             elif ext in IMAGE_EXTS:
                 m = IMG_SUFFIX.search(f.stem)
                 if m:
@@ -907,11 +1025,13 @@ def rename_flat(directory, keep_prefix, imdb_overrides, force_imdb, excludes, no
             d.exists() and d not in srcs and
             not warnings.append(f"目标已存在，跳过：{d.name}"))]
 
-        new_video_name = f"{new_stem}{video.suffix}"
-        click.echo(f"  视频：{video.name}\n     → {new_video_name}")
+        v_renames = [(s, d) for s, d in renames if s.suffix.lower() in VIDEO_EXTS]
+        new_video_name = (v_renames[0][1].name if len(v_renames) == 1
+                          else (f"{new_stem} - cdN（{len(v_renames)} 碟）" if v_renames
+                                else f"{new_stem}{video.suffix}"))
         for s, d in renames:
-            if s != video:
-                click.echo(f"  跟随：{s.name}\n     → {d.name}")
+            tag = "视频" if s.suffix.lower() in VIDEO_EXTS else "跟随"
+            click.echo(f"  {tag}：{s.name}\n     → {d.name}")
         for w in warnings:
             click.echo(f"  ⚠ {w}")
         review.append((label, new_video_name, warnings))
