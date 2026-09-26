@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Jellyfin 媒体库文件重命名工具。"""
 
+import difflib
+import json
 import os
 import re
+import shutil
 import sys
 import click
 import httpx
@@ -29,6 +32,7 @@ def _find_config() -> dict:
         if (parent / ".git").exists():
             candidates.append(parent / "agent_config.toml")
             break
+    candidates.append(Path.home() / ".agents" / "agent_config.toml")
     for candidate in candidates:
         if candidate.exists():
             try:
@@ -51,6 +55,198 @@ def _get_omdb_config(cfg: dict) -> tuple[str, str]:
     return base_url, api_key
 
 
+def _get_server_config(cfg: dict) -> tuple[str, str]:
+    """从 [jellyfin] 根段提取 Jellyfin 服务器 base_url 和 api_key（server/de-localart --refresh 用）。"""
+    return cfg.get("base_url", "").rstrip("/"), cfg.get("api_key", "")
+
+
+# ---------------------------------------------------------------------------
+# OMDb 脏数据防御：标题清洗 / 脏标题过滤 / 文件名 sanitize / 本地缓存
+# ---------------------------------------------------------------------------
+
+CUT_SUFFIX = re.compile(r'(?:[-._ ]+(?:DC|SP|EXT|UNRATED|RECUT|REDUX))+$', re.IGNORECASE)
+LEADING_SEQNO = re.compile(r'^\d{1,2}[-–—.\s]\s*')
+DIRTY_TITLE = re.compile(r'\(\d{4}\).*\(\d{4}\)|/|making of|unmasked|live on stage', re.IGNORECASE)
+_ILLEGAL_NAME_CHARS = re.compile(r'[/\\:*?"<>|]')
+
+
+def _clean_search_title(title: str) -> str:
+    """清洗搜索标题：去开头续集序号（"2 The Godfather Part II"、"5- Star Wars V-"）
+    和尾部剪辑版标记（DC/SP/EXT/UNRATED/ReCut/Redux）。"""
+    t = CUT_SUFFIX.sub('', (title or '').strip()).strip()
+    m = LEADING_SEQNO.match(t)
+    if m and t[m.end():].strip():
+        t = t[m.end():].strip()
+    return t.strip('-–—. ')
+
+
+def _sanitize_filename(name: str) -> str:
+    """去掉路径非法字符（如标题中的 /，否则会生成非法路径）。"""
+    return _ILLEGAL_NAME_CHARS.sub(' ', name)
+
+
+def _year_int(value) -> int | None:
+    m = re.match(r'(\d{4})', str(value or ''))
+    return int(m.group(1)) if m else None
+
+
+def _similarity(a: str, b: str) -> float:
+    return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+
+IMDB_TAG = re.compile(r'\[imdbid-(tt\d+)\]', re.IGNORECASE)
+
+
+def _titles_match(a: str, b: str, threshold: float = 0.6) -> bool:
+    """规范化后比对两个标题：互相包含或相似度达标视为同一部。"""
+    na = re.sub(r'[^a-z0-9 ]', '', (a or '').lower()).strip()
+    nb = re.sub(r'[^a-z0-9 ]', '', (b or '').lower()).strip()
+    if not na or not nb:
+        return False
+    return na in nb or nb in na or _similarity(na, nb) >= threshold
+
+
+def _check_imdb_override(imdb_id: str, eng_title: str, year: int | None,
+                         base_url: str, api_key: str, cache: 'OmdbCache | None' = None):
+    """OMDb i= 反查手动指定的 IMDB ID，与文件名解析出的标题/年份比对。
+
+    血的教训：人工凭记忆指定的 IMDB ID 极易记错（tt0406662 实际是 The Coiner，
+    Se7en 记成 tt0113227 实际是 Die Grube）。返回 (可信, 消息, info)。
+    无法反查（未配置 key / 网络失败）时返回 (True, 提示, None)，不阻塞流程。
+    """
+    info = cache.get(f"i:{imdb_id}") if cache is not None else None
+    if info is None:
+        info = _lookup_by_imdb_id(imdb_id, base_url, api_key)
+        if info and cache is not None:
+            cache.set(f"i:{imdb_id}", info)
+    if not info:
+        return True, f"无法反查 {imdb_id}（未配置 OMDb key 或网络失败），跳过验证", None
+    problems = []
+    if eng_title and not _titles_match(eng_title, info['title']):
+        problems.append(f"标题不符：文件「{eng_title}」vs OMDb「{info['title']} ({info.get('year')})」")
+    oy = _year_int(info.get('year'))
+    if year and oy and abs(oy - year) > 2:
+        problems.append(f"年份不符：文件 {year} vs OMDb {oy}")
+    if problems:
+        return False, f"IMDB ID {imdb_id} 疑似错误绑定：{'；'.join(problems)}", info
+    return True, '', info
+
+
+class OmdbCache:
+    """omdb_cache.json 本地缓存：中断/失败重跑时不重复请求已查到的结果。"""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.data: dict = {}
+        if path.exists():
+            try:
+                self.data = json.loads(path.read_text(encoding='utf-8'))
+            except Exception:
+                self.data = {}
+
+    def get(self, key: str):
+        return self.data.get(key)
+
+    def set(self, key: str, value) -> None:
+        self.data[key] = value
+        try:
+            # 原子写：先写临时文件再替换，防止进程被杀时留下半截 JSON
+            tmp = self.path.with_name(self.path.name + '.tmp')
+            tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=1), encoding='utf-8')
+            os.replace(tmp, self.path)
+        except OSError:
+            pass
+
+
+def _query_omdb_smart(title: str, year: int | None, base_url: str, api_key: str,
+                      cache: OmdbCache, no_cache: bool = False) -> dict:
+    """rename-flat 用的强化查询：标题清洗、年份 ±2 容差、脏候选过滤、本地缓存。
+
+    返回 {found, imdb_id, title, year, warning, searched, candidates}。
+    no_cache=True 时忽略已有缓存（用于 OMDb 间歇返回垃圾数据后强制重查），结果仍会覆盖写入缓存。
+    """
+    cache_key = f"q:{title}|{year or ''}"
+    if not no_cache:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+    result = _query_omdb_smart_uncached(title, year, base_url, api_key)
+    cache.set(cache_key, result)
+    return result
+
+
+def _query_omdb_smart_uncached(title: str, year: int | None, base_url: str, api_key: str) -> dict:
+    if not api_key:
+        click.echo("错误：未配置 OMDb API Key，请在 agent_config.toml 中设置 [jellyfin.omdb] api_key", err=True)
+        sys.exit(1)
+
+    titles: list[str] = []
+    for t in (title, _clean_search_title(title)):
+        t = (t or '').strip()
+        if t and t not in titles:
+            titles.append(t)
+
+    last_candidates: list[dict] = []
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            # 1) 精确匹配：原始标题优先，其次清洗后的标题（各尝试带年份/不带年份）
+            for t in titles:
+                extras = ({'y': year}, {}) if year else ({},)
+                for extra in extras:
+                    r = client.get(f"{base_url}/",
+                                   params={'apikey': api_key, 't': t, 'type': 'movie', **extra})
+                    r.raise_for_status()
+                    d = r.json()
+                    if d.get('Response') == 'True':
+                        warning = None
+                        oy = _year_int(d.get('Year'))
+                        if year and oy and abs(oy - year) > 2:
+                            warning = f"年份与原名不符：文件名 {year} vs OMDb {oy}"
+                        return {'found': True, 'imdb_id': d['imdbID'], 'title': d['Title'],
+                                'year': d['Year'].split('–')[0].strip(), 'warning': warning,
+                                'searched': t, 'candidates': []}
+            # 2) 搜索候选：过滤脏标题，年份 ±2 容差内按相似度选最优
+            for t in titles:
+                r = client.get(f"{base_url}/", params={'apikey': api_key, 's': t, 'type': 'movie'})
+                r.raise_for_status()
+                d = r.json()
+                if d.get('Response') != 'True':
+                    continue
+                candidates = [{'imdb_id': x['imdbID'], 'title': x['Title'], 'year': x.get('Year', '')}
+                              for x in d.get('Search', [])]
+                last_candidates = candidates
+                best = None
+                best_score = -1.0
+                for c in candidates:
+                    if DIRTY_TITLE.search(c['title']):
+                        continue  # 双年份 / 含 / / Making of / Unmasked / Live on Stage 直接排除
+                    cy = _year_int(c['year'])
+                    diff = abs(cy - year) if (cy and year) else None
+                    if diff is not None and diff > 2:
+                        continue  # 年份容差 ±2（美国上映年 vs 产地年常差 1）
+                    score = _similarity(t, c['title']) + (2 - diff) * 0.05 if diff is not None \
+                        else _similarity(t, c['title'])
+                    if score > best_score:
+                        best_score, best = score, c
+                if best is None:
+                    continue
+                warning = None
+                if _similarity(t, best['title']) < 0.6:
+                    warning = f"相似度低：搜索「{t}」→ 命中「{best['title']}」({best['year']})"
+                return {'found': True, 'imdb_id': best['imdb_id'], 'title': best['title'],
+                        'year': str(_year_int(best['year']) or best['year']), 'warning': warning,
+                        'searched': t, 'candidates': candidates}
+            return {'found': False, 'imdb_id': '', 'title': '', 'year': '', 'warning': None,
+                    'searched': titles[-1] if titles else title, 'candidates': last_candidates}
+
+    except httpx.ConnectError:
+        click.echo(f"错误：无法连接 OMDb API ({base_url})，请检查网络", err=True)
+        sys.exit(1)
+    except httpx.HTTPStatusError as e:
+        click.echo(f"OMDb API 错误 {e.response.status_code}", err=True)
+        sys.exit(1)
+
+
 def _parse_folder_name(name: str) -> dict:
     """解析 BT/字幕组风格的文件夹名，提取标题、年份、媒体类型和集数信息。"""
     tokens = re.split(r'[._]+', name.strip())
@@ -69,6 +265,10 @@ def _parse_folder_name(name: str) -> dict:
     cjk_parts = []
     eng_parts = []
     for t in title_tokens:
+        if re.fullmatch(r'[一-鿿㐀-䶿]+\d+', t):
+            # 「教父2」「大话西游2」：CJK 后紧跟的数字是续集序号，属于中文标题
+            cjk_parts.append(t)
+            continue
         cjk = re.sub(r'[^一-鿿㐀-䶿]', '', t)
         eng = re.sub(r'[一-鿿㐀-䶿]', '', t).strip()
         if cjk:
@@ -192,7 +392,7 @@ def _match_subtitle_name(sub_file: Path, video_renames: list[tuple[Path, Path]])
 
 @click.group()
 def cli():
-    """Jellyfin 媒体库文件重命名工具。"""
+    """Jellyfin 媒体库文件重命名与服务器维护工具。"""
     pass
 
 
@@ -273,7 +473,7 @@ def clean(directory, yes, dry_run):
     click.echo("重命名完成！")
 
 
-@cli.command()
+@cli.command(name='rename-folder')
 @click.argument('folder', type=click.Path(exists=True, file_okay=False))
 @click.option('--batch', is_flag=True, help='批量模式：遍历 folder 下所有子目录')
 @click.option('--type', 'media_type', type=click.Choice(['movie', 'series', 'auto']), default='auto',
@@ -281,13 +481,16 @@ def clean(directory, yes, dry_run):
 @click.option('--title', 'title_override', default=None, help='手动指定英文搜索标题')
 @click.option('--year', 'year_override', type=int, default=None, help='手动指定年份')
 @click.option('--imdb-id', 'imdb_id_override', default=None, help='手动指定 IMDB ID（跳过 API 搜索）')
+@click.option('--force-imdb', is_flag=True, help='OMDb 反查验证不通过时仍强制使用手动指定的 --imdb-id')
 @click.option('--exclude', 'excludes', multiple=True, help='批量模式下要跳过的子目录名，可多次使用')
 @click.option('--yes', '-y', is_flag=True, help='跳过确认，直接执行')
 @click.option('--dry-run', is_flag=True, help='只预览，不执行')
-def rename(folder, batch, media_type, title_override, year_override, imdb_id_override, excludes, yes, dry_run):
+def rename_folder(folder, batch, media_type, title_override, year_override, imdb_id_override,
+                  force_imdb, excludes, yes, dry_run):
     """智能重命名：按 Jellyfin 规范重命名电影/剧集文件夹及内部文件。
 
-    解析 BT/字幕组风格文件夹名（如 Movie.Name.2020.1080P.X264），
+    适用于「一部电影一个子文件夹」结构；平铺目录（多部电影共用一个目录）
+    请使用 rename-flat。解析 BT/字幕组风格文件夹名（如 Movie.Name.2020.1080P.X264），
     查询 OMDb API 获取 IMDB ID，重命名为 Jellyfin 标准格式。
     """
     cfg = _find_config()
@@ -300,7 +503,7 @@ def rename(folder, batch, media_type, title_override, year_override, imdb_id_ove
         for d in subdirs:
             click.echo(f"\n{'='*60}\n处理：{d.name}\n{'='*60}")
             ok = _rename_one(d, media_type, title_override, year_override,
-                             imdb_id_override, yes, dry_run, base_url, api_key)
+                             imdb_id_override, yes, dry_run, base_url, api_key, force_imdb)
             if not ok:
                 failures.append(d.name)
         if failures:
@@ -311,7 +514,7 @@ def rename(folder, batch, media_type, title_override, year_override, imdb_id_ove
             click.echo("使用 --imdb-id 手动指定后重试。")
     else:
         _rename_one(base, media_type, title_override, year_override,
-                    imdb_id_override, yes, dry_run, base_url, api_key)
+                    imdb_id_override, yes, dry_run, base_url, api_key, force_imdb)
 
 
 def _rename_one(
@@ -324,10 +527,11 @@ def _rename_one(
     dry_run: bool,
     base_url: str,
     api_key: str,
+    force_imdb: bool = False,
 ) -> bool:
     """处理单个文件夹的重命名，返回 True 表示成功。"""
     parsed = _parse_folder_name(folder.name)
-    search_title = title_override or parsed['eng_title'] or parsed['cjk_title']
+    search_title = title_override or _clean_search_title(parsed['eng_title']) or parsed['cjk_title']
     year = year_override or parsed['year']
     actual_type = parsed['media_type'] if media_type == 'auto' else media_type
 
@@ -345,7 +549,19 @@ def _rename_one(
 
     # 获取官方标题和 IMDB ID
     if imdb_id_override:
-        info = _lookup_by_imdb_id(imdb_id_override, base_url, api_key)
+        ok, msg, info = _check_imdb_override(imdb_id_override, parsed['eng_title'], year,
+                                             base_url, api_key)
+        if msg:
+            click.echo(("⚠ " if not ok else "提示：") + msg)
+        if not ok:
+            if force_imdb:
+                click.echo("--force-imdb 已指定，强制使用该 ID")
+            elif yes:
+                click.echo("错误：--yes 模式下拒绝采用可疑 IMDB ID；确认无误请加 --force-imdb", err=True)
+                return False
+            elif click.prompt("仍要使用该 IMDB ID？[y/N]", default='N').lower() != 'y':
+                click.echo("已取消。")
+                return False
         if info:
             official_title, official_year = info['title'], info['year']
         else:
@@ -372,7 +588,8 @@ def _rename_one(
     # 若原文件夹名包含中文标题，则保留并拼接在官方英文标题前
     cjk_prefix = f"{parsed['cjk_title']} " if parsed['cjk_title'] else ""
     display_title = f"{cjk_prefix}{official_title}"
-    new_folder_name = f"{display_title} ({official_year}) [imdbid-{imdb_id}]"
+    new_folder_name = re.sub(r'\s{2,}', ' ', _sanitize_filename(
+        f"{display_title} ({official_year}) [imdbid-{imdb_id}]")).strip()
     new_folder = folder.parent / new_folder_name
 
     # 规划文件重命名；字幕需依据视频的新名称匹配，放在视频之后处理
@@ -440,6 +657,290 @@ def _rename_one(
 
     click.echo(f"完成！→ {new_folder_name}")
     return True
+
+
+# ---------------------------------------------------------------------------
+# rename-flat：平铺目录（多部电影共用一个目录）批量重命名
+# ---------------------------------------------------------------------------
+
+FLAT_PREFIX = re.compile(r'^([A-Za-z]*\d{1,4}[._\- ])')
+# 已规范命名里的排序前缀要求带字母（Top001.），避免把「12 Angry Men」的 12 误当前缀
+RENAMED_PREFIX = re.compile(r'^([A-Za-z]+\d{1,4}[._\- ])')
+IMG_SUFFIX = re.compile(r'-(poster|backdrop|landscape|logo|fanart\d*)$', re.IGNORECASE)
+
+
+def _norm_key(s: str) -> str:
+    return s.rstrip('._- ').lower()
+
+
+def _flat_groups(base: Path) -> list[dict]:
+    """把平铺目录的文件分组：有公共前缀（如 Top001.）的按前缀分组，无前缀的按 stem
+    （去掉 -poster 等图片后缀）分组。无视频的组尝试并入视频 stem 为其前缀的组
+    （如无前缀字幕 Movie.1994.chn.srt 并入 Movie.1994.mkv 所在组）。"""
+    groups: dict[str, dict] = {}
+    for f in sorted(base.iterdir()):
+        if f.is_dir() or f.name == 'omdb_cache.json':
+            continue
+        m = FLAT_PREFIX.match(f.name)
+        if m:
+            prefix = m.group(1)
+            key = 'p:' + _norm_key(prefix)
+        else:
+            prefix = ''
+            key = 's:' + IMG_SUFFIX.sub('', f.stem).lower()
+        g = groups.setdefault(key, {'prefix': prefix, 'files': []})
+        if prefix and not g['prefix']:
+            g['prefix'] = prefix
+        g['files'].append(f)
+
+    video_groups = []
+    orphans = []
+    for g in groups.values():
+        videos = sorted(f for f in g['files'] if f.suffix.lower() in VIDEO_EXTS)
+        if videos:
+            g['videos'] = videos
+            video_groups.append(g)
+        else:
+            orphans.append(g)
+    for g in orphans:
+        stems = [f.stem.lower() for f in g['files']]
+        for vg in video_groups:
+            v_stem = vg['videos'][0].stem.lower()
+            if any(s == v_stem or s.startswith(v_stem + '.') or s.startswith(v_stem + '-')
+                   for s in stems):
+                vg['files'].extend(g['files'])
+                break
+    return video_groups
+
+
+@cli.command(name='rename-flat')
+@click.argument('directory', default='.', type=click.Path(exists=True, file_okay=False))
+@click.option('--keep-prefix', is_flag=True, help='保留文件名开头的排序前缀（如 Top001.），否则丢弃')
+@click.option('--imdb-id', 'imdb_overrides', multiple=True,
+              help='手动指定 IMDB ID：PREFIX=ttXXXX（可多次使用）；只有一部电影时可直接给 ttXXXX')
+@click.option('--force-imdb', is_flag=True, help='OMDb 反查验证不通过时仍强制使用手动指定的 --imdb-id')
+@click.option('--exclude', 'excludes', multiple=True, help='跳过指定前缀/组名，可多次使用')
+@click.option('--no-cache', is_flag=True, help='忽略已有 omdb_cache.json 强制重查（OMDb 返回垃圾数据后用），结果仍会覆盖写入缓存')
+@click.option('--yes', '-y', is_flag=True, help='跳过确认，直接执行')
+@click.option('--dry-run', is_flag=True, help='只预览，不执行')
+def rename_flat(directory, keep_prefix, imdb_overrides, force_imdb, excludes, no_cache, yes, dry_run):
+    """平铺目录智能重命名：多部电影共用一个目录（无电影子文件夹）时使用。
+
+    按文件名公共前缀（如 Top001.肖申克的救赎.The.Shawshank... 中的 Top001.）分组，
+    组内含视频的视为一部电影，从视频文件名解析标题/年份并查询 OMDb，重命名为：
+    {prefix}{中文} {English Title} (Year) [imdbid-ttXXXX].mkv
+
+    组内图片保留 -poster/-backdrop/-landscape/-logo 后缀关键字只换 stem（无后缀的
+    默认加 -poster），.nfo 用同名 stem，字幕（stem 与视频相同或仅多语言标签）跟随改名。
+    """
+    cfg = _find_config()
+    base_url, api_key = _get_omdb_config(cfg)
+    base = Path(directory).resolve()
+
+    overrides: dict[str, str] = {}
+    for item in imdb_overrides:
+        if '=' in item:
+            k, v = item.split('=', 1)
+            overrides[_norm_key(k)] = v.strip()
+        else:
+            overrides['*'] = item.strip()
+    excluded = {_norm_key(e) for e in excludes}
+
+    cache = OmdbCache(base / 'omdb_cache.json')
+    groups = _flat_groups(base)
+    if not groups:
+        click.echo("没有找到含视频的文件组。")
+        return
+
+    review: list[tuple[str, str | None, list[str]]] = []  # (label, 新视频名, warnings)
+    plans: list[tuple[str, list[tuple[Path, Path]]]] = []
+    failures: list[str] = []
+
+    for g in groups:
+        video = g['videos'][0]
+        prefix = g['prefix']
+        label = prefix or video.stem
+        if _norm_key(label) in excluded:
+            click.echo(f"跳过（--exclude）：{label}")
+            continue
+        if len(g['videos']) > 1:
+            click.echo(f"警告：{label} 组内有 {len(g['videos'])} 个视频，使用 {video.name}")
+
+        stem = video.stem
+        if prefix and stem.startswith(prefix):
+            stem = stem[len(prefix):]
+        parsed = _parse_folder_name(stem)
+        click.echo(f"\n{'='*60}\n处理：{label}")
+        click.echo(
+            f"解析：中文={parsed['cjk_title'] or '(无)'}  英文={parsed['eng_title'] or '(无)'}  "
+            f"年份={parsed['year'] or '?'}"
+        )
+
+        warnings: list[str] = []
+        ov = overrides.get(_norm_key(label)) or overrides.get('*')
+        if ov:
+            ok, msg, info = _check_imdb_override(ov, parsed['eng_title'], parsed['year'],
+                                                 base_url, api_key,
+                                                 None if no_cache else cache)
+            if msg:
+                click.echo(("  ⚠ " if not ok else "  提示：") + msg)
+            if not ok:
+                if force_imdb:
+                    click.echo("  --force-imdb 已指定，强制使用该 ID")
+                elif yes:
+                    click.echo("  拒绝采用（--yes 模式）；确认无误请加 --force-imdb", err=True)
+                    failures.append(label)
+                    review.append((label, None, [msg]))
+                    continue
+                elif click.prompt("  仍要使用该 IMDB ID？[y/N]", default='N').lower() != 'y':
+                    failures.append(label)
+                    review.append((label, None, ['用户取消']))
+                    continue
+            imdb_id = ov
+            official_title = (info or {}).get('title') or parsed['eng_title'] or parsed['cjk_title']
+            official_year = (info or {}).get('year') or (str(parsed['year']) if parsed['year'] else '????')
+            click.echo(f"使用 IMDB ID {imdb_id} → {official_title} ({official_year})")
+        else:
+            search_title = parsed['eng_title'] or parsed['cjk_title']
+            if not search_title:
+                click.echo("错误：无法解析标题，可用 --imdb-id 手动指定", err=True)
+                failures.append(label)
+                review.append((label, None, ['无法解析标题']))
+                continue
+            click.echo(f"查询 OMDb：「{search_title}」({parsed['year'] or '?'})...")
+            result = _query_omdb_smart(search_title, parsed['year'], base_url, api_key, cache, no_cache)
+            if not result['found']:
+                click.echo("未找到可靠匹配，请用 --imdb-id 手动指定：", err=True)
+                for i, c in enumerate(result['candidates'][:10], 1):
+                    click.echo(f"  {i}. {c['title']} ({c['year']}) [{c['imdb_id']}]")
+                failures.append(label)
+                review.append((label, None, ['未找到匹配']))
+                continue
+            imdb_id = result['imdb_id']
+            official_title = result['title']
+            official_year = result['year']
+            if result.get('warning'):
+                warnings.append(result['warning'])
+            click.echo(f"找到：{official_title} ({official_year}) [{imdb_id}]")
+
+        # 终审警告：脏标题、年份与原名不符
+        if DIRTY_TITLE.search(official_title or ''):
+            warnings.append(f"标题疑似脏数据：{official_title}")
+        py, oy = parsed['year'], _year_int(official_year)
+        if py and oy and abs(oy - py) > 2:
+            w = f"年份与原名不符：文件名 {py} vs OMDb {oy}"
+            if w not in warnings:
+                warnings.append(w)
+
+        cjk = parsed['cjk_title']
+        display = f"{cjk} {official_title}" if cjk else official_title
+        prefix_out = prefix if keep_prefix else ''
+        new_stem = re.sub(r'\s{2,}', ' ', _sanitize_filename(
+            f"{prefix_out}{display} ({official_year}) [imdbid-{imdb_id}]")).strip()
+
+        renames: list[tuple[Path, Path]] = []
+        taken_img_suffixes: set[str] = set()
+        nfo_done = False
+        fanart_n = 0
+        for f in sorted(g['files']):
+            ext = f.suffix.lower()
+            dst = None
+            if f == video:
+                dst = base / f"{new_stem}{f.suffix}"
+            elif ext in VIDEO_EXTS:
+                click.echo(f"  跳过（组内额外视频）：{f.name}")
+            elif ext in IMAGE_EXTS:
+                m = IMG_SUFFIX.search(f.stem)
+                if m:
+                    suffix = '-' + m.group(1).lower()
+                elif '-poster' not in taken_img_suffixes:
+                    suffix = '-poster'
+                else:
+                    suffix = ''
+                while suffix and suffix in taken_img_suffixes or not suffix:
+                    fanart_n += 1
+                    suffix = f'-fanart{fanart_n}'
+                taken_img_suffixes.add(suffix)
+                dst = base / f"{new_stem}{suffix}{f.suffix}"
+            elif ext == '.nfo':
+                if nfo_done:
+                    click.echo(f"  跳过（组内额外 .nfo）：{f.name}")
+                else:
+                    nfo_done = True
+                    dst = base / f"{new_stem}.nfo"
+            elif ext in SUBTITLE_EXTS:
+                v_stem = video.stem
+                if f.stem == v_stem or f.stem.startswith(v_stem + '.'):
+                    dst = base / f"{new_stem}{f.stem[len(v_stem):]}{f.suffix}"
+                elif prefix and len(g['videos']) == 1:
+                    # 同前缀单视频组：字幕即使 stem 与视频不完全一致（少了质量标记等）
+                    # 也跟随改名，保留尾部语言标签（.chn / .chs.eng 等）
+                    tokens = f.stem.split('.')
+                    lang = ''
+                    while len(tokens) > 1 and re.fullmatch(r'[a-zA-Z]{2,4}', tokens[-1]):
+                        lang = '.' + tokens.pop() + lang
+                    dst = base / f"{new_stem}{lang}{f.suffix}"
+                else:
+                    click.echo(f"  跳过（无法匹配视频的字幕）：{f.name}")
+            if dst is not None and dst.name != f.name:
+                renames.append((f, dst))
+
+        # 与磁盘上已有文件（且不在本组计划内）的冲突检查
+        srcs = {s for s, _ in renames}
+        renames = [(s, d) for s, d in renames if not (
+            d.exists() and d not in srcs and
+            not warnings.append(f"目标已存在，跳过：{d.name}"))]
+
+        new_video_name = f"{new_stem}{video.suffix}"
+        click.echo(f"  视频：{video.name}\n     → {new_video_name}")
+        for s, d in renames:
+            if s != video:
+                click.echo(f"  跟随：{s.name}\n     → {d.name}")
+        for w in warnings:
+            click.echo(f"  ⚠ {w}")
+        review.append((label, new_video_name, warnings))
+        plans.append((label, renames))
+
+    # 终审清单：dry-run 和执行后都输出
+    click.echo(f"\n{'='*60}\n终审清单（{len(review)} 部）：\n{'='*60}")
+    for label, new_name, warns in review:
+        if new_name is None:
+            click.echo(f"  ✗ {label}（{'; '.join(warns)}）")
+        elif warns:
+            click.echo(f"  ⚠ {label} → {new_name}")
+            for w in warns:
+                click.echo(f"      ⚠ {w}")
+        else:
+            click.echo(f"  ✓ {label} → {new_name}")
+
+    if dry_run:
+        click.echo("\n[预览模式，未执行]")
+        if failures:
+            sys.exit(1)
+        return
+    if not plans:
+        if failures:
+            click.echo(f"\n{len(failures)} 部未处理，见上方终审清单。")
+            sys.exit(1)
+        return
+    if not yes:
+        if click.prompt("\n确认执行以上重命名？[y/N]", default='N').lower() != 'y':
+            click.echo("已取消。")
+            return
+    for _, renames in plans:
+        for src, dst in renames:
+            if dst.exists() and dst != src:
+                click.echo(f"  冲突跳过：{dst.name} 已存在", err=True)
+                continue
+            src.rename(dst)
+    click.echo(f"\n重命名完成！共 {len(plans)} 部电影。")
+    if failures:
+        click.echo(f"以下 {len(failures)} 部需要手动处理：")
+        for n in failures:
+            click.echo(f"  - {n}")
+        click.echo("使用 --imdb-id PREFIX=ttXXXX 手动指定后重跑（已成功的会命中缓存，不重复请求）。")
+        sys.exit(1)
+
 
 
 if __name__ == '__main__':

@@ -1,0 +1,14 @@
+# 将此 section 合并到当前目录、skill 目录、Git 根目录的
+# agent_config.toml，或全局 ~/.agents/agent_config.toml。
+
+[jellyfin]
+# Jellyfin 服务器地址（server refresh / server images / de-localart --refresh 需要）
+base_url = "http://localhost:8096"
+# Jellyfin API 密钥：控制台 → 高级 → API 密钥 生成。敏感配置优先使用环境变量。
+api_key = ""
+
+# OMDb 配置（rename-folder / rename-flat 查询 IMDB ID 需要）
+# 从 https://www.omdbapi.com/apikey.aspx 免费申请
+[jellyfin.omdb]
+base_url = "http://www.omdbapi.com"
+api_key = ""
