@@ -942,6 +942,247 @@ def rename_flat(directory, keep_prefix, imdb_overrides, force_imdb, excludes, no
         sys.exit(1)
 
 
+# ---------------------------------------------------------------------------
+# verify：批量校验文件名中的 [imdbid-ttXXX] 与 OMDb 反查是否匹配
+# ---------------------------------------------------------------------------
+
+
+def _parse_renamed_name(stem: str) -> dict:
+    """解析本工具输出规范的名字：{prefix}{中文} {English} (Year) [imdbid-ttXXX]。
+    也容忍缺 prefix / 缺年份 / 缺 imdbid 的写法。"""
+    m = IMDB_TAG.search(stem)
+    imdb_id = m.group(1) if m else None
+    s = IMDB_TAG.sub('', stem).strip()
+    year = None
+    ym = re.search(r'\((\d{4})\)\s*$', s)
+    if ym:
+        year = int(ym.group(1))
+        s = s[:ym.start()].strip()
+    pm = RENAMED_PREFIX.match(s)
+    prefix = pm.group(1) if pm else ''
+    if prefix:
+        s = s[len(prefix):].strip()
+    cm = re.match(r'^([一-鿿㐀-䶿][一-鿿㐀-䶿\d]*)\s+(.*)$', s)
+    if cm:
+        cjk, eng = cm.group(1), cm.group(2).strip()
+    elif re.search(r'[一-鿿㐀-䶿]', s):
+        cjk, eng = s, ''
+    else:
+        cjk, eng = '', s
+    return {'imdb_id': imdb_id, 'year': year, 'prefix': prefix,
+            'cjk_title': cjk, 'eng_title': eng}
+
+
+@cli.command()
+@click.argument('directory', default='.', type=click.Path(exists=True, file_okay=False))
+@click.option('--clean-orphans', is_flag=True, help='把孤儿媒体文件移动到 <目录>_oldart_backup/')
+@click.option('--yes', '-y', is_flag=True, help='--clean-orphans 时跳过确认')
+def verify(directory, clean_orphans, yes):
+    """批量校验：文件名中的 [imdbid-ttXXX] 与 OMDb 反查标题是否匹配。
+
+    扫描目录下的视频文件和已规范命名的子文件夹，逐个用 OMDb i= 反查，
+    标题相似度低或年份偏差 >2 的列入可疑清单。结果写入 omdb_cache.json 缓存。
+    同时检测孤儿媒体文件（nfo/图片的 stem 匹配不到任何视频），
+    --clean-orphans 把它们移动到 <目录>_oldart_backup/。
+    """
+    cfg = _find_config()
+    base_url, api_key = _get_omdb_config(cfg)
+    base = Path(directory).resolve()
+    cache = OmdbCache(base / 'omdb_cache.json')
+
+    entries: list[tuple[str, Path]] = []
+    for f in sorted(base.iterdir()):
+        if f.is_dir():
+            if IMDB_TAG.search(f.name):
+                entries.append((f.name, f))
+        elif f.suffix.lower() in VIDEO_EXTS and IMDB_TAG.search(f.stem):
+            entries.append((f.stem, f))
+    if not entries:
+        click.echo("没有找到带 [imdbid-ttXXX] 的文件/文件夹。")
+        return
+
+    ok_count = 0
+    suspicious: list[tuple[str, str]] = []
+    skipped: list[tuple[str, str]] = []
+    for name, _ in entries:
+        p = _parse_renamed_name(name)
+        ok, msg, info = _check_imdb_override(p['imdb_id'], p['eng_title'], p['year'],
+                                             base_url, api_key, cache)
+        if info is None:
+            skipped.append((name, msg))
+            click.echo(f"? {name}\n    {msg}")
+        elif not ok:
+            suspicious.append((name, msg))
+            click.echo(f"⚠ {name}\n    {msg}")
+        else:
+            ok_count += 1
+
+    click.echo(f"\n{'='*60}\n校验结果：✓ {ok_count} 正常，⚠ {len(suspicious)} 可疑，? {len(skipped)} 无法验证")
+    if suspicious:
+        click.echo("\n可疑清单（文件名 imdbid 与 OMDb 反查不符）：")
+        for name, msg in suspicious:
+            click.echo(f"  - {name}\n      {msg}")
+        click.echo("\n确认绑定错误后的修复顺序：先用 retag 修正文件名里的 imdbid，再执行识别：")
+        click.echo('  jellyfin_tool.py retag "<文件或目录>" tt旧ID=tt新ID')
+        click.echo('  jellyfin_tool.py server identify "<文件或目录>"   # 从文件名读取正确 imdbid 重新识别')
+
+    # 孤儿媒体文件检测：nfo/图片的 stem 匹配不到目录下任何视频
+    # （典型来源：错误绑定时残留的旧 imdbid nfo）
+    video_stems = [f.stem for f in base.iterdir()
+                   if f.is_file() and f.suffix.lower() in VIDEO_EXTS]
+    orphans: list[Path] = []
+    for f in sorted(base.iterdir()):
+        if not f.is_file():
+            continue
+        ext = f.suffix.lower()
+        if ext != '.nfo' and ext not in IMAGE_EXTS:
+            continue
+        stem = IMG_SUFFIX.sub('', f.stem) if ext in IMAGE_EXTS else f.stem
+        if not any(stem == v or stem.startswith(v + '.') or stem.startswith(v + '-')
+                   for v in video_stems):
+            orphans.append(f)
+    if orphans:
+        click.echo(f"\n🗑 孤儿媒体文件（stem 匹配不到任何视频，可能是旧错误命名的残留）：{len(orphans)} 个")
+        for f in orphans:
+            click.echo(f"  {f.name}")
+        if clean_orphans:
+            backup = base.parent / f"{base.name}_oldart_backup"
+            if not yes:
+                if click.prompt(f"\n确认把这 {len(orphans)} 个文件移动到 {backup}/？[y/N]",
+                                default='N').lower() != 'y':
+                    click.echo("已取消。")
+                    return
+            backup.mkdir(parents=True, exist_ok=True)
+            moved = 0
+            for f in orphans:
+                dst = backup / f.name
+                if dst.exists():
+                    click.echo(f"  冲突跳过：{dst.name} 已存在于备份目录", err=True)
+                    continue
+                shutil.move(str(f), str(dst))
+                moved += 1
+            click.echo(f"已移动 {moved} 个孤儿文件到 {backup}/")
+        else:
+            click.echo("  加 --clean-orphans 移动到 <目录>_oldart_backup/（de-localart 会移走"
+                       "全部 nfo/图片，不适合只清孤儿）。")
+
+    if suspicious:
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# retag：只替换文件名中的 [imdbid-ttXXX] 标签
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.argument('path', type=click.Path(exists=True))
+@click.argument('mappings', nargs=-1, required=True)
+@click.option('--force-imdb', is_flag=True, help='OMDb 反查验证不通过时仍强制使用新 ID')
+@click.option('--yes', '-y', is_flag=True, help='跳过确认，直接执行')
+@click.option('--dry-run', is_flag=True, help='只预览，不执行')
+def retag(path, mappings, force_imdb, yes, dry_run):
+    """只替换文件名中的 [imdbid-ttXXX] 标签，其余部分原样保留。
+
+    \b
+    目录模式：retag <目录> ttOLD=ttNEW [ttOLD=ttNEW ...]
+      目录下所有带旧标签的文件（视频+图片+nfo+字幕）一起改。
+    单文件模式：retag <视频文件> ttNEW
+      旧 id 从文件名读取，带同一旧标签的旁挂文件一起改。
+
+    新 id 会先经 OMDb 反查验证（与文件名解析出的标题比对，不符则拒绝，
+    确认无误加 --force-imdb 强制）。
+    """
+    p = Path(path).resolve()
+    pairs: list[tuple[str, str]] = []
+    if p.is_file():
+        if len(mappings) != 1:
+            click.echo("错误：单文件模式只接受一个映射", err=True)
+            sys.exit(1)
+        m = IMDB_TAG.search(p.name)
+        if not m:
+            click.echo(f"错误：{p.name} 中没有 [imdbid-ttXXX] 标签", err=True)
+            sys.exit(1)
+        pairs.append((m.group(1), mappings[0].split('=', 1)[-1].strip()))
+        scope = p.parent
+    else:
+        scope = p
+        for m in mappings:
+            if '=' not in m:
+                click.echo(f"错误：目录模式的映射必须是 ttOLD=ttNEW 形式：{m}", err=True)
+                sys.exit(1)
+            old, new = m.split('=', 1)
+            pairs.append((old.strip(), new.strip()))
+
+    cfg = _find_config()
+    base_url, api_key = _get_omdb_config(cfg)
+    cache = OmdbCache(scope / 'omdb_cache.json')
+
+    renames: list[tuple[Path, Path]] = []
+    rejected = 0
+    for old, new in pairs:
+        if not re.fullmatch(r'tt\d+', new):
+            click.echo(f"错误：新 IMDB ID 格式不正确：{new}", err=True)
+            sys.exit(1)
+        tag_re = re.compile(r'\[imdbid-' + re.escape(old) + r'\]', re.IGNORECASE)
+        hits = [f for f in sorted(scope.iterdir()) if f.is_file() and tag_re.search(f.name)]
+        if not hits:
+            click.echo(f"⚠ 没有文件名包含 [imdbid-{old}]", err=True)
+            continue
+        # 用该组的视频文件名解析标题，反查验证新 id（血的教训：手填 id 极易记错）
+        rep = next((f for f in hits if f.suffix.lower() in VIDEO_EXTS), hits[0])
+        parsed = _parse_renamed_name(tag_re.sub('', rep.stem).strip())
+        ok, msg, _ = _check_imdb_override(new, parsed['eng_title'], parsed['year'],
+                                          base_url, api_key, cache)
+        if msg:
+            click.echo(("⚠ " if not ok else "提示：") + msg)
+        if not ok:
+            if force_imdb:
+                click.echo("--force-imdb 已指定，强制使用该 ID")
+            elif yes:
+                click.echo("错误：--yes 模式下拒绝采用可疑 IMDB ID；确认无误请加 --force-imdb", err=True)
+                rejected += 1
+                continue
+            elif click.prompt("仍要使用该 IMDB ID？[y/N]", default='N').lower() != 'y':
+                click.echo("已跳过。")
+                rejected += 1
+                continue
+        for f in hits:
+            renames.append((f, f.with_name(tag_re.sub(f'[imdbid-{new}]', f.name))))
+
+    if not renames:
+        if rejected:
+            click.echo("没有需要修改的文件（有映射被验证拒绝）。", err=True)
+            sys.exit(1)
+        click.echo("没有需要修改的文件。")
+        return
+    click.echo(f"\n重命名计划（{len(renames)} 个文件）：")
+    for s, d in renames:
+        click.echo(f"  {s.name}\n→ {d.name}")
+    if dry_run:
+        click.echo("\n[预览模式，未执行]")
+        if rejected:
+            sys.exit(1)
+        return
+    if not yes:
+        if click.prompt("\n确认执行？[y/N]", default='N').lower() != 'y':
+            click.echo("已取消。")
+            return
+    srcs = {s for s, _ in renames}
+    failed = 0
+    for s, d in renames:
+        if d.exists() and d not in srcs:
+            click.echo(f"  冲突跳过：{d.name} 已存在", err=True)
+            failed += 1
+            continue
+        s.rename(d)
+    click.echo(f"完成：{len(renames) - failed} 个文件已 retag。")
+    if failed or rejected:
+        if rejected:
+            click.echo(f"⚠ 另有 {rejected} 个映射被验证拒绝，未执行。", err=True)
+        sys.exit(1)
+
+
 
 if __name__ == '__main__':
     cli()
