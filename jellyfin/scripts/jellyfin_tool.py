@@ -171,14 +171,20 @@ def _query_omdb_smart(title: str, year: int | None, base_url: str, api_key: str,
         if cached is not None:
             return cached
     result = _query_omdb_smart_uncached(title, year, base_url, api_key)
-    cache.set(cache_key, result)
+    # OMDb 挂掉时的 not-found 不写缓存（避免把「今天配额没了」缓存成永久未找到）
+    if not _OMDB_DOWN:
+        cache.set(cache_key, result)
     return result
 
 
 def _query_omdb_smart_uncached(title: str, year: int | None, base_url: str, api_key: str) -> dict:
+    not_found = {'found': False, 'imdb_id': '', 'title': '', 'year': '', 'warning': None,
+                 'searched': title, 'candidates': []}
     if not api_key:
-        click.echo("错误：未配置 OMDb API Key，请在 agent_config.toml 中设置 [jellyfin.omdb] api_key", err=True)
-        sys.exit(1)
+        _omdb_unavailable("未配置 OMDb API Key（agent_config.toml [jellyfin.omdb] api_key）")
+        return not_found
+    if _OMDB_DOWN:
+        return {**not_found, 'searched': title}
 
     titles: list[str] = []
     for t in (title, _clean_search_title(title)):
@@ -239,12 +245,10 @@ def _query_omdb_smart_uncached(title: str, year: int | None, base_url: str, api_
             return {'found': False, 'imdb_id': '', 'title': '', 'year': '', 'warning': None,
                     'searched': titles[-1] if titles else title, 'candidates': last_candidates}
 
-    except httpx.ConnectError:
-        click.echo(f"错误：无法连接 OMDb API ({base_url})，请检查网络", err=True)
-        sys.exit(1)
-    except httpx.HTTPStatusError as e:
-        click.echo(f"OMDb API 错误 {e.response.status_code}", err=True)
-        sys.exit(1)
+    except (httpx.ConnectError, httpx.HTTPStatusError) as e:
+        _omdb_unavailable(f"OMDb 不可用（{e}）")
+        return {'found': False, 'imdb_id': '', 'title': '', 'year': '', 'warning': None,
+                'searched': title, 'candidates': []}
 
 
 def _parse_folder_name(name: str) -> dict:
@@ -304,11 +308,26 @@ def _parse_folder_name(name: str) -> dict:
     }
 
 
+_OMDB_DOWN = False
+
+
+def _omdb_unavailable(reason: str) -> None:
+    """OMDb 挂掉（401 配额/Key 失效、网络不通）时置标志：本批次后续查询直接跳过，
+    由调用方降级到 Jellyfin RemoteSearch，而不是整批退出。"""
+    global _OMDB_DOWN
+    if not _OMDB_DOWN:
+        click.echo(f"警告：{reason}；本批次后续 OMDb 查询跳过，自动降级 Jellyfin RemoteSearch", err=True)
+    _OMDB_DOWN = True
+
+
 def _query_omdb(title: str, year: int | None, media_type: str, base_url: str, api_key: str) -> dict:
     """查询 OMDb API，返回 {found, imdb_id, title, year, candidates}。"""
+    not_found = {'found': False, 'imdb_id': '', 'title': '', 'year': '', 'candidates': []}
     if not api_key:
-        click.echo("错误：未配置 OMDb API Key，请在 agent_config.toml 中设置 [jellyfin.omdb] api_key", err=True)
-        sys.exit(1)
+        _omdb_unavailable("未配置 OMDb API Key（agent_config.toml [jellyfin.omdb] api_key）")
+        return not_found
+    if _OMDB_DOWN:
+        return not_found
 
     omdb_type = 'series' if media_type == 'series' else 'movie'
     url = f"{base_url}/"
@@ -341,12 +360,9 @@ def _query_omdb(title: str, year: int | None, media_type: str, base_url: str, ap
                 ]
             return {'found': False, 'imdb_id': '', 'title': '', 'year': '', 'candidates': candidates}
 
-    except httpx.ConnectError:
-        click.echo(f"错误：无法连接 OMDb API ({base_url})，请检查网络", err=True)
-        sys.exit(1)
-    except httpx.HTTPStatusError as e:
-        click.echo(f"OMDb API 错误 {e.response.status_code}", err=True)
-        sys.exit(1)
+    except (httpx.ConnectError, httpx.HTTPStatusError) as e:
+        _omdb_unavailable(f"OMDb 不可用（{e}）")
+        return {'found': False, 'imdb_id': '', 'title': '', 'year': '', 'candidates': []}
 
 
 def _lookup_by_imdb_id(imdb_id: str, base_url: str, api_key: str) -> dict | None:
