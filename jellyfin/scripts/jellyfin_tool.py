@@ -2,10 +2,12 @@
 """Jellyfin 媒体库文件重命名工具。"""
 
 import difflib
+import hashlib
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import click
 import httpx
@@ -1844,6 +1846,158 @@ def lookup(query, limit):
         shown += 1
     if not shown:
         click.echo("两个通道都没有结果。", err=True)
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# dupes：跨目录查重 + 画质对比
+# ---------------------------------------------------------------------------
+
+_CD_TAIL_RE = re.compile(r'\s*-\s*(?:cd|disc|dvd|part|pt)\s*\d{1,2}$', re.IGNORECASE)
+_CODEC_RANK = {'av1': 4, 'hevc': 3, 'h265': 3, 'h264': 2, 'avc': 2, 'mpeg4': 1, 'xvid': 1, 'rv40': 0}
+
+
+def _sample_hash(p: Path) -> str:
+    """大文件秒级指纹：头/中/尾各采 1MB + 文件大小。SMB 上比全量 md5 快几个数量级。"""
+    h = hashlib.md5()
+    size = p.stat().st_size
+    with open(p, 'rb') as f:
+        for off in (0, size // 2, max(0, size - 1024 * 1024)):
+            f.seek(off)
+            h.update(f.read(1024 * 1024))
+    h.update(str(size).encode())
+    return h.hexdigest()
+
+
+def _probe_entry(path: Path) -> dict:
+    """ffprobe 提取画质参数；电影文件夹聚合多碟（跳过 sample）。"""
+    if path.is_dir():
+        vids = sorted(v for v in path.rglob('*')
+                      if v.is_file() and v.suffix.lower() in VIDEO_EXTS
+                      and not v.name.startswith('._') and 'sample' not in v.name.lower())
+    else:
+        vids = [path]
+    total_size = 0
+    total_dur = 0.0
+    best = {'pixels': 0, 'codec': '?', 'res': '?', 'audio': 0}
+    for v in vids:
+        try:
+            d = json.loads(subprocess.run(
+                ['ffprobe', '-v', 'quiet', '-print_format', 'json',
+                 '-show_format', '-show_streams', str(v)],
+                capture_output=True, text=True, timeout=60).stdout)
+        except Exception:
+            continue
+        vs = next((s for s in d.get('streams', []) if s.get('codec_type') == 'video'), {})
+        total_size += v.stat().st_size
+        total_dur += float(d.get('format', {}).get('duration', 0))
+        px = (vs.get('width') or 0) * (vs.get('height') or 0)
+        if px >= best['pixels']:
+            best = {'pixels': px, 'res': f"{vs.get('width')}x{vs.get('height')}",
+                    'codec': vs.get('codec_name', '?'),
+                    'audio': sum(1 for s in d.get('streams', []) if s.get('codec_type') == 'audio')}
+    mbps = round(total_size * 8 / total_dur / 1e6, 1) if total_dur else 0
+    return {**best, 'size_mb': round(total_size / 1e6), 'mbps': mbps,
+            'minutes': int(total_dur // 60), 'parts': len(vids)}
+
+
+def _quality_rank(info: dict) -> tuple:
+    return (info['pixels'], _CODEC_RANK.get(info['codec'], 1), info['mbps'], info['audio'])
+
+
+@cli.command()
+@click.argument('directories', nargs=-1, required=True,
+                type=click.Path(exists=True, file_okay=False))
+@click.option('--probe', is_flag=True, help='对重复组做 ffprobe 画质对比和采样哈希校验（较慢）')
+def dupes(directories, probe):
+    """跨目录查重：按 [imdbid-] 标签和规范化标题找重复电影。
+
+    --probe 时对每组重复做采样哈希（确认是否同一文件）和 ffprobe 画质对比
+    （分辨率/编码/码率/音轨），并给出留删建议。
+    """
+    entries = []
+    for d in directories:
+        base = Path(d).resolve()
+        for sub in sorted(p for p in base.iterdir() if p.is_dir()):
+            if sub.name.startswith('._') or sub.name.endswith('_oldart_backup'):
+                continue
+            m = IMDB_TAG.search(sub.name)
+            ym = re.search(r'\((\d{4})\)', sub.name)
+            entries.append({'imdb': m.group(1).lower() if m else None,
+                            'norm': _norm_cmp(re.sub(r'\(.*?\)|\[.*?\]', '', sub.name)),
+                            'path': sub, 'display': f'{base.name}/{sub.name}/'})
+        seen = set()
+        for f in sorted(p for p in base.iterdir()
+                        if p.is_file() and p.suffix.lower() in VIDEO_EXTS):
+            if f.name.startswith('._'):
+                continue
+            stem = _CD_TAIL_RE.sub('', f.stem)
+            stem = re.sub(r'(?:cd|disc|dvd|part|pt)\s*\d{1,2}$', '', stem,
+                          flags=re.IGNORECASE).rstrip('.-_ ')
+            if stem.lower() in seen:
+                continue
+            seen.add(stem.lower())
+            m = IMDB_TAG.search(f.name)
+            entries.append({'imdb': m.group(1).lower() if m else None,
+                            'norm': _norm_cmp(re.sub(r'\(.*?\)|\[.*?\]', '', f.stem)),
+                            'path': f, 'display': f'{base.name}/{f.name}'})
+
+    def report_group(title, group):
+        click.echo(f'\n■ {title}（{len(group)} 处）')
+        infos = []
+        for e in group:
+            click.echo(f'    {e["display"]}')
+            if probe:
+                infos.append(_probe_entry(e['path']))
+        if probe and infos:
+            # 采样哈希：是否同一文件
+            hashes = {}
+            for e in group:
+                if e['path'].is_file():
+                    hashes.setdefault(_sample_hash(e['path']), []).append(e['display'])
+            if len(hashes) == 1:
+                click.echo('    采样哈希一致：同一文件，任意删一份')
+            else:
+                for locs in hashes.values():
+                    if len(locs) > 1:
+                        click.echo(f"    同一文件：{' = '.join(locs)}")
+            for e, info in zip(group, infos):
+                click.echo(f"    {info['res']} {info['codec']}  {info['mbps']} Mbps  "
+                           f"{info['size_mb']} MB  {info['minutes']} 分钟  音轨 {info['audio']}"
+                           + (f"  ({info['parts']} 碟）" if info['parts'] > 1 else ""))
+            best_i = max(range(len(infos)), key=lambda i: _quality_rank(infos[i]))
+            click.echo(f'    建议保留：{group[best_i]["display"]}')
+
+    by_imdb: dict[str, list] = {}
+    for e in entries:
+        if e['imdb']:
+            by_imdb.setdefault(e['imdb'], []).append(e)
+    hard = {k: v for k, v in by_imdb.items() if len(v) > 1}
+    click.echo('=== 同一 IMDB ID 出现在多处（硬重复）===')
+    if hard:
+        for imdb, group in sorted(hard.items()):
+            report_group(imdb, group)
+    else:
+        click.echo('  无')
+
+    by_name: dict[str, list] = {}
+    for e in entries:
+        if e['norm']:
+            by_name.setdefault(e['norm'], []).append(e)
+    soft = {k: v for k, v in by_name.items()
+            if len(v) > 1 and len({x['imdb'] for x in v}) > 1}
+    click.echo('\n=== 同名但 IMDB 不同（不同版本/翻拍，人工确认）===')
+    if soft:
+        for name, group in sorted(soft.items()):
+            report_group(group[0]['display'], group)
+    else:
+        click.echo('  无')
+
+    untagged = [e for e in entries if not e['imdb']]
+    click.echo(f'\n=== 统计：{len(entries)} 部电影条目，{len(untagged)} 个无 imdbid ===')
+    for e in untagged:
+        click.echo(f'    {e["display"]}')
+    if hard:
         sys.exit(1)
 
 
