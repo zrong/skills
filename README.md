@@ -220,6 +220,10 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 
 ## 更新记录
 
+### 2026-09-27
+
+- 升级 jellyfin skill：新增 `lookup`（即席查号：imdbid 反查 / tmdbid 补全 / OMDb+RemoteSearch 双通道标题搜索）、`dupes`（跨目录查重，采样哈希秒级确认同一文件，ffprobe 画质对比给出保留建议）、`move`（电影整组搬移：视频+旁挂文件，与 dupes 联动做隔离）；RemoteSearch 裸调用收敛为 `_jellyfin_search_raw`；CJK 噪声词按长度降序剥离（修「西班牙语→牙语」类残留）并补「双字幕」；平铺分组与对账排除 `._` AppleDouble 元数据文件。全部命令在 Jellyfin 12.1 上实测通过（鉴权头 / RemoteSearch / Refresh / Apply 均无 API 破坏性变更）。
+
 ### 2026-09-26
 
 - 升级 jellyfin skill：从单一重命名工具扩展为命名与服务器维护工具集。`rename` 更名 `rename-folder`，`--imdb-id` 新增 OMDb 反查验证（防人工记错 ID）与 `--force-imdb` 兜底；新增 `rename-flat`（平铺目录批量重命名，含 omdb_cache.json 缓存与 OMDb 脏数据过滤）、`verify`/`retag`（存量错绑体检与只换标签修复）、`server refresh/images/identify/check`（Jellyfin API 刷新、海报诊断、重新识别、DB 对账）与 `de-localart`（清理本地旧图/.nfo 让位在线刮削）；配置支持 `[jellyfin]` 根段与 `~/.agents/agent_config.toml` 兜底，补充 `agent_config.example.toml`，SKILL.md 重写并收录实战教训。

@@ -1,6 +1,6 @@
 ---
 name: jellyfin
-description: Jellyfin 媒体库命名与服务器维护工具。当用户需要按照 Jellyfin 命名规范重命名电影/剧集文件夹和文件（rename-folder）、处理多部电影共用一个目录的平铺目录批量重命名（rename-flat，如 TopNNN. 排序前缀的 IMDB Top250 合集）、获取或校验 IMDB ID（verify 批量校验文件名 imdbid 与 OMDb 反查是否匹配并检测孤儿 nfo/图片）、只替换文件名中的 imdbid 标签（retag）、处理 BT/字幕组风格媒体文件名（含点分隔、中英混合、质量标记如 1080P.X264.AAC）、清理本地旧海报/nfo 让位在线刮削（de-localart）、调用 Jellyfin API 刷新媒体库/诊断海报不更新（server refresh/images）、纠正错误刮削重新识别（server identify）、或比对 Jellyfin 元数据与文件名找出错绑（server check）时使用。
+description: Jellyfin 媒体库命名与服务器维护工具。当用户需要按照 Jellyfin 命名规范重命名电影/剧集文件夹和文件（rename-folder）、处理多部电影共用一个目录的平铺目录批量重命名（rename-flat，如 TopNNN. 排序前缀的 IMDB Top250 合集）、获取或校验 IMDB ID（verify 批量校验文件名 imdbid 与 OMDb 反查是否匹配并检测孤儿 nfo/图片、lookup 即席查号/反查）、只替换文件名中的 imdbid 标签（retag）、跨目录查重并对比画质给出留删建议（dupes）、整组搬移电影及旁挂文件（move）、处理 BT/字幕组风格媒体文件名（含点分隔、中英混合、质量标记如 1080P.X264.AAC）、清理本地旧海报/nfo 让位在线刮削（de-localart）、调用 Jellyfin API 刷新媒体库/诊断海报不更新（server refresh/images）、纠正错误刮削重新识别（server identify）、或比对 Jellyfin 元数据与文件名找出错绑（server check）时使用。
 ---
 
 # Jellyfin 媒体库重命名工具
@@ -143,6 +143,38 @@ uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" reta
 相似度低时警告并要求确认；`--yes` 非交互模式下直接拒绝采用，确认无误后需加
 `--force-imdb` 强制使用。
 
+### lookup — 即席查询（给 --imdb-id 查号）
+
+```bash
+# 反查 IMDb ID 对应的标题/年份（验证手动 id 是否记对）
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" lookup tt2059171
+
+# TMDb ID 补全成 IMDb ID
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" lookup tmdbid:335462
+
+# 标题搜索：英文走 OMDb，中文走 Jellyfin RemoteSearch（TMDb），候选带 imdbid/tmdbid
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" lookup 战狼
+```
+
+### dupes — 跨目录查重 + 画质对比
+
+按 `[imdbid-]` 标签和规范化标题（中文数字/标点归一化）在多个目录间找重复电影。
+`--probe` 时对每组重复做采样哈希（头中尾各 1MB，SMB 上秒级确认是否同一文件）
+和 ffprobe 画质对比（分辨率/编码/码率/音轨），并给出「建议保留哪份」。
+
+```bash
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" dupes /path/to/2020 /path/to/2023 --probe
+```
+
+### move — 整组搬移（视频 + 旁挂文件）
+
+把指定电影的视频本体和同 stem 的旁挂文件（poster/backdrop/nfo/字幕）一起移动到
+目标目录；名称按 stem 匹配，同名子文件夹整个移动。与 dupes 联动做隔离。
+
+```bash
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" move /path/to/2023 /path/to/2099 "战狼.HD1280超清国语中英双字" 情仇 --dry-run
+```
+
 ### server refresh — 触发媒体库全量刷新
 
 对指定库（库名或路径）调用
@@ -262,6 +294,31 @@ uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" de-l
   `server identify` 会优先选 ProviderIds.Imdb 与目标一致的结果。
 - **对账先看 IMDB 再看名字**：DB 名与文件名中文名对不上时，若两边 IMDB ID 一致，
   只是译名差异（无间行者/无间道风云），不是错绑；IMDB 不一致才是真正的错误绑定。
+
+## 教训（2020/2023/2025/2026 批量重命名实战）
+
+- **中文质量词会粘进中文标题**：BT 命名如「真实的谎言.BD中英双字1024高清」，CJK 提取后
+  中文名变成「真实的谎言中英双字高清」，搜索必挂。工具内置中英双侧噪声剥离
+  （CJK_NOISE/ENG_NOISE），包括国粤日三语、双字幕、精译版、（美）地区标记、复制（1) 等变体。
+- **OMDb 会 401 熔断**：免费 key 每日 1000 次，大批量必然打爆。工具在 401/网络失败时
+  自动熔断降级到 Jellyfin RemoteSearch（TMDb 支持中文），且熔断期的「未找到」不写缓存。
+- **RemoteSearch 请求不要带年份**：服务端按年过滤太死，而文件名年份常是下载/封装年
+  （「2013终极神差」实为 1997 的 The Postman）。年份只在本地评分做偏好。
+- **TMDb 中文名 ≠ 常见中文名**：让子弹飞/十二猴子 vs 12只猴子、料理鼠王 vs 美食总动员、
+  被解救的姜戈 vs 被解放的姜戈——比对要做中文数字转换（十二↔12）和标点规范化
+  （本杰明·巴顿奇事）。相似度 ≥0.7 的异译名会采用但标 ⚠，更低的拒绝进人工清单。
+- **目录名年份只是整理归类**，与电影发布年份无关，不要拿它过滤候选（用户明确纠正过）。
+  同名不同年的歧义（飞行家 2004/2025、萤火虫之墓 1988/2008）只能靠人工或覆盖表定夺。
+- **记忆里的 IMDB ID 极不可靠**：本次人工给的覆盖 id 经服务器反查校验，记错率超过 20%
+  （tt0366540→tt0366548 快乐的大脚、tt0319062→tt0318462 摩托日记等）。任何手动 id
+  都必须过 `--imdb-id` 的反查验证。
+- **macOS/SMB 的 `._` AppleDouble 垃圾文件**会被当成独立电影组，浪费查询还制造重名冲突——
+  分组时直接排除。
+- **多 CD 资源**（cd1/cd2/disc1）自动堆叠为 `片名 (年) [imdbid-x] - cd1.mkv`，
+  无碟片标记的 sample/花絮/不同版本一律跳过不碰，防止同名覆盖。
+- **文件名自带的 `[tmdbid-…]`/`[imdbi-…]`（拼写变体）标签会直接复用**：tmdbid 经
+  RemoteSearch 二段补全成 imdbid，不再浪费一次搜索。
+- **dry-run 永远不交互**：覆盖 id 验证不通过时预览只标注不拦截，避免批处理卡死在提示符上。
 
 ## 修复工具链总结
 
