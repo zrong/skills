@@ -1013,6 +1013,8 @@ def _flat_groups(base: Path) -> list[dict]:
     for f in sorted(base.iterdir()):
         if f.is_dir() or f.name == 'omdb_cache.json':
             continue
+        if f.name.startswith('._'):
+            continue  # macOS/SMB AppleDouble 元数据文件，永远不是媒体
         m = FLAT_PREFIX.match(f.name)
         if m:
             prefix = m.group(1)
@@ -1954,7 +1956,8 @@ def server_check(directory):
     """
     base = Path(directory).resolve()
     files = [f for f in sorted(base.iterdir())
-             if f.is_file() and f.suffix.lower() in VIDEO_EXTS]
+             if f.is_file() and f.suffix.lower() in VIDEO_EXTS
+             and not f.name.startswith('._')]
     if not files:
         click.echo("目录下没有视频文件。")
         return
