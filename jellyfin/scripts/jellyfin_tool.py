@@ -2002,6 +2002,64 @@ def dupes(directories, probe):
 
 
 # ---------------------------------------------------------------------------
+# move：整组搬移（视频 + 旁挂文件）
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.argument('source', type=click.Path(exists=True, file_okay=False))
+@click.argument('dest', type=click.Path(file_okay=False))
+@click.argument('names', nargs=-1, required=True)
+@click.option('--yes', '-y', is_flag=True, help='跳过确认，直接执行')
+@click.option('--dry-run', is_flag=True, help='只预览，不执行')
+def move(source, dest, names, yes, dry_run):
+    """把指定电影整组移动到目标目录：视频本体 + 同 stem 的旁挂文件
+    （poster/backdrop/nfo/字幕等）。名称按 stem 匹配（不带扩展名）；
+    源目录中与名称同名的子文件夹则整个移动。与 dupes 联动做隔离。
+
+    \b
+    move /media/movie/2023 /media/movie/2099 战狼.HD1280超清国语中英双字 情仇
+    """
+    src = Path(source).resolve()
+    dst = Path(dest).resolve()
+    plan = []
+    for name in names:
+        sub = src / name
+        if sub.is_dir():
+            plan.append((sub, dst / name, True))
+            continue
+        files = [f for f in src.iterdir()
+                 if f.is_file() and not f.name.startswith('._')
+                 and (f.stem == name or f.stem.startswith(name + '-'))]
+        if not files:
+            click.echo(f"⚠ 未找到：{name}", err=True)
+            continue
+        for f in files:
+            plan.append((f, dst / f.name, False))
+
+    if not plan:
+        click.echo("没有可移动的内容。")
+        return
+    click.echo(f"移动计划（{len(plan)} 个文件/文件夹）→ {dst}/：")
+    for s, d, is_dir in plan:
+        click.echo(f"  {'[目录] ' if is_dir else ''}{s.name}")
+    if dry_run:
+        click.echo("[预览模式，未执行]")
+        return
+    if not yes:
+        if click.prompt("确认执行？[y/N]", default='N').lower() != 'y':
+            click.echo("已取消。")
+            return
+    dst.mkdir(parents=True, exist_ok=True)
+    for s, d, _ in plan:
+        if d.exists():
+            click.echo(f"  冲突跳过：{d.name} 已存在", err=True)
+            continue
+        shutil.move(str(s), str(d))
+    click.echo("完成。")
+
+
+# ---------------------------------------------------------------------------
 # server identify / check：错误刮削修复工具链
 # ---------------------------------------------------------------------------
 
