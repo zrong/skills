@@ -1784,6 +1784,70 @@ def retag(path, mappings, force_imdb, yes, dry_run):
 
 
 # ---------------------------------------------------------------------------
+# lookup：即席查询（imdbid 反查 / tmdbid 补全 / 标题搜索）
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.argument('query')
+@click.option('--limit', default=8, show_default=True, help='标题搜索时最多显示的候选数')
+def lookup(query, limit):
+    """即席查询，给 --imdb-id 手动指定时查号用。
+
+    \b
+    lookup tt2059171        # 反查 IMDb ID 对应的标题/年份（验证用）
+    lookup tmdbid:335462    # TMDb ID 补全成 IMDb ID
+    lookup 战狼              # 标题搜索（中文走 Jellyfin RemoteSearch，英文走 OMDb）
+    """
+    cfg = _find_config()
+    base_url, api_key = _get_omdb_config(cfg)
+    q = query.strip()
+
+    m = re.fullmatch(r'tt\d+', q)
+    if m:
+        info = _lookup_by_imdb_id(q, base_url, api_key) or _lookup_via_jellyfin_imdb(q)
+        if info:
+            click.echo(f"{q} → {info['title']} ({info['year']})")
+        else:
+            click.echo(f"{q} 反查失败（OMDb 与 Jellyfin 均无结果）", err=True)
+            sys.exit(1)
+        return
+
+    m = re.fullmatch(r'(?:tmdbid|tmdb)[:：-]?(\d+)', q, re.IGNORECASE)
+    if m:
+        imdb = _tmdb_to_imdb(m.group(1))
+        if imdb:
+            info = _lookup_by_imdb_id(imdb, base_url, api_key) or _lookup_via_jellyfin_imdb(imdb)
+            click.echo(f"tmdbid:{m.group(1)} → {imdb}"
+                       + (f"  ({info['title']} {info['year']})" if info else ""))
+        else:
+            click.echo(f"tmdbid:{m.group(1)} 无法补全 IMDb ID", err=True)
+            sys.exit(1)
+        return
+
+    # 标题搜索：OMDb（英文）+ Jellyfin RemoteSearch（中文），合并展示
+    shown = 0
+    if api_key and not _OMDB_DOWN:
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                d = client.get(f"{base_url}/", params={'apikey': api_key, 's': q, 'type': 'movie'}).json()
+            for x in d.get('Search', [])[:limit]:
+                click.echo(f"  [OMDb]  {x['Title']} ({x['Year']}) [{x['imdbID']}]")
+                shown += 1
+        except Exception as e:
+            click.echo(f"  OMDb 搜索失败：{e}", err=True)
+    results = _jellyfin_search_raw({'Name': q}) or []
+    for x in results[:limit]:
+        ids = x.get('ProviderIds') or {}
+        id_str = ' '.join(f"[{k.lower()}id-{v}]" for k, v in ids.items() if k in ('Imdb', 'Tmdb'))
+        click.echo(f"  [Jellyfin]  {x.get('Name')} ({x.get('ProductionYear') or '?'}) {id_str}")
+        shown += 1
+    if not shown:
+        click.echo("两个通道都没有结果。", err=True)
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # server identify / check：错误刮削修复工具链
 # ---------------------------------------------------------------------------
 
