@@ -572,9 +572,9 @@ def _norm_cmp(s: str) -> str:
     return re.sub(r'[^0-9a-z一-鿿㐀-䶿]+', '', s)
 
 
-def _lookup_via_jellyfin_imdb(imdb_id: str) -> dict | None:
-    """OMDb 不可用时的反查回退：用 Jellyfin RemoteSearch 按 IMDb id 取标题和年份。
-    优先返回带 Imdb 标记的提供商结果（标题为英文原名）。"""
+def _jellyfin_search_raw(search_info: dict) -> list | None:
+    """直接调 Jellyfin RemoteSearch/Movie，返回原始结果列表（含 ProviderIds）。
+    未配置服务器或失败返回 None。"""
     cfg = _find_config()
     base_url, api_key = _get_server_config(cfg)
     if not base_url or not api_key:
@@ -585,43 +585,34 @@ def _lookup_via_jellyfin_imdb(imdb_id: str) -> dict | None:
                 f'MediaBrowser Token="{api_key}", Client="jellyfin-tool", '
                 'Device="jellyfin-tool", DeviceId="jellyfin-tool", Version="1.0"')
         }) as client:
-            r = client.post('/Items/RemoteSearch/Movie',
-                            json={'SearchInfo': {'ProviderIds': {'Imdb': imdb_id}}})
-            if r.status_code >= 400:
-                return None
-            results = r.json()
-            for x in results:
-                if (x.get('ProviderIds') or {}).get('Imdb'):
-                    return {'title': x.get('Name') or '', 'year': str(x.get('ProductionYear') or '')}
-            if results:
-                return {'title': results[0].get('Name') or '',
-                        'year': str(results[0].get('ProductionYear') or '')}
+            r = client.post('/Items/RemoteSearch/Movie', json={'SearchInfo': search_info})
+            return r.json() if r.status_code < 400 else None
     except Exception:
-        pass
-    return None
+        return None
+
+
+def _lookup_via_jellyfin_imdb(imdb_id: str) -> dict | None:
+    """OMDb 不可用时的反查回退：用 Jellyfin RemoteSearch 按 IMDb id 取标题和年份。
+    优先返回带 Imdb 标记的提供商结果（标题为英文原名）。"""
+    results = _jellyfin_search_raw({'ProviderIds': {'Imdb': imdb_id}})
+    if not results:
+        return None
+    for x in results:
+        if (x.get('ProviderIds') or {}).get('Imdb'):
+            return {'title': x.get('Name') or '', 'year': str(x.get('ProductionYear') or '')}
+    return {'title': results[0].get('Name') or '',
+            'year': str(results[0].get('ProductionYear') or '')}
 
 
 def _tmdb_to_imdb(tmdb_id: str) -> str | None:
     """用 Jellyfin RemoteSearch 把文件名自带的 [tmdbid-…] 补全成 IMDb id。"""
-    cfg = _find_config()
-    base_url, api_key = _get_server_config(cfg)
-    if not base_url or not api_key:
+    results = _jellyfin_search_raw({'ProviderIds': {'Tmdb': tmdb_id}})
+    if not results:
         return None
-    try:
-        with httpx.Client(base_url=base_url, timeout=30.0, headers={
-            "Authorization": (
-                f'MediaBrowser Token="{api_key}", Client="jellyfin-tool", '
-                'Device="jellyfin-tool", DeviceId="jellyfin-tool", Version="1.0"')
-        }) as client:
-            r = client.post('/Items/RemoteSearch/Movie',
-                            json={'SearchInfo': {'ProviderIds': {'Tmdb': tmdb_id}}})
-            if r.status_code < 400:
-                for x in r.json():
-                    imdb = (x.get('ProviderIds') or {}).get('Imdb')
-                    if imdb:
-                        return imdb
-    except Exception:
-        pass
+    for x in results:
+        imdb = (x.get('ProviderIds') or {}).get('Imdb')
+        if imdb:
+            return imdb
     return None
 
 
