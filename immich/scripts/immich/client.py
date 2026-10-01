@@ -2,7 +2,6 @@
 
 import asyncio
 import httpx
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
@@ -111,8 +110,6 @@ class ImmichClient:
             # BinaryIO doesn't have stat info, use current time
             mtime = datetime.now(tz=timezone.utc).timestamp()
 
-        device_id = "immich-skill"
-        device_asset_id = str(uuid.uuid4())
         # ISO 8601 in UTC with explicit "Z" suffix. Immich's DTO requires
         # the timezone — a naive ``datetime.isoformat()`` (no offset)
         # produces HTTP 400 ``Validation failed`` on the fileCreatedAt
@@ -124,10 +121,12 @@ class ImmichClient:
         # Immich supports non-ASCII (Chinese, etc.) filenames in the
         # multipart ``filename`` field — they round-trip correctly in
         # both the upload response and the GET response. No sanitization.
+        # v1-style ``deviceAssetId``/``deviceId`` form fields were removed
+        # from AssetMediaCreateDto in Immich v3; sending them is dead
+        # weight (the server ignores unknown fields but may reject them
+        # in stricter future versions).
         files = {
             "assetData": (filename, file, mime_type or "application/octet-stream"),
-            "deviceAssetId": (None, device_asset_id),
-            "deviceId": (None, device_id),
             "fileCreatedAt": (None, file_created_at),
             "fileModifiedAt": (None, file_modified_at),
         }

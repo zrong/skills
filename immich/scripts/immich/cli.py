@@ -102,9 +102,12 @@ def init_and_test():
     print(f"Config loaded. Default album: {default_album or '(none)'}")
 
     try:
-        with ImmichClient() as client:
-            albums = asyncio.run(client.get_albums())
-            print(f"Connected! Found {len(albums)} albums.")
+        async def _probe():
+            async with ImmichClient() as client:
+                return await client.get_albums()
+
+        albums = asyncio.run(_probe())
+        print(f"Connected! Found {len(albums)} albums.")
     except Exception as e:
         print(f"Connection failed: {e}", file=sys.stderr)
         sys.exit(1)
