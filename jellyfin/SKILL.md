@@ -1,5 +1,6 @@
 ---
 name: jellyfin
+version: 26.39.23
 description: Jellyfin 媒体库命名与服务器维护工具。当用户需要按照 Jellyfin 命名规范重命名电影/剧集文件夹和文件（rename-folder）、处理多部电影共用一个目录的平铺目录批量重命名（rename-flat，如 TopNNN. 排序前缀的 IMDB Top250 合集）、获取或校验 IMDB ID（verify 批量校验文件名 imdbid 与 OMDb 反查是否匹配并检测孤儿 nfo/图片、lookup 即席查号/反查）、只替换文件名中的 imdbid 标签（retag）、跨目录查重并对比画质给出留删建议（dupes）、整组搬移电影及旁挂文件（move）、处理 BT/字幕组风格媒体文件名（含点分隔、中英混合、质量标记如 1080P.X264.AAC）、清理本地旧海报/nfo 让位在线刮削（de-localart）、调用 Jellyfin API 刷新媒体库/诊断海报不更新（server refresh/images）、纠正错误刮削重新识别（server identify）、或比对 Jellyfin 元数据与文件名找出错绑（server check）时使用。
 ---
 
@@ -249,6 +250,28 @@ uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" de-l
 uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" de-localart /path/to/movies --yes --refresh
 ```
 
+### audit — 系列库体检（只读）
+
+对电影库做全面盘点：命名规范、文件名 imdbid 与反查/DB 三方对账、nfo 一致性、
+入库状态（多 CD/套装/BDMV 感知）、孤儿旁挂、系列缺席与重复候选、无系列文件夹的套装。
+输出分级清单（✗ 硬错误 / ⚠ 待人工 / ℹ 仅标注），`--json-output` 落盘完整数据。
+
+```bash
+# 全库体检：服务器电影库路径自动映射到 ROOT 下同名子目录；默认跳过 IMDBTop250
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" audit /path/to/movie --json-output /tmp/audit.json
+
+# 指定系列目录名与反查缓存（缓存可增量重跑，不重复反查）
+uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" audit /path/to/movie \
+  --series-dir 系列电影 --cache ~/.cache/jellyfin_audit.json
+```
+
+要点：
+- 只读不改任何文件；反查走服务器 RemoteSearch（与 OMDb 配额无关）
+- 元数据全量刷新（`server refresh --replace-metadata`）可能让残留 nfo 回压 DB——
+  大刷新之后重跑 audit 可抓这类回归
+- 跨语言（中文文件名 vs 英文反查名）无法字符串比对时标 ⚠ 人工核对；
+  DB 刮削名与文件名相似度 ≥0.6 视为绑定正确
+
 ## 典型工作流
 
 1. **先预览**：总是先用 `--dry-run` 查看解析结果和终审清单
@@ -320,8 +343,38 @@ uv run --project "$SKILL_DIR/scripts" "$SKILL_DIR/scripts/jellyfin_tool.py" de-l
   RemoteSearch 二段补全成 imdbid，不再浪费一次搜索。
 - **dry-run 永远不交互**：覆盖 id 验证不通过时预览只标注不拦截，避免批处理卡死在提示符上。
 
+## 教训（系列目录体检与修复实战 2026-09）
+
+- **Refresh API 不入库新文件**：`server refresh`（POST /Items/{id}/Refresh）只刷新已入库条目；
+  改名/移动后的新条目要等「扫描媒体库」任务——用 POST `/ScheduledTasks/Running/{taskId}` 触发
+  （任务可能排队约 20 分钟才执行，轮询 DB 路径确认入库完成）
+- **SMB 冒号映射 U+F022**：macOS 经 SMB 写入的文件名中 ASCII `:` 在 NAS 端存储为 U+F022，
+  DB Path 与本地路径字符不同。所有按路径比对的操作（server check、identify 找条目、自制对账
+  脚本）必须先把 U+F022 归一化为 `:`；`server identify` 对含英文冒号的文件名会"找不到条目"
+- **手动合集（BoxSet）不自愈**：改名/删除后合集仍引用旧 ItemId——新条目用
+  POST `/Collections/{id}/Items?Ids=` 补入、旧引用用 DELETE 移除；错绑年代的错误 ID 会把电影
+  挂进别人的合集（如人鱼大海战挂进星球大战合集、纳尼亚1 挂进杀死比尔合集），修完 ID 后要清理合集
+- **verify / server check / dupes 都只扫顶层**：系列文件夹（多部电影平铺一组）要逐目录调用；
+  dupes 按规范化标题匹配，对 BT 噪声名无效——先重命名再查重
+- **蓝光原盘套装是三层结构**（套装盒→电影目录→视频），浅层扫描看不见；一个目录装多部电影
+  （如 AvP 与 AvP2 同目录）必须拆分成每部一个目录
+- **TMDb 反查标题语言不定**（中英皆有可能）：中文文件名 vs 英文反查名无法字符串比对，降级为
+  人工核对并用 DB 刮削名佐证；标题不符且 DB 同名 → "nfo/DB 一致地错绑"
+- **纯数字子串误匹配**：标题比对剥离 CJK 后只剩数字会误判（'6' in 'big hero 6' 把电锯惊魂6
+  判成超能陆战队）——剥离后长度 <3 的串不参与子串匹配
+- **时长探针消歧**：无年份/未标号文件用 ffprobe 时长定身份（功夫熊猫 92min=第1部、勇敢者的
+  游戏 104/101min=Jumanji/Zathura、超人 129min=2025 版）；但最终身份仍要 ID 反查验证——
+  文件名标签不可信（分歧者1 被错标成分歧者2 的 ID，139min 正片长度才是真相）
+- **元数据全量刷新**：ID 修对后 `server refresh <库> --replace-metadata --replace-images` 可统一
+  更新名称/海报——"ProviderIds 沿用旧 ID"的特性在 ID 已正确时是优点
+- **体检工作流模板**：审计（ID 反查 + DB 对账 + 时长消歧 + 孤儿检测）→ 批量重命名 → 逐对
+  dupes --probe 定去留 → move 缺席项 → 扫描任务入库 → identify 错绑 → 孤儿清理 → 合集对账。
+  审计驱动脚本样例（复用本工具函数、RemoteSearch 反查缓存、并发查号）见 motoko 仓库
+  outputs/jellyfin_audit/audit.py
+
 ## 修复工具链总结
 
+定期体检：`audit` 一条命令全库盘点（命名/绑定/入库/孤儿/缺席/无文件夹套装）。
 上游防止制造问题：`--imdb-id` 反查验证 + `--force-imdb` 兜底；`verify` 批量体检存量
 （含孤儿媒体文件检测）。
 出问题后的修复链：`server check` 对账找错绑 → `retag` 修正文件名里的 imdbid（只换
