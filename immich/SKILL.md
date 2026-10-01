@@ -1,8 +1,8 @@
 ---
 name: immich
-version: 26.29.38
-description: 将本地图像和视频上传到 Immich 服务器，支持批量上传、管理 Album 和公开链接。网络资源下载由 video-downloader 负责；当用户提到"上传到 Immich"、"上传图片"、"备份照片"、"上传视频"、"下载视频并上传 Immich"时使用此技能。
-argument-hint: "[file-path] [--album album-name]"
+version: 26.40.73
+description: 将本地图像和视频上传到 Immich 服务器，并管理服务器端资产：批量上传、相簿（Album）批量创建/校验/共享、文件夹浏览、外部图库重扫。网络资源下载由 video-downloader 负责；当用户提到"上传到 Immich"、"上传图片"、"备份照片"、"上传视频"、"下载视频并上传 Immich"、"扫描图库"、"文件夹"、"建相簿"、"共享相簿"时使用此技能。
+argument-hint: "[upload|batch-upload|scan|folders|album-plan|album-sync|album-share|album-delete] ..."
 allowed-tools: Bash(uv run *), Read, Glob, Edit
 ---
 
@@ -60,15 +60,13 @@ uv run --project {SCRIPTS_DIR} immich upload "{LOCAL_IMAGE_1}" "{LOCAL_IMAGE_2}"
 ### 2a. fallback：用 curl 直接上传
 
 如果 Python 脚本上传失败（如遇到时区缺失的 400 错误，见陷阱 #2），
-可以用 curl 作为 fallback，之后再调用 API 加入相册：
+可以用 curl 作为 fallback（v3 已不需要 device 字段），之后再调用 API 加入相册：
 
 ```bash
 UPLOAD_AT=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
 curl -s -X POST "${BASE_URL}/api/assets" \
   -H "x-api-key: ${API_KEY}" \
   -F "assetData=@/path/to/video.mp4;type=video/mp4" \
-  -F "deviceAssetId=hermes-$(date +%s)" \
-  -F "deviceId=hermes-agent" \
   -F "fileCreatedAt=${UPLOAD_AT}" \
   -F "fileModifiedAt=${UPLOAD_AT}"
 ```
@@ -161,13 +159,82 @@ uv run --project {SCRIPTS_DIR} immich update-description <ASSET_UUID> "原文件
 原始 URL: https://v.douyin.com/xxxxx/"
 ```
 
-### 排障参考
+#### 7. 外部图库重扫（NAS 照片有更新时）
+
+外部图库没有 inotify（NFS/SMB 挂载 watch 无效），NAS 侧增删改文件后必须触发扫描：
+
+```bash
+# 自动按导入路径找图库，触发扫描并等待完成
+uv run --project {SCRIPTS_DIR} immich scan
+
+# 指定图库 UUID / 不等待
+uv run --project {SCRIPTS_DIR} immich scan --library-id <uuid> --no-wait
+```
+
+扫描是图库级 mtime 增量（无子目录级扫描）。文件在磁盘上移动/合并后，
+旧路径资产会转为离线不可见、新路径生成新资产记录——后续用
+`album-sync` 把相簿对齐到新路径。
+
+### 8. 浏览服务器端文件夹
+
+```bash
+# 列出全部资产文件夹路径及各目录直接资产数
+uv run --project {SCRIPTS_DIR} immich folders
+
+# 只看某前缀下
+uv run --project {SCRIPTS_DIR} immich folders --under "/mnt/album/旅行"
+```
+
+网页端侧边栏的「文件夹」菜单默认隐藏：用户设置 → 功能 → 文件夹 →
+打开「已启用」+「侧边栏」→ 保存（v3 `UserSidebar.svelte` 的偏好开关）。
+
+### 9. 文件夹 → 相簿批量同步
+
+把一个根目录下每个顶层文件夹物化为一个相簿（含子文件夹全部资产），
+幂等可重跑——已存在的相簿只校验补漏，不会重复创建：
+
+```bash
+# 先看计划（纯只读 dry-run）
+uv run --project {SCRIPTS_DIR} immich album-plan --root "/mnt/album/旅行"
+
+# 执行：建缺失相簿 + 校验补图 + 共享给指定用户
+uv run --project {SCRIPTS_DIR} immich album-sync --root "/mnt/album/旅行" \
+  --share-with "lily,wangmin" --role editor --apply
+
+# 单独共享 / 删除某个相簿（删除相簿不动资产本身）
+uv run --project {SCRIPTS_DIR} immich album-share --album "20120629-0701庐山" --with "lily" --role viewer
+uv run --project {SCRIPTS_DIR} immich album-delete --album "20150221-0224哈尔滨之行"
+```
+
+**相簿命名规则**：`YYYYMMDD-MMDD地点`（同年），跨年为 `YYYYMMDD-YYYYMMDD地点`。
+文件夹名里缺的日期按以下优先级推导（实现在 `immich/albums.py`）：
+
+1. 文件夹名中给出的日期部分（权威，不被照片覆盖）；
+2. 真实 EXIF（`exifInfo.dateTimeOriginal`，取 `localDateTime` 本地日历日），
+   以众数 ±30 天聚簇去掉离群值（相机时钟错乱的单张、海报帧生成日期）；
+3. `fileCreatedAt` 众数（≥50% 一致才用；弱证据=拷贝时间，且不得把名称
+   给出的起始日延后超过 7 天）。
+
+与文件夹名年月矛盾的推导结果会输出到计划表的"备注"列，执行前应人工复核。
+文件夹在磁盘层合并后：先 `scan`，再 `album-sync --apply`（旧相簿资产会
+清零，用 `album-delete` 删除空壳）。
+
+## API key 权限清单
+
+上传链路：`asset.upload`、`asset.read`、`asset.update`、`album.read`、
+`album.create`、`albumAsset.create`。管理链路（本文档 7-9 节）：
+`library.read`、`library.update`（scan 要求 admin 账号）、`folder.read`、
+`user.read`、`albumUser.create`、`album.delete`。缺失时返回
+`403 Missing required permission: <name>`，按提示在网页端 API Keys 编辑页勾选。
+
+## 排障参考
 
 - ghcr.io 镜像加速 & Immich v3 数据库迁移（pgvecto-rs → VectorChord）：
   `references/ghcr-mirroring-and-immich-migration.md`
 - Immich API 已验证的坑（`originalFileName` 不可改、时区必带、中文
   文件名实际支持、`duplicate`/`replaced` 状态码、`description` 存在
-  `asset_exif` 而非 `asset`，以及一个通用的 4xx 排障脚本）：
+  `asset_exif` 而非 `asset`，以及一个通用的 4xx 排障脚本；v3 破坏性
+  变更清单与外部图库/日期推导语义见其 #7-8 节）：
   `references/api-pitfalls-and-debugging.md`
 
 ## 配置说明
@@ -232,12 +299,29 @@ uv run --project {SCRIPTS_DIR} immich update-description <ASSET_UUID> "原文件
    `<媒体文件名>.metadata.json`。Immich 在没有显式 `--description` 时自动
    读取并格式化；缺失字段会省略，侧车不存在时不改变普通本地上传行为。
 
+10. **v3 移除了上传 DTO 的 `deviceAssetId`/`deviceId`。** 服务器会忽略
+    这些字段（不报错），但属于死代码，客户端已不再发送。
+
+11. **v3 读取相簿内容必须走 search。** `GET /api/albums/{id}/assets` 已
+    404，改用 `POST /api/search/metadata {"albumIds":[id]}`；返回的
+    `nextPage` 是**字符串**，回传 `page` 前要 `int()`，否则 400。
+
+12. **v3 共享相簿时 payload 不能带 owner。** `GET /api/albums` 的
+    `albumUsers` 是 `[{"user":{"id":...},"role":"owner"|...}]` 且包含
+    owner，但 `PUT /api/albums/{id}/users` 带 owner 条目会
+    `400 Cannot add another owner`——剔除 role=owner 后提交。
+
+13. **真实 EXIF 在 `exifInfo.dateTimeOriginal`。** 顶层 `dateTimeOriginal`
+    常为空；`localDateTime` 在无 EXIF 时会被 `fileCreatedAt` 回填，
+    单独出现不能当作拍摄日期的证据（详见 references #7-8）。
+
 ## Python API
 
 ```python
 from immich.config import load_config, get_immich_config
 from immich.client import ImmichClient
 from immich.uploader import ImmichUploader
+from immich.albums import build_plan, sync_album
 
 # 加载配置
 load_config()
@@ -256,4 +340,15 @@ async with ImmichClient() as client:
     # 上传多个文件（并行）
     await uploader.upload_files([Path("a.jpg"), Path("b.png")], album_name="Photos")
 
+    # 重扫外部图库并等待完成
+    libs = await client.list_libraries()
+    await client.scan_library(libs[0]["id"])
+    await client.wait_for_library_scan()
+
+    # 文件夹 -> 相簿批量同步（幂等）
+    plan = await build_plan(client, "/mnt/album/旅行")
+    users = await client.resolve_users(["lily", "wangmin"])
+    for entry in plan:
+        result = await sync_album(client, entry, list(users.values()), role="editor")
+        print(result)
 ```

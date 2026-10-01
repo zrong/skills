@@ -150,8 +150,74 @@ docker exec immich_postgres psql -U postgres -d immich \
 
 **Core lesson:** When Immich returns 4xx with a vague
 `{"message":"Validation failed"}`, the validation error is in
-`response.errors[].path[]` and `response.errors[].message`. Pull
-the actual server DTO from the container to confirm which fields
+`response.errors[].path[]` and `response.errors[].message`. Pull the
+actual server DTO from the container to confirm which fields
 the validator enforces, and don't trust prior-session diagnoses
 (this very file replaced one such wrong diagnosis in commit
 `a99422b`).
+
+## 7. v3 (v3.0.2) breaking changes — verified live 2026-10
+
+Server upgraded v1.x → v3.0.2. What actually broke or changed:
+
+- **Upload DTO dropped `deviceAssetId`/`deviceId`.** Sending them is
+  ignored (not rejected), so old code keeps working, but they are dead
+  weight — `client.upload_asset` no longer sends them. The curl recipe
+  in section 6 above is historical; drop the two `-F device...` lines.
+- **`GET /api/albums/{id}/assets` is gone (404).** List album contents
+  via `POST /api/search/metadata` with `{"albumIds": [id]}`, paginating
+  `page`/`size`.
+- **Search pagination: `nextPage` is a STRING** (`"2"`). Passing it back
+  as `page` fails with `Validation failed: expected number, received
+  string` — `int()` it first. `page`/`size` must be JSON numbers.
+- **`PUT /api/albums/{id}/assets` returns an array**, not the v1
+  `{successfullyAdded, alreadyInAlbum}` object.
+- **Album members shape:** GET returns `albumUsers:
+  [{"user": {"id", "email", "name"}, "role": "owner"|"editor"|"viewer"}]`
+  — the owner is INSIDE the list, but `PUT /api/albums/{id}/users`
+  rejects an owner entry with `400 {"message":"Cannot add another
+  owner"}`. Strip role=owner from the payload; existing members are
+  preserved when you PUT the merged non-owner list.
+- **`AlbumResponseDto.assets` removed** — the album list no longer
+  embeds assets; `assetCount` is available instead.
+- **Real EXIF lives in `exifInfo.dateTimeOriginal`.** The top-level
+  `dateTimeOriginal` on `AssetResponseDto` is usually empty.
+  `localDateTime` is the local-calendar rendering when real EXIF exists,
+  but it is ALSO backfilled from `fileCreatedAt` when EXIF is missing —
+  so it is not evidence of a real shooting date on its own.
+- **Folder endpoints (new capability):** `GET /api/view/folder/unique-paths`
+  lists asset directory paths; `GET /api/view/folder?path=` returns
+  DIRECT children only (`LIKE path/%` and `NOT LIKE path/%/%`) — recurse
+  yourself. Both filter to `visibility=timeline`, non-trashed,
+  owner-scoped assets, and need the `folder.read` API-key permission.
+- **Old `/api/view/folders` is gone** (route-level 404, with or without
+  `assetId`); `/api/openapi.json` no longer serves the spec (returns
+  the SPA HTML). Read the OpenAPI from
+  `https://api.immich.app/openapi.json` or the GitHub source instead.
+- **Granular API-key permissions matter now.** Working set for this
+  skill: `asset.upload/read/update`, `album.read/create`,
+  `albumAsset.create`, `albumUser.create`, `album.delete`,
+  `library.read/update` (scan also requires an admin account),
+  `user.read`, `folder.read`. Missing ones return
+  `403 {"message":"Missing required permission: <name>"}`.
+
+## 8. External-library semantics worth knowing
+
+- Library scan is **library-wide and mtime-incremental**; there is no
+  per-subfolder scan. After the scan job, faceDetection/OCR/smartSearch
+  queues pick up new assets automatically.
+- NAS mounts (NFS/SMB) have no working inotify — Immich's "watch"
+  feature is useless there; scan on demand (`immich scan`) or schedule
+  it server-side.
+- When files move/merge on disk, a scan makes the old path's assets
+  invisible (offline) and creates fresh asset records at the new path.
+  The old records linger in the DB (harmless, invisible in timeline and
+  folder view) — albums built from the old records drain to 0 assets
+  and should be deleted; albums sync from the new path via
+  `immich album-sync`.
+- Date derivation for folder→album naming (implemented in
+  `immich.albums.derive_album_name`): name parts are authoritative;
+  missing bounds come from real EXIF clustered modal ±30 days (kills
+  camera-clock strays and poster-frame generation dates); fileCreatedAt
+  modal (≥50% agreement) is last-resort weak evidence and never extends
+  a name-given start by more than 7 days (copy-date guard).

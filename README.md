@@ -220,6 +220,10 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 
 ## 更新记录
 
+### 2026-10-02
+
+- 升级 immich skill：适配服务器 v3.0.2 并新增管理能力。上传清理 v3 已移除的 `deviceAssetId`/`deviceId` 死字段（checksum 预检实测服务器仅忽略不报错），修复 `init` 用同步 `with` 包异步客户端的存量 bug。新增 CLI：`scan`（外部图库重扫+等待，NAS 无 inotify 场景）、`folders`（服务器端文件夹浏览）、`album-plan`/`album-sync`（文件夹→相簿批量规划与幂等同步：`YYYYMMDD-MMDD地点` 命名、名称>真 EXIF（众数±30 天聚簇去离群）>文件日期众数的日期推导、含子文件夹资产、已存在相簿只校验补漏）、`album-share`/`album-delete`。`references/api-pitfalls-and-debugging.md` 新增 v3 破坏性变更清单（search 分页 nextPage 为字符串、相簿内容改走 search/metadata、共享 payload 不得带 owner、真实 EXIF 在 exifInfo 子对象、granular API key 权限清单）与外部图库扫描语义。全部命令在 Immich v3.0.2 实测（39 相簿/5751 资产同步幂等验证），新增 29 个单测。
+
 ### 2026-09-27
 
 - 升级 jellyfin skill：新增 `lookup`（即席查号：imdbid 反查 / tmdbid 补全 / OMDb+RemoteSearch 双通道标题搜索）、`dupes`（跨目录查重，采样哈希秒级确认同一文件，ffprobe 画质对比给出保留建议）、`move`（电影整组搬移：视频+旁挂文件，与 dupes 联动做隔离）；RemoteSearch 裸调用收敛为 `_jellyfin_search_raw`；CJK 噪声词按长度降序剥离（修「西班牙语→牙语」类残留）并补「双字幕」；平铺分组与对账排除 `._` AppleDouble 元数据文件。全部命令在 Jellyfin 12.1 上实测通过（鉴权头 / RemoteSearch / Refresh / Apply 均无 API 破坏性变更）。
