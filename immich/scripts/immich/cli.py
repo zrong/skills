@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from immich.config import get_default_album, load_config
+from immich.albums import build_plan, sync_album
 from immich.client import ImmichClient
 from immich.metadata import metadata_sidecar_path
 from immich.uploader import ImmichUploader
@@ -62,6 +63,34 @@ def main():
     upd.add_argument("asset_id", help="Immich asset UUID")
     upd.add_argument("description", help="New description text")
 
+    # scan command: rescan an external library (NAS mounts have no inotify)
+    scan_p = sub.add_parser("scan", help="Trigger external library scan and wait for it")
+    scan_p.add_argument("--library-id", help="Library UUID (default: auto-detect by import path)")
+    scan_p.add_argument("--import-path", default="/mnt/album", help="Import path used to find the library")
+    scan_p.add_argument("--no-wait", action="store_true", help="Do not wait for the scan queue to drain")
+
+    # folders command: browse server-side folder paths
+    fol = sub.add_parser("folders", help="List asset folder paths with asset counts")
+    fol.add_argument("--under", default="", help="Only show paths under this prefix")
+
+    # album-plan / album-sync: folder -> album batch maintenance
+    plan_p = sub.add_parser("album-plan", help="Plan albums for top-level folders under a root (dry-run)")
+    plan_p.add_argument("--root", required=True, help="Folder root, e.g. /mnt/album/旅行")
+
+    sync_p = sub.add_parser("album-sync", help="Create/verify/fill albums from folders (idempotent)")
+    sync_p.add_argument("--root", required=True, help="Folder root, e.g. /mnt/album/旅行")
+    sync_p.add_argument("--share-with", default="", help="Comma-separated user names/emails to share with")
+    sync_p.add_argument("--role", default="editor", choices=("editor", "viewer"), help="Share role (default editor)")
+    sync_p.add_argument("--apply", action="store_true", help="Actually write; without it only prints the plan")
+
+    share_p = sub.add_parser("album-share", help="Share an existing album with users")
+    share_p.add_argument("--album", required=True, help="Album name")
+    share_p.add_argument("--with", dest="with_users", required=True, help="Comma-separated user names/emails")
+    share_p.add_argument("--role", default="editor", choices=("editor", "viewer"), help="Share role (default editor)")
+
+    dele = sub.add_parser("album-delete", help="Delete an album by name (assets are NOT deleted)")
+    dele.add_argument("--album", required=True, help="Album name")
+
     args = parser.parse_args()
 
     if args.cmd == "init":
@@ -93,6 +122,18 @@ def main():
         )
     elif args.cmd == "update-description":
         asyncio.run(update_description(args.asset_id, args.description))
+    elif args.cmd == "scan":
+        asyncio.run(cmd_scan(args))
+    elif args.cmd == "folders":
+        asyncio.run(cmd_folders(args))
+    elif args.cmd == "album-plan":
+        asyncio.run(cmd_album_plan(args))
+    elif args.cmd == "album-sync":
+        asyncio.run(cmd_album_sync(args))
+    elif args.cmd == "album-share":
+        asyncio.run(cmd_album_share(args))
+    elif args.cmd == "album-delete":
+        asyncio.run(cmd_album_delete(args))
 
 
 def init_and_test():
@@ -219,6 +260,120 @@ async def update_description(asset_id: str, description: str):
     async with ImmichClient() as client:
         result = await client.update_asset_description(asset_id, description)
         print(f"Updated description for {asset_id}: {result.get('id', 'OK')}")
+
+
+async def cmd_scan(args):
+    """Trigger an external-library scan (picks up NAS-side folder changes)."""
+    load_config()
+    async with ImmichClient() as client:
+        lib_id = args.library_id
+        if not lib_id:
+            lib = await client.find_library_by_import_path(args.import_path)
+            if not lib:
+                print(f"No library found for import path {args.import_path}", file=sys.stderr)
+                sys.exit(1)
+            lib_id = lib["id"]
+            print(f"Library: {lib.get('name')} ({lib_id})")
+        await client.scan_library(lib_id)
+        print("Scan queued (204).")
+        if args.no_wait:
+            return
+        print("Waiting for scan queue to drain...", flush=True)
+        ok = await client.wait_for_library_scan()
+        print("Scan finished." if ok else "Timed out waiting for scan; check /api/jobs.")
+
+
+async def cmd_folders(args):
+    """List folder paths and per-folder direct asset counts."""
+    load_config()
+    async with ImmichClient() as client:
+        paths = await client.unique_folder_paths()
+        for p in sorted(paths):
+            if args.under and not p.startswith(args.under.rstrip("/") + "/") and p != args.under:
+                continue
+            assets = await client.folder_assets(p)
+            print(f"{len(assets):>5}  {p}")
+
+
+def _print_plan(plan):
+    print(f"{'文件夹':<36} {'相簿名':<32} {'资产':>4} {'匹配':<14} 备注")
+    print("-" * 110)
+    for p in sorted(plan, key=lambda x: x["start"] or "9999"):
+        m = (p["matched_album"]["name"] or "")[:12] if p["matched_album"] else "新建"
+        print(f"{p['folder']:<36} {str(p['album_name']):<32} {p['asset_count']:>4} {m:<14} {'; '.join(p['flags'])}")
+    print("-" * 110)
+    print(f"共 {len(plan)} 个计划 / {sum(p['asset_count'] for p in plan)} 个资产；"
+          f"复用 {sum(1 for p in plan if p['matched_album'])}，"
+          f"无法命名 {sum(1 for p in plan if not p['album_name'])}")
+
+
+async def cmd_album_plan(args):
+    load_config()
+    async with ImmichClient() as client:
+        plan = await build_plan(client, args.root)
+        _print_plan(plan)
+
+
+async def cmd_album_sync(args):
+    load_config()
+    async with ImmichClient() as client:
+        plan = await build_plan(client, args.root)
+        _print_plan(plan)
+        if not args.apply:
+            print("\n(dry-run — pass --apply to create/fill/share)")
+            return
+        share_ids = []
+        if args.share_with:
+            queries = [q.strip() for q in args.share_with.split(",") if q.strip()]
+            resolved = await client.resolve_users(queries)
+            missing = [q for q in queries if q not in resolved]
+            if missing:
+                print(f"!! 未找到用户，跳过共享: {missing}", file=sys.stderr)
+            share_ids = list(resolved.values())
+        failures = []
+        for entry in sorted(plan, key=lambda x: x["start"] or "9999"):
+            try:
+                res = await sync_album(client, entry, share_ids or None, role=args.role)
+            except Exception as e:
+                failures.append((entry["folder"], str(e)))
+                print(f"FAIL {entry['folder']}: {e}", file=sys.stderr)
+                continue
+            if res["status"] == "unnamed":
+                print(f"SKIP {entry['folder']}: 无法确定相簿名（照片无日期信息）")
+            else:
+                print(f"[{res['status']}] {res['album']:<32} 原有={res['already']} 新增={res['added']} "
+                      f"共享={res['shared'] or '-'}")
+        print(f"\n完成；失败 {len(failures)} 项" + ("：" + "; ".join(f"{n}: {m}" for n, m in failures) if failures else ""))
+
+
+async def cmd_album_share(args):
+    load_config()
+    async with ImmichClient() as client:
+        albums = await client.get_albums()
+        al = next((a for a in albums if a["albumName"] == args.album), None)
+        if not al:
+            print(f"Album not found: {args.album}", file=sys.stderr)
+            sys.exit(1)
+        queries = [q.strip() for q in args.with_users.split(",") if q.strip()]
+        resolved = await client.resolve_users(queries)
+        missing = [q for q in queries if q not in resolved]
+        if missing:
+            print(f"!! 未找到用户: {missing}", file=sys.stderr)
+            sys.exit(1)
+        await client.share_album(al["id"], list(resolved.values()), role=args.role)
+        print(f"Shared '{args.album}' with {queries} as {args.role}.")
+
+
+async def cmd_album_delete(args):
+    load_config()
+    async with ImmichClient() as client:
+        albums = await client.get_albums()
+        al = next((a for a in albums if a["albumName"] == args.album), None)
+        if not al:
+            print(f"Album not found: {args.album}", file=sys.stderr)
+            sys.exit(1)
+        await client.delete_album(al["id"])
+        print(f"Deleted album '{args.album}' ({al.get('assetCount', '?')} assets released, files kept).")
 
 
 if __name__ == "__main__":

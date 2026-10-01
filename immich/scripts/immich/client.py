@@ -62,11 +62,14 @@ class ImmichClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def create_album(self, name: str) -> dict:
+    async def create_album(self, name: str, description: str | None = None) -> dict:
         """Create a new album."""
+        payload = {"albumName": name}
+        if description:
+            payload["description"] = description
         resp = await self._client.post(
             self._url("/albums"),
-            json={"albumName": name},
+            json=payload,
         )
         resp.raise_for_status()
         return resp.json()
@@ -201,10 +204,170 @@ class ImmichClient:
         return await self.update_asset(asset_id, description=description)
 
     async def add_assets_to_album(self, album_id: str, asset_ids: list[str]) -> dict:
-        """Add assets to an album."""
+        """Add assets to an album.
+
+        v3 returns a per-asset list (not the v1 ``successfullyAdded`` object).
+        """
         resp = await self._client.put(
             self._url(f"/albums/{album_id}/assets"),
             json={"ids": asset_ids},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def delete_album(self, album_id: str) -> None:
+        """Delete an album. Assets themselves are NOT deleted."""
+        resp = await self._client.delete(self._url(f"/albums/{album_id}"))
+        resp.raise_for_status()
+
+    # ---- library / folder / sharing management (v3, added 2026-10) ----
+
+    async def list_libraries(self) -> list[dict]:
+        """List libraries. Requires ``library.read``."""
+        resp = await self._client.get(self._url("/libraries"))
+        resp.raise_for_status()
+        return resp.json()
+
+    async def find_library_by_import_path(self, import_path: str) -> dict | None:
+        """Find the external library whose import path contains ``import_path``."""
+        for lib in await self.list_libraries():
+            for p in lib.get("importPaths", []):
+                if p == import_path.rstrip("/") or p.rstrip("/") in import_path or import_path.rstrip("/") in p:
+                    return lib
+        return None
+
+    async def scan_library(self, library_id: str) -> None:
+        """Trigger an external-library scan (mtime-incremental, library-wide).
+
+        Returns as soon as the job is queued (HTTP 204). Requires
+        ``library.update``. NAS mounts have no inotify, so scans are the
+        only way external-library changes get picked up.
+        """
+        resp = await self._client.post(self._url(f"/libraries/{library_id}/scan"))
+        resp.raise_for_status()
+
+    async def job_counts(self) -> dict[str, dict]:
+        """Map job queue name -> jobCounts (active/waiting/failed). Requires queue read."""
+        resp = await self._client.get(self._url("/jobs"))
+        resp.raise_for_status()
+        jobs = resp.json()
+        if isinstance(jobs, dict):
+            return {name: (j.get("jobCounts", j) if isinstance(j, dict) else {}) for name, j in jobs.items()}
+        return {j.get("id", str(i)): j.get("jobCounts", {}) for i, j in enumerate(jobs)}
+
+    async def wait_for_library_scan(self, timeout_seconds: float = 600.0, poll_interval: float = 4.0) -> bool:
+        """Wait until the library scan queue is idle. True on idle, False on timeout."""
+        import asyncio as _asyncio
+
+        loop = _asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
+        while True:
+            counts = await self.job_counts()
+            lib = next((v for k, v in counts.items() if "librar" in k.lower()), {})
+            if not lib.get("active") and not lib.get("waiting"):
+                return True
+            if loop.time() >= deadline:
+                return False
+            await _asyncio.sleep(poll_interval)
+
+    async def unique_folder_paths(self) -> list[str]:
+        """List unique asset folder paths. Requires ``folder.read`` (v3 endpoint)."""
+        resp = await self._client.get(self._url("/view/folder/unique-paths"))
+        resp.raise_for_status()
+        return resp.json()
+
+    async def folder_assets(self, path: str) -> list[dict]:
+        """List assets directly under a folder (NOT recursive — call per sub-path)."""
+        resp = await self._client.get(
+            self._url("/view/folder"), params={"path": path}
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def assets_under_folder(self, folder: str) -> list[dict]:
+        """All assets under ``folder`` including sub-folders (aggregates view/folder)."""
+        prefix = folder.rstrip("/") + "/"
+        paths = [p for p in await self.unique_folder_paths() if p == folder or p.startswith(prefix)]
+        assets: list[dict] = []
+        for p in paths:
+            assets.extend(await self.folder_assets(p))
+        # dedupe by id while keeping order
+        seen: set[str] = set()
+        unique = []
+        for a in assets:
+            if a["id"] not in seen:
+                seen.add(a["id"])
+                unique.append(a)
+        return unique
+
+    async def album_asset_ids(self, album_id: str, page_size: int = 250) -> set[str]:
+        """Asset IDs of an album via search (v3 removed GET /albums/{id}/assets).
+
+        ``nextPage`` comes back as a STRING; the DTO requires numbers.
+        """
+        ids: set[str] = set()
+        page = 1
+        while True:
+            resp = await self._client.post(
+                self._url("/search/metadata"),
+                json={"albumIds": [album_id], "page": page, "size": page_size},
+            )
+            resp.raise_for_status()
+            block = resp.json().get("assets", {})
+            ids |= {a["id"] for a in block.get("items", [])}
+            nxt = block.get("nextPage")
+            if not nxt:
+                return ids
+            page = int(nxt)
+
+    async def list_users(self) -> list[dict]:
+        """List server users. Requires ``user.read``."""
+        resp = await self._client.get(self._url("/users"))
+        resp.raise_for_status()
+        return resp.json()
+
+    async def resolve_users(self, names_or_emails: list[str]) -> dict[str, str]:
+        """Resolve login names/emails to user IDs: {query: userId}.
+
+        Matching is substring + case-insensitive over name and email.
+        Missing entries are simply absent from the result.
+        """
+        users = await self.list_users()
+        found: dict[str, str] = {}
+        for q in names_or_emails:
+            ql = q.lower()
+            for u in users:
+                if ql in (u.get("name") or "").lower() or ql in (u.get("email") or "").lower():
+                    found[q] = u["id"]
+                    break
+        return found
+
+    async def share_album(self, album_id: str, user_ids: list[str], role: str = "editor") -> dict:
+        """Add users to an album, preserving existing members.
+
+        v3 pitfall: GET /albums returns ``albumUsers: [{"user": {"id": ...},
+        "role": "owner"|...}]`` INCLUDING the owner, but the PUT payload must
+        NOT contain the owner entry (400 "Cannot add another owner").
+        Requires ``albumUser.create``.
+        """
+        resp = await self._client.get(self._url(f"/albums/{album_id}"))
+        resp.raise_for_status()
+        detail = resp.json()
+        merged = {
+            au["user"]["id"]: au.get("role", "editor")
+            for au in (detail.get("albumUsers") or [])
+            if au.get("role") != "owner"
+        }
+        changed = False
+        for uid in user_ids:
+            if uid not in merged:
+                merged[uid] = role
+                changed = True
+        if not changed:
+            return detail
+        resp = await self._client.put(
+            self._url(f"/albums/{album_id}/users"),
+            json={"albumUsers": [{"userId": uid, "role": r} for uid, r in merged.items()]},
         )
         resp.raise_for_status()
         return resp.json()
