@@ -13,6 +13,7 @@ import click
 import httpx
 import tomllib
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".wmv", ".mov", ".ts", ".m2ts", ".flv", ".rmvb"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".tbn"}
@@ -2305,6 +2306,450 @@ def server_check(directory):
             else:
                 click.echo(f'    修复：jellyfin_tool.py server identify "{f}" --imdb-id ttXXXXXXX')
         sys.exit(1)
+
+
+
+
+# ============================ audit — 系列库体检 ============================
+
+AUDIT_TAG_VARIANT = re.compile(r'\[(idmbid|imdbi|imdb)-(tt\d+)\]', re.IGNORECASE)
+AUDIT_TMDB_TAG = re.compile(r'\[tmdbid-(\d+)\]', re.IGNORECASE)
+AUDIT_JUNK = re.compile(r'(720p|1080p|2160p|4k|hdr|bluray|blu-ray|remux|web-?dl|hd\d{3,4})', re.IGNORECASE)
+AUDIT_CN_SEQ = re.compile(r'[\d一二三四五六七八九十]+$')
+AUDIT_EN_SEQ = re.compile(r'[\s:．-]+(part\s*[ivx\d]+|[ivx]+|\d+)$', re.IGNORECASE)
+AUDIT_SERIES_SUFFIX = re.compile(r'(全集|系列|合集|三部曲|套装)$')
+AUDIT_NFO_UNIQUEID = re.compile(r'<uniqueid[^>]*type="imdb"[^>]*>\s*(tt\d+)', re.IGNORECASE)
+AUDIT_NFO_LEGACY = re.compile(r'<id>\s*(tt\d+)', re.IGNORECASE)
+AUDIT_LATIN = re.compile(r"^[A-Za-z0-9 :'`\-.,&!?()]+$")
+AUDIT_BARE_ART = {'folder', 'movie', 'backdrop', 'landscape', 'logo', 'fanart', 'banner'}
+
+
+def _audit_parse(name: str) -> dict:
+    """解析规范名/BT 名：imdbid（含拼写变体）、tmdbid、年份、中英标题、质量词残留。"""
+    if AUDIT_TMDB_TAG.search(name):
+        name = AUDIT_TMDB_TAG.sub('', name).strip()
+    p = _parse_renamed_name(name)
+    imdb = p['imdb_id']
+    variants = AUDIT_TAG_VARIANT.findall(name)
+    if not imdb and variants:
+        imdb = variants[0][1]
+    m = AUDIT_TMDB_TAG.search(name)
+    if not (p['cjk_title'] or p['eng_title']):
+        fp = _parse_folder_name(name)
+        p['cjk_title'] = fp['cjk_title'] or p['cjk_title']
+        p['eng_title'] = fp['eng_title'] or p['eng_title']
+        p['year'] = p['year'] or fp['year']
+    return {'imdb_id': imdb, 'tmdb_id': m.group(1) if m else None,
+            'year': p['year'], 'cjk_title': p['cjk_title'], 'eng_title': p['eng_title'],
+            'variant': bool(variants), 'junk': bool(AUDIT_JUNK.search(name))}
+
+
+def _audit_nfo_ids(paths) -> set:
+    ids = set()
+    for nfo in paths:
+        try:
+            text = nfo.read_text(encoding='utf-8', errors='ignore')
+        except OSError:
+            continue
+        ids.update(AUDIT_NFO_UNIQUEID.findall(text) or AUDIT_NFO_LEGACY.findall(text))
+    return ids
+
+
+def _audit_titles_match(a: str, b: str) -> bool:
+    """守卫版标题比对：剥离 CJK 后 <3 字符的串不参与子串匹配
+    （'电锯惊魂6' 剥成 '6' 会误中 'big hero 6'）。"""
+    na = re.sub(r'[^a-z0-9 ]', '', (a or '').lower()).strip()
+    nb = re.sub(r'[^a-z0-9 ]', '', (b or '').lower()).strip()
+    if not na or not nb or len(na) < 3 or len(nb) < 3:
+        return False
+    return na in nb or nb in na or _similarity(na, nb) >= 0.6
+
+
+def _audit_strip_seq(t: str) -> str:
+    t = re.sub(r'[(（].*?[)）]', '', t or '')
+    t = AUDIT_CN_SEQ.sub('', t.strip())
+    return AUDIT_EN_SEQ.sub('', t.strip())
+
+
+def _audit_collect(base: Path, tag: str) -> tuple:
+    """收集一层目录的电影单元（平铺视频组 / 含视频子目录 / BDMV）与孤儿旁挂。"""
+    units, orphans = [], []
+    stems = set()
+    entries = [e for e in sorted(base.iterdir()) if not e.name.startswith('.')]
+    for e in entries:
+        if e.is_file() and e.suffix.lower() in VIDEO_EXTS:
+            stems.add(e.stem)
+        elif e.is_dir():
+            for v in e.iterdir():
+                if v.is_file() and not v.name.startswith('.'):
+                    stems.add(v.stem)
+    flat = {}
+    for v in entries:
+        if v.is_file() and v.suffix.lower() in VIDEO_EXTS:
+            stem = re.sub(r'\s*-\s*cd\d+$', '', v.stem, flags=re.IGNORECASE)
+            flat.setdefault(stem, []).append(v)
+    for stem, group in flat.items():
+        folder = group[0].parent
+        nfo_files = [folder / f'{group[0].stem}.nfo'] + list(folder.glob(f'{stem}*.nfo'))
+        units.append({**_audit_parse(stem), 'kind': 'flat', 'tag': tag, 'base': str(base),
+                      'display': stem, 'videos': [str(v) for v in group],
+                      'nfo_ids': _audit_nfo_ids(nfo_files),
+                      'rel': str(group[0].relative_to(base))})
+    for d in [e for e in entries if e.is_dir() and e.name != 'extrafanart']:
+        try:
+            inner = [x for x in d.iterdir() if not x.name.startswith('.')]
+        except OSError:
+            continue
+        vids = [x for x in inner if x.is_file() and x.suffix.lower() in VIDEO_EXTS]
+        bdmv = (d / 'BDMV').is_dir()
+        if vids:
+            units.append({**_audit_parse(d.name), 'kind': 'folder', 'tag': tag, 'base': str(base),
+                          'display': d.name, 'videos': [str(v) for v in vids],
+                          'nfo_ids': _audit_nfo_ids(list(d.glob('*.nfo'))),
+                          'rel': str(d.relative_to(base))})
+        elif bdmv:
+            units.append({**_audit_parse(d.name), 'kind': 'bdmv', 'tag': tag, 'base': str(base),
+                          'display': d.name, 'videos': [],
+                          'nfo_ids': _audit_nfo_ids(list(d.glob('**/*.nfo'))),
+                          'rel': str(d.relative_to(base))})
+    for e in entries:
+        if not e.is_file() or e.suffix.lower() not in (IMAGE_EXTS | {'.nfo'}):
+            continue
+        stem = IMG_SUFFIX.sub('', e.stem) if e.suffix.lower() in IMAGE_EXTS else e.stem
+        if stem in AUDIT_BARE_ART or e.name.startswith('._'):
+            continue
+        if not any(stem == v or v.startswith(stem) or stem.startswith(v + '.') or stem.startswith(v + '-')
+                   for v in stems):
+            orphans.append(str(e.relative_to(base)))
+    return units, orphans
+
+
+@cli.command()
+@click.argument('root', type=click.Path(exists=True, file_okay=False))
+@click.option('--exclude', multiple=True, help='跳过的顶层目录名（可多次），默认 IMDBTop250')
+@click.option('--series-dir', default='系列电影', show_default=True, help='系列目录名')
+@click.option('--json-output', type=click.Path(dir_okay=False), default=None, help='完整结果写入 JSON 文件')
+@click.option('--cache', 'cache_path', type=click.Path(dir_okay=False), default=None,
+              help='反查缓存 JSON（默认 ~/.cache/jellyfin_audit.json）')
+def audit(root, exclude, series_dir, json_output, cache_path):
+    """系列库体检（只读）：命名 / ID 绑定 / 入库 / 孤儿 / 系列缺席 全面盘点。
+
+    ROOT 为本地电影根目录；电影类库的服务器路径映射自动从 Jellyfin
+    Locations 获取（按本地同名子目录匹配）。输出分级清单：
+    ✗ 硬错误 / ⚠ 待人工 / ℹ 仅标注；孤儿与系列缺席单独成节。
+    """
+    import threading
+    exclude = set(exclude) | {'IMDBTop250'}
+    cache_file = Path(cache_path) if cache_path else Path.home() / '.cache' / 'jellyfin_audit.json'
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache = json.loads(cache_file.read_text(encoding='utf-8')) if cache_file.exists() else {}
+    lock = threading.Lock()
+
+    def cache_put(k, v):
+        with lock:
+            cache[k] = v
+            cache_file.write_text(json.dumps(cache, ensure_ascii=False), encoding='utf-8')
+
+    def resolve(imdb_id):
+        k = f'i:{imdb_id}'
+        if k in cache:
+            return cache[k] or None
+        for _ in range(3):  # 服务器偶发空响应
+            info = _lookup_via_jellyfin_imdb(imdb_id)
+            if info:
+                cache_put(k, info)
+                return info
+        return None
+
+    def resolve_tmdb(tid):
+        k = f't:{tid}'
+        if k in cache:
+            return cache[k] or None
+        v = _tmdb_to_imdb(tid)
+        cache_put(k, v)
+        return v
+
+    # 服务器电影库 Locations → 本地同名子目录
+    client = _server_client()
+    uid = _first_user_id(client)
+    locs = []
+    for f in _server_request(client, 'GET', '/Library/VirtualFolders').json():
+        if f.get('CollectionType') == 'movies':
+            locs += [p.replace('\uf022', ':') for p in f.get('Locations', [])]
+    root = Path(root).resolve()
+    local_dirs = []
+    for loc in locs:
+        name = loc.rstrip('/').rsplit('/', 1)[-1]
+        d = root / name
+        if d.is_dir() and name not in exclude and not name.endswith('_oldart_backup'):
+            local_dirs.append((name, d))
+        elif name not in exclude and not name.endswith('_oldart_backup'):
+            click.echo(f"⚠ 库路径 {loc} 在本地无同名目录 {d}，跳过", err=True)
+    if not any(n == series_dir for n, _ in local_dirs):
+        click.echo(f"⚠ 未找到系列目录 {series_dir}，跳过系列缺席分析", err=True)
+
+    # 收集单元：系列目录走一层；其他目录一层无单元则下探（套装盒）
+    all_units, orphans, boxset_units = {}, {}, {}
+    for name, d in local_dirs:
+        if name == series_dir:
+            for sub in sorted(d.iterdir()):
+                if sub.is_dir() and not sub.name.startswith('.'):
+                    u2, o2 = _audit_collect(sub, sub.name)
+                    if u2:
+                        all_units[sub.name] = all_units.get(sub.name, []) + u2
+                        orphans[sub.name] = orphans.get(sub.name, []) + o2
+            continue
+        units, orph = _audit_collect(d, name)
+        consumed = {u['display'] for u in units if u['kind'] in ('folder', 'bdmv')}
+        for sub in sorted(d.iterdir()):
+            if sub.is_dir() and not sub.name.startswith('.') and sub.name not in consumed:
+                u2, o2 = _audit_collect(sub, f'{name}/{sub.name}')
+                if u2:
+                    boxset_units.setdefault(f'{name}/{sub.name}', []).extend(u2)
+                    orphans.setdefault(f'{name}/{sub.name}', o2)
+        if not units:
+            if name in boxset_units:
+                orphans.setdefault(name, orph)
+                continue
+        all_units[name] = units
+        orphans[name] = orph
+
+    # 反查（文件名标签 + nfo 兜底；并发，None 不缓存）
+    todo_imdb, todo_tmdb = set(), set()
+    for units in list(all_units.values()) + list(boxset_units.values()):
+        for u in units:
+            if u['imdb_id']:
+                todo_imdb.add(u['imdb_id'])
+            elif u['tmdb_id']:
+                todo_tmdb.add(u['tmdb_id'])
+            todo_imdb.update(u.get('nfo_ids') or ())
+    click.echo(f"反查 imdbid {len(todo_imdb)} / tmdbid {len(todo_tmdb)}...", err=True)
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futs = [pool.submit(resolve, i) for i in sorted(todo_imdb)]
+        for i, _ in enumerate(as_completed(futs), 1):
+            if i % 100 == 0:
+                click.echo(f"  {i}/{len(todo_imdb)}", err=True)
+    for t in sorted(todo_tmdb):
+        resolve_tmdb(t)
+
+    # DB 对账（U+F022 归一化），按单元任一视频命中即算入库
+    items = _all_movies_by_path(client, uid)
+    norm_items = {p.replace('\uf022', ':'): it for p, it in items.items()}
+    click.echo(f"DB 条目 {len(items)}", err=True)
+
+    def find_db(u):
+        for v in u['videos']:
+            sp = str(v).replace(str(root), '', 1).replace('\\', '/')
+            for loc in locs:
+                it = norm_items.get(loc.rstrip('/') + sp)
+                if it:
+                    return it
+        hits = [it for p, it in norm_items.items() if u['display'] in p]
+        return hits[0] if len(hits) == 1 else None
+
+    for units in list(all_units.values()) + list(boxset_units.values()):
+        for u in units:
+            it = find_db(u)
+            u['db'] = ({'name': it.get('Name'), 'year': it.get('ProductionYear'),
+                        'imdb': (it.get('ProviderIds') or {}).get('Imdb') or ''} if it else None)
+            u['eff_imdb'] = u['imdb_id'] or (resolve_tmdb(u['tmdb_id']) if u['tmdb_id'] else None)
+
+    # ---- 命名/绑定检查（系列目录范围） ----
+    issues = []
+    series_subdirs = ([x.name for x in sorted((root / series_dir).iterdir()) if x.is_dir()]
+                      if (root / series_dir).is_dir() else [])
+    for sname in series_subdirs:
+      units = all_units.get(sname, [])
+      by_id_year = {}
+      for u in units:
+        if u['eff_imdb'] and u['year']:
+            by_id_year.setdefault(u['eff_imdb'], set()).add(u['year'])
+      for u in units:
+        rows = []
+        if u['kind'] != 'bdmv' and not u['eff_imdb']:
+            if u['year'] and (u['cjk_title'] or u['eng_title']):
+                rows.append(('note', '无标签，但名称+年份规范，可正常刮削（建议补签）'))
+            else:
+                rows.append(('error', '未规范命名：无 [imdbid-]/[tmdbid-] 标签'))
+        if u['variant']:
+            rows.append(('error', '标签拼写变体（idmbid/imdbi 等），Jellyfin 识别不到'))
+        if u['junk']:
+            rows.append(('warn', '文件名残留质量词'))
+        rid = u['imdb_id']
+        cand_ids = ([(rid, '文件名')] if rid else []) + \
+                   [(a, 'nfo') for a in sorted(u.get('nfo_ids') or ()) if a != rid]
+        infos = [(i, s, resolve(i)) for i, s in cand_ids]
+        infos = [(i, s, x) for i, s, x in infos if x]
+        matched = []
+        for i, s, x in infos:
+            ref = u['cjk_title'] + ' ' + u['eng_title']
+            ok = (_audit_titles_match(u['cjk_title'], x['title'])
+                  or _audit_titles_match(u['eng_title'], x['title'])
+                  or _norm_cmp(x['title']) in _norm_cmp(ref)
+                  or _norm_cmp(u['cjk_title']) in _norm_cmp(x['title']))
+            if ok:
+                matched.append((i, s, x))
+        used = matched[0] if matched else (infos[0] if infos else None)
+        info = used[2] if used else None
+        used_id = used[0] if used else None
+        oy = _year_int(info.get('year')) if info else None
+        if u['year'] and oy and abs(oy - u['year']) > 2:
+            rows.append(('error', f"年份偏差过大：文件 {u['year']} vs 反查 {oy}（{info['title']}）"))
+        elif info and not matched:
+            msg = (f"ID {used_id}（{infos[0][1] if infos else '?'}）反查"
+                   f"「{info['title']} ({info.get('year')})」vs 文件「{u['cjk_title'] or u['eng_title']}」")
+            db = u['db']
+            db_agrees = db and db['imdb'] and used_id and db['imdb'].lower() == used_id.lower()
+            db_ok = False
+            if db and db['name']:
+                for v in [u['cjk_title'] + u['eng_title'],
+                          _clean_search_title(u['cjk_title'] or '')]:
+                    if v and (_norm_cmp(db['name']) in _norm_cmp(v)
+                              or _norm_cmp(v) in _norm_cmp(db['name'])
+                              or _similarity(_norm_cmp(db['name']), _norm_cmp(v)) >= 0.6):
+                        db_ok = True
+                        break
+            if db_ok:
+                pass  # DB 刮削名与文件名（清洗后）一致，绑定视为正确
+            elif db_agrees:
+                rows.append(('error', f"nfo/DB 一致地错绑：{msg}；需人工确认文件内容"))
+            elif AUDIT_LATIN.match(info['title'] or '') and u['cjk_title']:
+                rows.append(('warn', f"跨语言待人工核对：{msg}"))
+            else:
+                rows.append(('error', f"ID 绑定疑似错误：{msg}"))
+        elif info and oy and u['year'] and 0 < abs(oy - u['year']) <= 2:
+            rows.append(('note', f"年份微差（产地年/发行年）：{u['year']} vs {oy}"))
+        if rid and u.get('nfo_ids') and rid not in u['nfo_ids']:
+            rows.append(('error', f"nfo 的 imdb 与文件名不一致：nfo {sorted(u['nfo_ids'])} vs 文件 {rid}"))
+        if rid and u['year'] and len(by_id_year.get(rid, set())) > 1:
+            rows.append(('error', f"同系列同 ID 多年份：{sorted(by_id_year[rid])}"))
+        db = u['db']
+        if db:
+            if rid and db['imdb'] and rid.lower() != db['imdb'].lower():
+                rows.append(('error', f"DB 错绑：文件 {rid} vs DB {db['imdb']}（{db['name']}）"))
+            elif not rid and not infos and db['name']:
+                ok = any((_norm_cmp(db['name']) in _norm_cmp(v) or _norm_cmp(v) in _norm_cmp(db['name'])
+                          or _similarity(_norm_cmp(db['name']), _norm_cmp(v)) >= 0.6)
+                         for v in [u['cjk_title'] + u['eng_title'],
+                                   _clean_search_title(u['cjk_title'] or '')] if v)
+                if not ok:
+                    rows.append(('error', f"DB 刮削名与文件名不符：DB「{db['name']}」vs 文件「{u['cjk_title'] or u['eng_title']}」"))
+        else:
+            rows.append(('note', '未入库'))
+        if rows:
+            issues.append({'tag': u['tag'], 'display': u['display'], 'rel': u['rel'],
+                           'rows': [{'sev': a, 'msg': b} for a, b in rows]})
+
+    # ---- 系列缺席 / 疑似重复（其他目录 → 系列目录） ----
+    series_index = {}
+    for d in sorted((root / series_dir).iterdir()) if (root / series_dir).is_dir() else []:
+        if not d.is_dir():
+            continue
+        units = all_units.get(d.name, [])
+        key = _norm_cmp(AUDIT_SERIES_SUFFIX.sub('', d.name))
+        ids = {u['eff_imdb'] for u in units if u['eff_imdb']}
+        nfo_id_set = set().union(*[u.get('nfo_ids') or set() for u in units]) if units else set()
+        titles = {_norm_cmp(re.sub(r'[(（].*?[)）]', '', t)) for u in units
+                  for t in (u['cjk_title'], u['eng_title']) if t}
+        series_index[d.name] = {'norm': key, 'ids': ids, 'nfo_ids': nfo_id_set, 'titles': titles}
+
+    def strip_seq(t):
+        t = re.sub(r'[(（].*?[)）]', '', t or '')
+        t = AUDIT_CN_SEQ.sub('', t.strip())
+        return AUDIT_EN_SEQ.sub('', t.strip())
+
+    members = []
+    for units in list(all_units.values()) + list(boxset_units.values()):
+        for u in units:
+            if u['tag'] in series_index or not u['eff_imdb']:
+                continue
+            nt = _norm_cmp(strip_seq(u['cjk_title']))
+            for sname, idx in series_index.items():
+                how, strong = None, False
+                if u['eff_imdb'] in idx['ids']:
+                    how, strong = 'imdbid 一致', True
+                elif nt and len(idx['norm']) >= 2 and (nt.startswith(idx['norm']) or idx['norm'].startswith(nt)):
+                    how, strong = '标题前缀', len(idx['norm']) >= 3 and nt.startswith(idx['norm'])
+                if not how:
+                    continue
+                dup = (u['eff_imdb'] in idx['ids']
+                       or nt in idx['titles']
+                       or _norm_cmp(u['cjk_title']) in idx['titles'])
+                evidence = None
+                if not dup:
+                    if u['eff_imdb'] in idx['nfo_ids']:
+                        evidence = '系列内已有单元的 nfo 含同一 ID'
+                    else:
+                        for t in idx['titles']:
+                            if nt and len(nt) >= 4 and t.startswith(nt) and not re.search(r'\d', t[len(nt):]):
+                                evidence = f'系列内已有标题近似「{t}」'
+                                break
+                members.append({'dir': u['tag'], 'display': u['display'], 'rel': u['rel'],
+                                'imdb': u['eff_imdb'], 'series': sname, 'how': how,
+                                'strong': strong, 'dup': dup, 'evidence': evidence})
+                break
+
+    # ---- 无系列文件夹的套装 ----
+    series_names = {_norm_cmp(AUDIT_SERIES_SUFFIX.sub('', n)) for n in
+                    ((root / series_dir).iterdir() and [x.name for x in (root / series_dir).iterdir()]
+                     if (root / series_dir).is_dir() else [])}
+    no_folder = []
+    for tag in boxset_units:
+        short = _norm_cmp(AUDIT_SERIES_SUFFIX.sub('', tag.rsplit('/', 1)[-1]))
+        short = re.sub(r'[\d\-－－]+$', '', short)
+        if short and not any(short == s or s in short or short in s for s in series_names):
+            no_folder.append(tag)
+
+    # ---- 输出 ----
+    def sev_rank(it):
+        order = {'error': 0, 'warn': 1, 'note': 2}
+        return min(order.get(r['sev'], 2) for r in it['rows'])
+
+    errs = [it for it in issues if sev_rank(it) == 0]
+    warns = [it for it in issues if sev_rank(it) == 1]
+    notes = [it for it in issues if sev_rank(it) == 2]
+    click.echo(f"\n{'=' * 24} 体检结果 {'=' * 24}")
+    click.echo(f"✗ 硬错误 {len(errs)} | ⚠ 待人工 {len(warns)} | ℹ 仅标注 {len(notes)}"
+               f" | 孤儿 {sum(len(v) for v in orphans.values())}"
+               f" | 缺席/重复候选 {len(members)}")
+    for it in sorted(errs, key=lambda x: x['tag']):
+        click.echo(f"\n✗ [{it['tag']}] {it['display'][:72]}")
+        for r in it['rows']:
+            if r['sev'] == 'error':
+                click.echo(f"    ✗ {r['msg']}")
+    for it in sorted(warns, key=lambda x: x['tag']):
+        click.echo(f"\n⚠ [{it['tag']}] {it['display'][:72]}")
+        for r in it['rows']:
+            if r['sev'] == 'warn':
+                click.echo(f"    ⚠ {r['msg']}")
+    if members:
+        click.echo(f"\n{'=' * 20} 系列缺席/重复候选 {'=' * 20}")
+        for c in members:
+            tag = '√已有' if c['dup'] else ('◐疑似重复' if c['evidence'] else '★缺席')
+            conf = '强' if c['strong'] else '弱'
+            ev = f" | {c['evidence']}" if c['evidence'] else ''
+            click.echo(f"[{c['dir']}] {c['display'][:60]}\n    → {tag}「{c['series']}」"
+                       f"（{c['how']},{conf}）{ev}")
+    if no_folder:
+        click.echo(f"\n{'=' * 20} 无系列文件夹的套装 {'=' * 20}")
+        for tag in no_folder:
+            n = len(boxset_units[tag])
+            click.echo(f"  {tag}（{n} 个单元）→ 系列文件夹不存在，需新建或保持原位")
+    if orphans:
+        click.echo(f"\n{'=' * 20} 孤儿旁挂文件 {'=' * 20}")
+        for tag, files in orphans.items():
+            for f in files:
+                click.echo(f"  [{tag}] {f}")
+    click.echo(f"\n修复参考：retag 改 id → server identify 重刮 → 扫描任务入库；"
+               f"孤儿用 verify --clean-orphans；合集用 /Collections API 补齐。")
+    if json_output:
+        Path(json_output).write_text(json.dumps({
+            'issues': issues, 'members': members, 'orphans': orphans,
+            'no_folder_boxsets': no_folder,
+            'inventory': {k: [{kk: u.get(kk) for kk in ('display', 'imdb_id', 'year', 'kind')}
+                              for u in v] for k, v in all_units.items()},
+        }, ensure_ascii=False, indent=1), encoding='utf-8')
+        click.echo(f"JSON 已写入 {json_output}")
 
 
 if __name__ == '__main__':
