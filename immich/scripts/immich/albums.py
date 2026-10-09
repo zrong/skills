@@ -1,19 +1,17 @@
-"""Folder-to-album planning and syncing for external libraries.
+"""外部图库的 文件夹→相簿 规划与同步。
 
-Developed against Immich v3.0.2 while batch-creating travel albums from
-``/mnt/album/旅行`` (2026-10): 40 folders -> 40 albums, 5751 assets,
-verified 1:1 and shared with two users.
+在 Immich v3.0.2 上随 /mnt/album/旅行 的批量相簿任务打磨而成
+（2026-10）：40 个文件夹 → 40 个相簿、5751 个资产，1:1 校验一致
+并共享给两位用户。
 
-Album naming rule: ``YYYYMMDD-MMDD<location>`` within a year,
-``YYYYMMDD-YYYYMMDD<location>`` across years. Dates missing from the
-folder name are derived from photo timestamps with this priority:
+相簿命名规则：同年 `YYYYMMDD-MMDD地点`，跨年 `YYYYMMDD-YYYYMMDD地点`。
+文件夹名里缺失的日期按以下优先级从照片时间推导：
 
-1. date parts present in the folder name (authoritative);
-2. real EXIF (``exifInfo.dateTimeOriginal``, via the local-calendar
-   ``localDateTime`` field), outlier-trimmed with a modal +/-30d cluster;
-3. ``fileCreatedAt`` modal date — weak evidence (copy time, e.g. poster
-   frames generated years later), only when >=50% of assets agree, and
-   never extended more than 7 days past a name-given start.
+1. 文件夹名中给出的日期部分（权威，不被照片覆盖）；
+2. 真实 EXIF（`exifInfo.dateTimeOriginal`，取 `localDateTime` 的
+   本地日历日），用众数 ±30 天聚簇去掉离群值；
+3. `fileCreatedAt` 众数——弱证据（拷贝时间，例如多年后生成的海报帧），
+   仅当 ≥50% 资产一致时采用，且不得把名称给出的起始日延后超过 7 天。
 """
 
 import re
@@ -25,12 +23,12 @@ _YEAR_MONTH_RE = re.compile(r"^((?:19|20)\d{2})[.\-]?(\d{2})")
 
 
 def parse_name(name: str) -> tuple[date | None, date | None, str]:
-    """Parse ``(start, end, location)`` from a folder/album name.
+    """从文件夹/相簿名解析 ``(start, end, location)``。
 
-    Understood date formats (start and end): ``2002.07``, ``2005.01.11``,
-    ``20080708`` (compact), ``2014.0805`` (compact month+day), end parts
-    ``0914`` (MMDD), ``08.03`` (MM.DD), ``22`` (day of start month).
-    Missing precision returns None for the caller to derive from photos.
+    可识别的日期写法（起始与结束均适用）：``2002.07``、``2005.01.11``、
+    ``20080708``（紧凑）、``2014.0805``（紧凑月日）；结束部分还支持
+    ``0914``（MMDD）、``08.03``（MM.DD）、``22``（起始月的日）。
+    精度不足的部分返回 None，交给调用方从照片推导。
     """
     s = name.strip()
     m = _NAME_DATE_RE.match(s)
@@ -56,7 +54,7 @@ def parse_name(name: str) -> tuple[date | None, date | None, str]:
             t = toks[1]
             if len(t) <= 2:
                 mo = int(t)
-            else:  # 0805 compact MMDD
+            else:  # 0805 紧凑 MMDD
                 mo, d = int(t[:-2]), int(t[-2:])
         if len(toks) > 2 and toks[2].isdigit():
             d = int(toks[2])
@@ -73,7 +71,7 @@ def parse_name(name: str) -> tuple[date | None, date | None, str]:
 
     end = None
     if end_raw:
-        if re.fullmatch(r"\d{8}", end_raw):  # 20250102 compact full date
+        if re.fullmatch(r"\d{8}", end_raw):  # 20250102 紧凑完整日期
             t = end_raw
             end = mk(int(t[:4]), int(t[4:6]), int(t[6:8]))
         elif re.fullmatch(r"(19|20)\d{2}(\.\d{1,2}){0,2}", end_raw):
@@ -89,7 +87,7 @@ def parse_name(name: str) -> tuple[date | None, date | None, str]:
             else:
                 end = mk(sy, smo, int(emo)) or mk(sy, int(emo), 1)
                 if end and start and end < start:
-                    end = None  # ambiguous bare number; leave to photos
+                    end = None  # 裸数字有歧义，交给照片推导
     return start, end, loc
 
 
@@ -98,12 +96,11 @@ def album_span(start: date, end: date) -> str:
 
 
 def asset_date(asset: dict) -> tuple[date | None, str]:
-    """Return ``(date, "exif"|"file"|"" )`` for an asset.
+    """返回资产的 ``(日期, "exif"|"file"|"" )``。
 
-    v3 pitfall: the top-level ``dateTimeOriginal`` is usually empty; the
-    real EXIF lives in ``exifInfo.dateTimeOriginal``. ``localDateTime``
-    is Immich's local-calendar rendering and is only trustworthy when real
-    EXIF exists — otherwise it is a fileCreatedAt backfill.
+    v3 坑：顶层 ``dateTimeOriginal`` 通常为空，真实 EXIF 在
+    ``exifInfo.dateTimeOriginal``。``localDateTime`` 是本地日历日渲染，
+    只有存在真实 EXIF 时才可信——否则是被 fileCreatedAt 回填的值。
     """
     def parse(v):
         try:
@@ -125,10 +122,10 @@ def modal_date(dates: list[date]) -> tuple[date | None, float]:
 
 
 def cluster_bounds(dates: list[date]) -> tuple[date, date]:
-    """Outlier-trimmed (min, max): modal +/-30d window, else P5/P95.
+    """去掉离群值后的 (min, max)：众数 ±30 天窗口，否则 P5/P95。
 
-    Handles camera-clock strays (one photo months off) and tool-generated
-    poster frames whose EXIF carries the generation date.
+    处理相机时钟错乱的单张（日期偏到几个月后）和工具生成的海报帧
+    （EXIF 带生成日期）。
     """
     modal, freq = modal_date(dates)
     if modal and freq >= 0.5:
@@ -140,9 +137,9 @@ def cluster_bounds(dates: list[date]) -> tuple[date, date]:
 
 
 def derive_album_name(folder: str, assets: list[dict]) -> dict:
-    """Compute the album name and metadata for one folder's assets.
+    """为一个文件夹的资产计算相簿名及元数据。
 
-    Returns dict with album_name/start/end/flags/asset_ids.
+    返回 dict，含 album_name/start/end/flags/asset_ids。
     """
     dated = [(d, src) for d, src in (asset_date(a) for a in assets) if d]
     exif_dates = sorted(d for d, src in dated if src == "exif")
@@ -151,6 +148,7 @@ def derive_album_name(folder: str, assets: list[dict]) -> dict:
 
     flags: list[str] = []
     start = end = None
+    # start：名称 > 真实 EXIF（聚簇） > 文件日期众数
     if n_start:
         start = n_start
     elif exif_dates:
@@ -160,6 +158,7 @@ def derive_album_name(folder: str, assets: list[dict]) -> dict:
         if modal and freq >= 0.5:
             start = modal
 
+    # end：名称 > 真实 EXIF（聚簇） > 文件日期众数（有前提）
     if n_end:
         end = n_end
     elif exif_dates:
@@ -168,7 +167,7 @@ def derive_album_name(folder: str, assets: list[dict]) -> dict:
         modal, freq = modal_date(file_dates)
         if modal and freq >= 0.5:
             if modal != start and (modal - start).days > 7:
-                pass  # all copied same day >7d after the named start: copy date, not trip end
+                pass  # 全部同日拷贝且晚于名称起始>7天：是拷贝日期，不是行程结束
             else:
                 end = modal
         if end is None:
@@ -203,10 +202,10 @@ def normalize_name(name: str) -> str:
 
 
 def match_album(plan_name: str, albums: list[dict]) -> dict | None:
-    """Find an existing album matching a planned name.
+    """查找与计划名匹配的现有相簿。
 
-    Exact normalized match first, then (startDate range + location) parsed
-    match, tolerating different separators the user typed.
+    先做去分隔符的精确匹配，再按解析出的（日期区间 + 地点）匹配，
+    容忍用户建相簿时用了不同的分隔符。
     """
     norm = normalize_name(plan_name)
     for al in albums:
@@ -221,7 +220,7 @@ def match_album(plan_name: str, albums: list[dict]) -> dict | None:
 
 
 async def build_plan(client, root: str) -> list[dict]:
-    """Plan albums for every top-level folder under ``root``."""
+    """为 ``root`` 下每个顶层文件夹规划相簿。"""
     paths = await client.unique_folder_paths()
     prefix = root.rstrip("/") + "/"
     under = [p for p in paths if p.startswith(prefix)]
@@ -243,7 +242,7 @@ async def build_plan(client, root: str) -> list[dict]:
 
 
 async def sync_album(client, entry: dict, share_user_ids: list[str] | None = None, role: str = "editor") -> dict:
-    """Create/fill/verify one album from a plan entry. Idempotent."""
+    """按计划条目 创建/补齐/校验 一个相簿。幂等。"""
     if not entry["album_name"]:
         return {"album": None, "status": "unnamed", "entry": entry}
 

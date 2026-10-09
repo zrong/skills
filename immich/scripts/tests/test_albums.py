@@ -1,4 +1,4 @@
-"""Tests for folder-name parsing and album-date derivation (immich.albums)."""
+"""文件夹名解析与相簿日期推导的测试（immich.albums）。"""
 
 import unittest
 from datetime import date
@@ -15,7 +15,7 @@ from immich.albums import (
 
 
 class ParseNameTests(unittest.TestCase):
-    """Real folder names from /mnt/album/旅行 (verified 2026-10)."""
+    """来自 /mnt/album/旅行 的真实文件夹名（2026-10 验证）。"""
 
     def test_year_month_only(self):
         start, end, loc = parse_name("2002.07连云港")
@@ -55,7 +55,7 @@ class ParseNameTests(unittest.TestCase):
         self.assertEqual((start, end), (date(2013, 7, 11), date(2013, 7, 15)))
 
     def test_compact_month_day_start(self):
-        # "2014.0805" = 2014-08-05; end 0810 = MMDD
+        # "2014.0805" = 2014-08-05；结束 0810 = MMDD
         start, end, _ = parse_name("2014.0805~0810三亚旅行")
         self.assertEqual((start, end), (date(2014, 8, 5), date(2014, 8, 10)))
 
@@ -97,7 +97,7 @@ def make_asset(dto=None, local=None, fca="2015-04-25T00:00:00Z", aid="a1"):
 class AssetDateTests(unittest.TestCase):
     def test_real_exif_wins(self):
         d, src = asset_date(make_asset(dto="2018-08-05T21:43:46.963+00:00", local="2018-08-06T06:43:46.963Z"))
-        self.assertEqual((d, src), (date(2018, 8, 6), "exif"))  # local calendar day
+        self.assertEqual((d, src), (date(2018, 8, 6), "exif"))  # 本地日历日
 
     def test_missing_exif_falls_back_to_file_created(self):
         d, src = asset_date(make_asset())
@@ -108,7 +108,7 @@ class ClusterBoundsTests(unittest.TestCase):
     def test_camera_clock_stray_trimmed(self):
         dates = [date(2018, 8, d) for d in range(1, 28)] + [date(2018, 10, 30)]
         lo, hi = cluster_bounds(sorted(dates))
-        # no modal (each day once) -> P5/P95; edges lose at most ~5% of days
+        # 无众数（每天一张）-> P5/P95；边缘最多损失约 5%
         self.assertEqual((lo, hi), (date(2018, 8, 2), date(2018, 8, 27)))
 
     def test_poster_frame_generation_dates_trimmed(self):
@@ -143,14 +143,14 @@ class DeriveAlbumNameTests(unittest.TestCase):
         self.assertEqual(entry["album_name"], "20060323-0325苏州之行")
 
     def test_poster_frames_do_not_pollute_end(self):
-        # name gives start only; 48 real photos on 0425, 3 posters with 2025 EXIF
+        # 名称只给起始日；48 张真照片在 0425，3 张海报帧带 2025 年 EXIF
         assets = [make_asset(dto="2015-04-25T10:00:00Z", local="2015-04-25T18:00:00Z", aid=f"r{i}") for i in range(48)]
         assets += [make_asset(dto="2025-01-24T10:00:00Z", local="2025-01-24T18:00:00Z", aid=f"p{i}") for i in range(3)]
         entry = derive_album_name("20150425黄石看槐花", assets)
         self.assertEqual(entry["album_name"], "20150425-0425黄石看槐花")
 
     def test_all_file_dates_same_day_far_after_name_start(self):
-        # 17 photos copied 2007-03-31, folder named 03-11: copy date must NOT extend the trip
+        # 17 张照片 2007-03-31 拷贝、文件夹名是 03-11：拷贝日期不得延长行程
         assets = [make_asset(fca="2007-03-31T12:00:00Z", aid=str(i)) for i in range(17)]
         entry = derive_album_name("2007.03.11云台山春游", assets)
         self.assertEqual(entry["album_name"], "20070311-0311云台山春游")
@@ -158,7 +158,7 @@ class DeriveAlbumNameTests(unittest.TestCase):
     def test_exif_contradiction_flagged(self):
         assets = [make_asset(fca="2007-03-31T12:00:00Z", aid=str(i)) for i in range(17)]
         entry = derive_album_name("2007.03.11云台山春游", assets)
-        # no EXIF at all here, so end stays at start; with EXIF it would flag
+        # 完全没有 EXIF 时 end 等于 start；有 EXIF 才会标记
         self.assertEqual(entry["flags"], [])
         assets2 = [make_asset(dto="2007-03-31T10:00:00Z", local="2007-03-31T18:00:00Z", aid=str(i)) for i in range(17)]
         entry2 = derive_album_name("2007.03.11云台山春游", assets2)

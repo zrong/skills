@@ -21,10 +21,10 @@ class ClientUrlTests(unittest.TestCase):
 
 
 class UploadAssetStatusTests(unittest.TestCase):
-    """Ensure upload_asset normalizes the various success responses Immich returns."""
+    """确保 upload_asset 标准化 Immich 返回的各种成功响应。"""
 
     def _make_client(self):
-        # Skip the real HTTPX client init dance; we only need _url().
+        # 跳过真实 HTTPX 客户端初始化；这里只需要 _url()。
         client = ImmichClient.__new__(ImmichClient)
         client.api_base = "https://immich.example/api"
         return client
@@ -34,7 +34,7 @@ class UploadAssetStatusTests(unittest.TestCase):
 
     def test_duplicate_response_is_normalized(self):
         client = self._make_client()
-        # Response has no "status" key but does have "id" — synthesize as "created".
+        # 响应无 "status" 键但有 "id"——按 "created" 合成。
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"id": "abc-123"}
         mock_resp.raise_for_status = MagicMock()

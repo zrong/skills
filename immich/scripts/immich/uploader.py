@@ -1,4 +1,4 @@
-"""High-level uploader for local files."""
+"""面向本地文件的高级上传封装。"""
 
 import asyncio
 from datetime import datetime
@@ -14,7 +14,7 @@ from immich.metadata import format_video_description, load_video_metadata
 
 
 class ImmichUploader:
-    """High-level uploader for local files and album assignment."""
+    """本地文件上传与相簿归组的高级封装。"""
 
     def __init__(
         self,
@@ -39,7 +39,7 @@ class ImmichUploader:
         description: str | None = None,
         metadata_path: Path | None = None,
     ) -> dict:
-        """Upload a local file to Immich, optionally to an album."""
+        """上传本地文件到 Immich，可选归入相簿。"""
         if description is None:
             metadata = load_video_metadata(path, metadata_path)
             if metadata:
@@ -76,6 +76,6 @@ class ImmichUploader:
         paths: list[Path],
         album_name: str | None = None,
     ) -> list[dict]:
-        """Upload multiple files in parallel."""
+        """并行上传多个文件。"""
         tasks = [self.upload_file(p, album_name) for p in paths]
         return await asyncio.gather(*tasks, return_exceptions=True)

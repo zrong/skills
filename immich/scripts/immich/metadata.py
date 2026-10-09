@@ -1,4 +1,4 @@
-"""Read video-downloader metadata sidecars and format Immich descriptions."""
+"""读取 video-downloader 元数据侧车并生成 Immich 描述。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def load_video_metadata(
     media_path: Path,
     metadata_path: Path | None = None,
 ) -> dict | None:
-    """Load an explicit or adjacent video metadata sidecar."""
+    """加载显式指定或相邻的视频元数据侧车。"""
     path = metadata_path or metadata_sidecar_path(media_path)
     if not path.exists():
         if metadata_path is None:
@@ -65,7 +65,7 @@ def _format_tags(value: object) -> str:
 
 
 def format_video_description(metadata: dict) -> str:
-    """Build a readable Immich description from available public metadata."""
+    """从可用的公开元数据生成可读的 Immich 描述。"""
     title = _text(metadata.get("title"))
     original_description = _text(metadata.get("description"))
     summary_fields = (
