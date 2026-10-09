@@ -1,6 +1,6 @@
 ---
 name: video-downloader
-version: 26.29.38
+version: 26.41.74
 description: |
   下载视频工具。处理抖音短链、抖音作品页、微信视频号 SPH 分享链接，以及 yt-dlp 支持的网站视频下载。
 
@@ -180,6 +180,9 @@ python3 scripts/video_downloader.py download "URL" --backend auto
 3. 确认媒体旁存在 `<媒体文件名>.metadata.json`。
 4. 把媒体路径交给 `immich upload`；无需手工拼接 `--description`。
 5. 上传成功后返回 Immich 的公开链接。下载文件默认保留。
+6. （可选）批量整理时，可继续用 immich 的批量视觉打标（`tag-fetch` /
+   `tags-ensure` / `tag-apply` / `tag-verify`）给已上传的视频打中文 tag
+   或标记「建议删除」；打法见 immich skill 的 `references/tagging-playbook.md`。
 
 元数据侧车只包含公开白名单字段，不包含 Cookie、请求头、API key、
 浏览器 profile 或平台媒体直链。`yt-dlp` 不保存完整 info JSON。
