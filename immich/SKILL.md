@@ -1,8 +1,8 @@
 ---
 name: immich
-version: 26.40.73
-description: 将本地图像和视频上传到 Immich 服务器，并管理服务器端资产：批量上传、相簿（Album）批量创建/校验/共享、文件夹浏览、外部图库重扫。网络资源下载由 video-downloader 负责；当用户提到"上传到 Immich"、"上传图片"、"备份照片"、"上传视频"、"下载视频并上传 Immich"、"扫描图库"、"文件夹"、"建相簿"、"共享相簿"时使用此技能。
-argument-hint: "[upload|batch-upload|scan|folders|album-plan|album-sync|album-share|album-delete] ..."
+version: 26.41.74
+description: 将本地图像和视频上传到 Immich 服务器，并管理服务器端资产：批量上传、相簿（Album）批量创建/校验/共享、文件夹浏览、外部图库重扫、批量视觉打标（tag 管理）。网络资源下载由 video-downloader 负责；当用户提到"上传到 Immich"、"上传图片"、"备份照片"、"上传视频"、"下载视频并上传 Immich"、"扫描图库"、"文件夹"、"建相簿"、"共享相簿"、"打标签"、"给照片分类"、"标记建议删除"、"tag"时使用此技能。
+argument-hint: "[upload|batch-upload|scan|folders|album-plan|album-sync|album-share|album-delete|tag-fetch|tags-ensure|tag-apply|tag-verify] ..."
 allowed-tools: Bash(uv run *), Read, Glob, Edit
 ---
 
@@ -219,12 +219,43 @@ uv run --project {SCRIPTS_DIR} immich album-delete --album "20150221-0224哈尔�
 文件夹在磁盘层合并后：先 `scan`，再 `album-sync --apply`（旧相簿资产会
 清零，用 `album-delete` 删除空壳）。
 
+### 10. 批量视觉打标（tag 管理）
+
+给资产打中文 tag、标记无价值内容为「建议删除」、补描述。完整打法、
+tag 判定基准与子代理派发经验见
+`references/tagging-playbook.md`；API 陷阱见排障参考 §9-10。
+
+```bash
+# 1. 建 tag 字典（幂等；输出 name->id 映射 tag_map.json）
+uv run --project {SCRIPTS_DIR} immich tags-ensure \
+  --names "截图,旅行,建议删除" --map-out tag_map.json
+
+# 2. 批量下载缩略图（thumbnail≈250px 分类够用；读文字用 --size preview）
+uv run --project {SCRIPTS_DIR} immich tag-fetch batch_A_00.json thumbs/A_00
+
+# 3. 幂等应用决策（tag 分块写入逐条校验；description 仅在为空时写）
+uv run --project {SCRIPTS_DIR} immich tag-apply decisions/A_00.decisions.json
+
+# 4. 收尾必跑全量 diff（并发写入会静默丢 ~7%，exit 1 = 有缺失）
+uv run --project {SCRIPTS_DIR} immich tag-verify decisions/A_00.decisions.json
+```
+
+决策 JSON 两种形态（同一次会话可混用）：
+
+- 逐资产：`{"id": "<uuid>", "tags": ["截图", "建议删除"], "description": null}`
+- 按文件夹簇：`{"dir": "...", "tags": ["旅行"], "memberIds": ["<uuid>", ...]}`
+
+规模策略：日常上传（≤数千）逐张看图；上万张的整理库按目录簇采样
+2-5 张视觉确认后整簇打。两条流都结束后对全部 decisions 跑一次
+`tag-verify`，缺失项重放 `tag-apply` 直到归零。
+
 ## API key 权限清单
 
 上传链路：`asset.upload`、`asset.read`、`asset.update`、`album.read`、
 `album.create`、`albumAsset.create`。管理链路（本文档 7-9 节）：
 `library.read`、`library.update`（scan 要求 admin 账号）、`folder.read`、
-`user.read`、`albumUser.create`、`album.delete`。缺失时返回
+`user.read`、`albumUser.create`、`album.delete`。打标链路（本文档 10 节）：
+`tag.read`、`tag.create`（清空 tag 需 `tag.delete`）。缺失时返回
 `403 Missing required permission: <name>`，按提示在网页端 API Keys 编辑页勾选。
 
 ## 排障参考

@@ -1,7 +1,8 @@
-"""CLI entry point for immich skill."""
+"""immich skill 的 CLI 入口。"""
 
 import argparse
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -10,86 +11,111 @@ from immich.albums import build_plan, sync_album
 from immich.client import ImmichClient
 from immich.metadata import metadata_sidecar_path
 from immich.uploader import ImmichUploader
+from immich import tagging
 
 
 def print_public_url(result: dict) -> None:
-    """Print a public asset URL when the uploader returned one."""
+    """上传结果带 public_url 时打印公开链接。"""
     if public_url := result.get("public_url"):
         print(f"Public URL: {public_url}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Upload to Immich")
+    parser = argparse.ArgumentParser(description="Immich 上传与管理")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # upload command
-    up = sub.add_parser("upload", help="Upload local files")
+    up = sub.add_parser("upload", help="上传本地文件")
     up.add_argument("files", nargs="+", type=Path, help="File paths to upload")
-    up.add_argument("--album", "-a", help="Album name")
+    up.add_argument("--album", "-a", help="相簿名称")
     description_source = up.add_mutually_exclusive_group()
     description_source.add_argument(
         "--description",
-        help="Description for a single uploaded file",
+        help="单个上传文件的描述",
     )
     description_source.add_argument(
         "--metadata-file",
         type=Path,
-        help="video-downloader metadata sidecar for a single uploaded file",
+        help="单文件上传使用的 video-downloader 元数据侧车",
     )
     up.add_argument(
         "--asset-time",
         choices=("upload", "source"),
-        help="Override the configured asset timestamp policy",
+        help="覆盖配置的资产时间戳策略",
     )
 
     # batch-upload command
-    batch = sub.add_parser("batch-upload", help="Batch upload files from a directory")
-    batch.add_argument("path", nargs="?", type=Path, default=Path.home() / "Downloads", help="Directory to upload from (default: ~/Downloads)")
-    batch.add_argument("extensions", nargs="*", default=["mp4"], help="File extensions to upload (default: mp4)")
-    batch.add_argument("--album", "-a", help="Album name")
-    batch.add_argument("--no-delete", action="store_true", help="Do not delete local files after upload")
-    batch.add_argument("--recursive", "-r", action="store_true", help="Recursively find files")
+    batch = sub.add_parser("batch-upload", help="批量上传目录下的文件")
+    batch.add_argument("path", nargs="?", type=Path, default=Path.home() / "Downloads", help="上传目录（默认 ~/Downloads）")
+    batch.add_argument("extensions", nargs="*", default=["mp4"], help="上传的文件扩展名（默认 mp4）")
+    batch.add_argument("--album", "-a", help="相簿名称")
+    batch.add_argument("--no-delete", action="store_true", help="上传后不删除本地文件")
+    batch.add_argument("--recursive", "-r", action="store_true", help="递归查找文件")
     batch.add_argument(
         "--asset-time",
         choices=("upload", "source"),
-        help="Override the configured asset timestamp policy",
+        help="覆盖配置的资产时间戳策略",
     )
 
     # init command
-    sub.add_parser("init", help="Initialize and test config")
+    sub.add_parser("init", help="初始化并测试配置")
 
     # update-description command: patch asset_exif.description on an existing asset
-    upd = sub.add_parser("update-description", help="Patch an asset's description (visible in Immich web UI)")
-    upd.add_argument("asset_id", help="Immich asset UUID")
-    upd.add_argument("description", help="New description text")
+    upd = sub.add_parser("update-description", help="修改资产描述（网页端可见）")
+    upd.add_argument("asset_id", help="Immich 资产 UUID")
+    upd.add_argument("description", help="新的描述文本")
 
     # scan command: rescan an external library (NAS mounts have no inotify)
-    scan_p = sub.add_parser("scan", help="Trigger external library scan and wait for it")
-    scan_p.add_argument("--library-id", help="Library UUID (default: auto-detect by import path)")
-    scan_p.add_argument("--import-path", default="/mnt/album", help="Import path used to find the library")
-    scan_p.add_argument("--no-wait", action="store_true", help="Do not wait for the scan queue to drain")
+    scan_p = sub.add_parser("scan", help="触发外部图库扫描并等待完成")
+    scan_p.add_argument("--library-id", help="图库 UUID（默认按导入路径自动识别）")
+    scan_p.add_argument("--import-path", default="/mnt/album", help="用于定位图库的导入路径")
+    scan_p.add_argument("--no-wait", action="store_true", help="不等待扫描队列排空")
 
     # folders command: browse server-side folder paths
-    fol = sub.add_parser("folders", help="List asset folder paths with asset counts")
-    fol.add_argument("--under", default="", help="Only show paths under this prefix")
+    fol = sub.add_parser("folders", help="列出资产文件夹路径及资产数")
+    fol.add_argument("--under", default="", help="只显示该前缀下的路径")
 
     # album-plan / album-sync: folder -> album batch maintenance
-    plan_p = sub.add_parser("album-plan", help="Plan albums for top-level folders under a root (dry-run)")
-    plan_p.add_argument("--root", required=True, help="Folder root, e.g. /mnt/album/旅行")
+    plan_p = sub.add_parser("album-plan", help="规划根目录下各顶层文件夹的相簿（dry-run）")
+    plan_p.add_argument("--root", required=True, help="文件夹根路径，如 /mnt/album/旅行")
 
-    sync_p = sub.add_parser("album-sync", help="Create/verify/fill albums from folders (idempotent)")
-    sync_p.add_argument("--root", required=True, help="Folder root, e.g. /mnt/album/旅行")
-    sync_p.add_argument("--share-with", default="", help="Comma-separated user names/emails to share with")
-    sync_p.add_argument("--role", default="editor", choices=("editor", "viewer"), help="Share role (default editor)")
-    sync_p.add_argument("--apply", action="store_true", help="Actually write; without it only prints the plan")
+    sync_p = sub.add_parser("album-sync", help="从文件夹创建/校验/补齐相簿（幂等）")
+    sync_p.add_argument("--root", required=True, help="文件夹根路径，如 /mnt/album/旅行")
+    sync_p.add_argument("--share-with", default="", help="共享的用户名/邮箱，逗号分隔")
+    sync_p.add_argument("--role", default="editor", choices=("editor", "viewer"), help="共享角色（默认 editor）")
+    sync_p.add_argument("--apply", action="store_true", help="实际写入；不带则只打印计划")
 
-    share_p = sub.add_parser("album-share", help="Share an existing album with users")
-    share_p.add_argument("--album", required=True, help="Album name")
-    share_p.add_argument("--with", dest="with_users", required=True, help="Comma-separated user names/emails")
-    share_p.add_argument("--role", default="editor", choices=("editor", "viewer"), help="Share role (default editor)")
+    share_p = sub.add_parser("album-share", help="把现有相簿共享给用户")
+    share_p.add_argument("--album", required=True, help="相簿名称")
+    share_p.add_argument("--with", dest="with_users", required=True, help="用户名/邮箱，逗号分隔")
+    share_p.add_argument("--role", default="editor", choices=("editor", "viewer"), help="共享角色（默认 editor）")
 
-    dele = sub.add_parser("album-delete", help="Delete an album by name (assets are NOT deleted)")
-    dele.add_argument("--album", required=True, help="Album name")
+    dele = sub.add_parser("album-delete", help="按名称删除相簿（不删除资产本身）")
+    dele.add_argument("--album", required=True, help="相簿名称")
+
+    # tag-fetch / tags-ensure / tag-apply / tag-verify: 批量视觉打标工作流
+    tf = sub.add_parser("tag-fetch", help="批量下载缩略图（打标工作流）")
+    tf.add_argument("batch", type=Path, help='清单 JSON：[{"id": ...}, ...] 或 ["<uuid>", ...]')
+    tf.add_argument("outdir", type=Path, help="缩略图输出目录")
+    tf.add_argument("--size", choices=("thumbnail", "preview"), default="thumbnail",
+                    help="首选档位（thumbnail≈250px 分类够用，preview≈1440px 需读文字时用）")
+    tf.add_argument("--workers", type=int, default=8, help="并行下载数")
+
+    te = sub.add_parser("tags-ensure", help="确保 tag 字典存在并输出 name->id 映射")
+    te.add_argument("--names", required=True, help="逗号分隔的 tag 名")
+    te.add_argument("--colors", default="", help="与 names 对应的十六进制颜色，逗号分隔（可留空）")
+    te.add_argument("--map-out", type=Path, default=Path("tag_map.json"), help="映射输出文件")
+
+    ta = sub.add_parser("tag-apply", help="幂等应用打标决策（tag + 描述）")
+    ta.add_argument("decisions", type=Path, help="decisions JSON（逐资产或按簇，见 tagging-playbook）")
+    ta.add_argument("--tag-map", type=Path, default=None, help="tag_map.json（默认取 decisions 同目录或 cwd）")
+    ta.add_argument("--log", dest="log_path", type=Path, default=None,
+                    help="操作日志输出路径（默认 decisions 同目录 <名>.log.json）")
+
+    tv = sub.add_parser("tag-verify", help="decisions 与服务端现状 diff（批量打标收尾必跑）")
+    tv.add_argument("decisions", type=Path, help="decisions JSON")
+    tv.add_argument("--tag-map", type=Path, default=None, help="tag_map.json（默认取 decisions 同目录或 cwd）")
+    tv.add_argument("--sample", type=int, default=0, help="随机抽查 N 个（0=全量，默认全量）")
 
     args = parser.parse_args()
 
@@ -134,10 +160,18 @@ def main():
         asyncio.run(cmd_album_share(args))
     elif args.cmd == "album-delete":
         asyncio.run(cmd_album_delete(args))
+    elif args.cmd == "tag-fetch":
+        asyncio.run(cmd_tag_fetch(args))
+    elif args.cmd == "tags-ensure":
+        asyncio.run(cmd_tags_ensure(args))
+    elif args.cmd == "tag-apply":
+        asyncio.run(cmd_tag_apply(args))
+    elif args.cmd == "tag-verify":
+        asyncio.run(cmd_tag_verify(args))
 
 
 def init_and_test():
-    """Load config and test API connection."""
+    """加载配置并测试 API 连接。"""
     load_config()
     default_album = get_default_album()
     print(f"Config loaded. Default album: {default_album or '(none)'}")
@@ -161,7 +195,7 @@ async def upload_files(
     asset_time_source: str | None = None,
     metadata_file: Path | None = None,
 ):
-    """Upload files in parallel."""
+    """并行上传多个文件。"""
     if description is not None and len(paths) != 1:
         raise ValueError("description requires exactly one file")
     load_config()
@@ -196,7 +230,7 @@ async def batch_upload_files(
     recursive: bool,
     asset_time_source: str | None = None,
 ):
-    """Batch upload files from a directory with given extensions."""
+    """按扩展名批量上传目录下的文件。"""
     if not directory.exists():
         print(f"Directory does not exist: {directory}")
         return
@@ -204,7 +238,7 @@ async def batch_upload_files(
         print(f"Path is not a directory: {directory}")
         return
 
-    # Build glob patterns for each extension
+    # 为每个扩展名构造 glob 模式
     patterns = [f"*.{ext.lstrip('.')}" for ext in extensions]
     files: list[Path] = []
     for pattern in patterns:
@@ -227,7 +261,7 @@ async def batch_upload_files(
     async with ImmichClient() as client:
         uploader = ImmichUploader(client, asset_time_source=asset_time_source)
 
-        # Upload in parallel
+        # 并行上传
         results = await uploader.upload_files(files, album_name)
 
         success = []
@@ -244,7 +278,7 @@ async def batch_upload_files(
 
         print(f"\nSummary: {len(success)} succeeded, {len(failed)} failed")
 
-        # Delete successful uploads
+        # 删除上传成功的本地文件
         if success and not no_delete:
             print("\nDeleting uploaded files...")
             for path, result in success:
@@ -255,7 +289,7 @@ async def batch_upload_files(
 
 
 async def update_description(asset_id: str, description: str):
-    """Patch an asset's description via PATCH /api/assets/{id}."""
+    """通过 PATCH /api/assets/{id} 修改资产描述。"""
     load_config()
     async with ImmichClient() as client:
         result = await client.update_asset_description(asset_id, description)
@@ -263,7 +297,7 @@ async def update_description(asset_id: str, description: str):
 
 
 async def cmd_scan(args):
-    """Trigger an external-library scan (picks up NAS-side folder changes)."""
+    """触发外部图库扫描（感知 NAS 侧的文件夹变更）。"""
     load_config()
     async with ImmichClient() as client:
         lib_id = args.library_id
@@ -284,7 +318,7 @@ async def cmd_scan(args):
 
 
 async def cmd_folders(args):
-    """List folder paths and per-folder direct asset counts."""
+    """列出文件夹路径及各目录的直接资产数。"""
     load_config()
     async with ImmichClient() as client:
         paths = await client.unique_folder_paths()
@@ -374,6 +408,69 @@ async def cmd_album_delete(args):
             sys.exit(1)
         await client.delete_album(al["id"])
         print(f"Deleted album '{args.album}' ({al.get('assetCount', '?')} assets released, files kept).")
+
+
+def _resolve_tag_map(decisions_path: Path, tag_map: Path | None) -> Path:
+    """tag 映射文件查找顺序：显式指定 > decisions 同目录 > cwd。"""
+    if tag_map:
+        return tag_map
+    local = decisions_path.parent / "tag_map.json"
+    if local.exists():
+        return local
+    return Path("tag_map.json")
+
+
+async def cmd_tag_fetch(args):
+    """批量下载缩略图（打标工作流第一步）。"""
+    load_config()
+    items = json.loads(args.batch.read_text(encoding="utf-8"))
+    async with ImmichClient() as client:
+        ok, failed = await tagging.fetch_thumbnails(
+            client, items, args.outdir, size=args.size, workers=args.workers
+        )
+    print(f"downloaded={ok} failed={len(failed)} outdir={args.outdir}")
+    if failed:
+        print("failed ids:", ", ".join(failed[:10]) + (" ..." if len(failed) > 10 else ""))
+
+
+async def cmd_tags_ensure(args):
+    """确保 tag 字典存在，写 name->id 映射。"""
+    load_config()
+    names = [n.strip() for n in args.names.split(",") if n.strip()]
+    colors = [c.strip() for c in args.colors.split(",") if c.strip()]
+    if colors and len(colors) != len(names):
+        print("--colors 数量必须与 --names 一致", file=sys.stderr)
+        sys.exit(1)
+    taxonomy = {n: (colors[i] if colors else None) for i, n in enumerate(names)}
+    async with ImmichClient() as client:
+        await tagging.ensure_tags(client, taxonomy, map_path=args.map_out)
+
+
+async def cmd_tag_apply(args):
+    """幂等应用打标决策。"""
+    load_config()
+    decisions = tagging.load_decisions(args.decisions)
+    map_path = _resolve_tag_map(args.decisions, args.tag_map)
+    tag_map = json.loads(map_path.read_text(encoding="utf-8"))
+    log_path = args.log_path or args.decisions.with_name(
+        args.decisions.stem + ".log.json"
+    )
+    async with ImmichClient() as client:
+        await tagging.apply_decisions(client, decisions, tag_map, log_path=log_path)
+
+
+async def cmd_tag_verify(args):
+    """decisions 与服务端现状 diff。"""
+    load_config()
+    decisions = tagging.load_decisions(args.decisions)
+    map_path = _resolve_tag_map(args.decisions, args.tag_map)
+    tag_map = json.loads(map_path.read_text(encoding="utf-8"))
+    async with ImmichClient() as client:
+        missing = await tagging.verify_decisions(
+            client, decisions, tag_map, sample=args.sample
+        )
+    if missing:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
