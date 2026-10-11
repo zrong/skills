@@ -37,7 +37,7 @@ default_model = "doubao-vision"
 
 [video-analyzer.models.doubao-vision]
 base_url = "https://ark.cn-beijing.volces.com/api/v3"
-api_key = "your-api-key"             # 直接填写（优先）
+api_key = ""                         # 直接填写（优先）
 api_key_env = "ARK_API_KEY"          # 或从环境变量读取（api_key 为空时生效）
 model = "doubao-seed-1-6-vision-250815"
 api_type = "responses"

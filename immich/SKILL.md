@@ -1,8 +1,8 @@
 ---
 name: immich
-version: 26.41.74
 description: 将本地图像和视频上传到 Immich 服务器，并管理服务器端资产：批量上传、相簿（Album）批量创建/校验/共享、文件夹浏览、外部图库重扫、批量视觉打标（tag 管理）。网络资源下载由 video-downloader 负责；当用户提到"上传到 Immich"、"上传图片"、"备份照片"、"上传视频"、"下载视频并上传 Immich"、"扫描图库"、"文件夹"、"建相簿"、"共享相簿"、"打标签"、"给照片分类"、"标记建议删除"、"tag"时使用此技能。
-argument-hint: "[upload|batch-upload|scan|folders|album-plan|album-sync|album-share|album-delete|tag-fetch|tags-ensure|tag-apply|tag-verify] ..."
+metadata:
+  argument_hint: "[upload|batch-upload|scan|folders|album-plan|album-sync|album-share|album-delete|tag-fetch|tags-ensure|tag-apply|tag-verify] ..."
 allowed-tools: Bash(uv run *), Read, Glob, Edit
 ---
 
@@ -26,7 +26,7 @@ allowed-tools: Bash(uv run *), Read, Glob, Edit
 ```toml
 [immich]
 base_url = "https://your-immich-server.com"
-api_key = "your-api-key"
+api_key = ""
 default_album = "My Photos"  # 可选
 public_album_url = "https://your-immich-server.com/s/shared-album-key"  # 可选
 asset_time_source = "upload"  # 可选，upload（默认）或 source

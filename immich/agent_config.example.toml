@@ -6,7 +6,7 @@
 base_url = "https://your-immich-server.com"
 
 # API 密钥（从 Immich Web 界面获取：用户设置 > API Key）
-api_key = "your-api-key-here"
+api_key = ""
 
 # 默认上传的 Album 名称（可选）
 # 如果不设置，上传时需要通过 --album 参数指定

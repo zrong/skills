@@ -142,7 +142,6 @@ AI 图片生成与编辑工具，通过独立 OpenAI、Gemini 原生和 Seedream
 FileBrowser Quantum 文件管理与传输工具。
 
 - 支持 Quantum V2 API key 认证，配置使用 `api_key` / `api_key_env`
-
 - 支持多个 FileBrowser source、远程文件管理，以及 FileBrowser 与本地之间的 get/put
 - `upload` 把远端文件流式暂存后委托给独立 object-storage，S3/CDN 配置不再重复维护
 - 保留原有 target、覆盖、内容去重、CDN 和 JSON 命令接口，便于下游 Skill 平滑迁移
@@ -224,6 +223,7 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 
 ### 2026-10-11
 
+- 统一 immich、jellyfin、video-analyzer 的空 API key 示例，清理 immich、jellyfin 不受支持的顶层元数据；Immich 命令提示保存在 metadata 中。
 - 移除 jellyfin 的旧 `omdb_api_key` 配置别名，提示迁移至 `[jellyfin.omdb].api_key`，并验证服务端与 OMDb 密钥保持独立。
 - 统一 vikunja 的 `api_key` / `api_key_env` 配置，补齐独立模板、环境变量读取、全局配置兜底、无交互入口和回归测试。
 - 统一 joplin 的 `api_key` / `api_key_env` 配置，补齐独立模板、环境变量读取、全局配置兜底、无交互入口和回归测试；Joplin 请求保留协议规定的 token 参数。
