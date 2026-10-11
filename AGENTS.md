@@ -37,6 +37,15 @@ description: <准确的触发描述，最长 1024 字符>
     - **Node.js**: 优先使用原生模块，减少外部依赖。
 - **环境隔离**：所有 Skill 应优先从环境变量或 OpenClaw 配置中读取密钥，不得硬编码。
 
+### 鉴权配置命名
+
+- 单个静态服务密钥（包括服务称为 API token 的长期凭据）统一使用 `api_key`；环境变量名字段统一使用 `api_key_env`。禁止在新配置中使用 `token`、`api_token`、`apiKey` 等别名。
+- 同一 skill 连接多个服务时，在各服务子表中使用 `api_key` / `api_key_env`，例如 `[jellyfin.omdb]`；不要增加 `omdb_api_key` 等服务前缀字段。
+- 改名时同步脚本、测试、SKILL.md、配置模板及已定位的实际配置；保留密钥值，旧字段应给出迁移提示，不能静默忽略。不得在日志或变更说明中输出真实凭据。
+- 第三方协议中的字段名、HTTP header、SDK 参数按服务要求传递；本地配置统一命名不改变协议，例如 Joplin 的 `token` query 参数。
+- OAuth/session/tenant access token、密码、应用 ID/secret、云厂商成对的 AK/SK 是不同凭据类型，保留其专用名称，不改为 `api_key`。
+- 示例中的直接密钥保持 `api_key = ""`；环境变量示例使用 `<SERVICE>_API_KEY`。脚本与文档必须明确实际的读取优先级，不在命名迁移中隐式改变优先级。
+
 ## 3. 核心工作流 (Standard Workflow)
 
 ### 开发 Skill

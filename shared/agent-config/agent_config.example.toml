@@ -16,6 +16,10 @@ base_url = "https://service.example.com"
 # 可选配置：注释中写明代码默认值。
 output_dir = "~/Downloads/example-skill"
 
-# 敏感配置优先支持环境变量；如允许直接填写，应保持为空。
+# 单个静态 API 密钥统一命名 api_key / api_key_env，禁止 token / api_token 等别名。
+# 多服务时放入各服务子表，并各自使用相同字段名。
+# 代码和文档需说明直接值与环境变量的读取优先级；示例不保存真实凭据。
+# OAuth/session token、应用 ID/secret、密码和云厂商 AK/SK 保留专用名称。
+# HTTP header、query 参数及 SDK 字段仍遵循第三方协议。
 api_key = ""
 api_key_env = "EXAMPLE_SKILL_API_KEY"

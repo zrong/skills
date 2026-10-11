@@ -224,6 +224,7 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 
 ### 2026-10-11
 
+- 更新 AGENTS.md 与 shared/agent-config 共享模板：明确静态 API 密钥命名、环境变量字段、第三方协议和其他凭据类型的边界。
 - 统一 filebrowser 的 API key 配置为 `api_key` / `api_key_env`，移除密码配置并提示旧字段迁移，同步脚本、模板和文档。
 - 修复 filebrowser 的 Quantum V2 API 适配：移除旧下载回退，分块上传复用每次上传独立的 session ID，source 列表改用账户可见接口，补充回归测试。
 

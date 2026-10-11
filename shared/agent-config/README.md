@@ -56,6 +56,14 @@ config, config_path = load_section(
 
 如果 CLI 提供 `--config`，将其值作为 `path` 传入。日志或 `doctor --json` 应报告实际命中的 `config_path`，但不得输出密钥值。
 
+## 鉴权字段
+
+单个静态 API 密钥统一使用 `api_key`，环境变量名使用 `api_key_env`。服务称为 API token 的长期凭据也使用这两个本地字段。多服务配置应使用子表，每个服务有自己的 `api_key` / `api_key_env`。
+
+保留第三方协议要求的 header、query 参数和 SDK 字段；例如本地 `api_key` 可发送为 Joplin 的 `token` query 参数。OAuth/session token、应用 ID/secret、密码、云厂商 AK/SK 使用其专用名称。
+
+模板的直接密钥为空，环境变量名为占位值。代码应实现并记录读取优先级，缺少凭据时在请求前报错。字段改名应同步脚本、文档、测试和实际配置，并保留已有凭据值；旧名称应提示用户迁移。
+
 ## SKILL.md 兜底说明
 
 新 skill 的 `SKILL.md` 应包含类似说明：
