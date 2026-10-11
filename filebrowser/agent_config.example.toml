@@ -13,9 +13,9 @@ adapter = "filebrowser"
 base_url = "https://files.example.com"
 
 # Quantum V2 账户创建的 API key。推荐通过环境变量提供，不要提交真实密钥。
-# 也可以直接填写 token；留空且环境变量未设置时，联网命令会提前报错。
-token = ""
-token_env = "FILEBROWSER_TOKEN"
+# 也可以直接填写 api_key；留空且环境变量未设置时，联网命令会提前报错。
+api_key = ""
+api_key_env = "FILEBROWSER_API_KEY"
 
 # FileBrowser Quantum 内部的 source 名称，不是本配置表名称。
 source = "项目"

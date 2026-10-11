@@ -14,8 +14,8 @@ staging_dir = ""
 [filebrowser.sources.production]
 adapter = "filebrowser"
 base_url = "https://files.example.com"
-token = ""
-token_env = "FILEBROWSER_TOKEN"
+api_key = ""
+api_key_env = "FILEBROWSER_API_KEY"
 source = "项目"
 verify_tls = true
 timeout_seconds = 600
@@ -39,11 +39,12 @@ secret_access_key_env = "ARCHIVE_S3_SECRET_ACCESS_KEY"
 ## FileBrowser source
 
 - `base_url`：FileBrowser Quantum HTTP(S) 地址。
-- `token` / `token_env`：账户创建的 API key 或保存它的环境变量名，推荐环境变量。
+- `api_key` / `api_key_env`：账户创建的 API key 或保存它的环境变量名，推荐环境变量。
   V2 API key 支持独立的名称、有效期和权限；有效期按创建时指定的天数计算。
   CLI 直接发送 Bearer API key，不登录、不续期；过期或撤销后需要重新配置有效 key。
-  `token = ""` 可用于等待填写密钥，此时配置检查和 dry-run 可用，联网命令会提前报错。
-  配置了 `token_env` 时，留空的 `token` 会读取该环境变量。
+  `api_key = ""` 可用于等待填写密钥，此时配置检查和 dry-run 可用，联网命令会提前报错。
+  配置了 `api_key_env` 时，留空的 `api_key` 会读取该环境变量。
+  原配置字段 `token` / `token_env` 请分别改名为 `api_key` / `api_key_env`；旧字段会被拒绝。
 - 本 skill 只支持 Quantum V2 的 API key，不支持密码配置；移除 source 中的
   `username`、`password`、`password_env`，包括空字段。不要使用浏览器会话 JWT 代替 API key。
 - `source`：FileBrowser Quantum 内部 source 名称。

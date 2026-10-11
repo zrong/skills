@@ -131,7 +131,7 @@ def _skill_config(staging_dir: Path | None = None) -> SkillConfig:
             "main": FileBrowserSourceConfig(
                 name="main",
                 base_url="https://files.example.test",
-                token=SecretValue(direct="secret"),
+                api_key=SecretValue(direct="secret"),
                 source="projects",
             )
         },
@@ -211,7 +211,7 @@ default_source = "main"
 
 [filebrowser.sources.main]
 base_url = "https://files.example.test"
-token_env = "MISSING_TOKEN_IS_OK_FOR_DRY_RUN"
+api_key_env = "MISSING_API_KEY_IS_OK_FOR_DRY_RUN"
 source = "projects"
 
 [object-storage]

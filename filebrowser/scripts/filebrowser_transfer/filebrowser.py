@@ -53,11 +53,11 @@ class FileBrowserClient:
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.config = config
-        token = config.token.resolve(f"FileBrowser API key for source {config.name}")
+        api_key = config.api_key.resolve(f"FileBrowser API key for source {config.name}")
         self._client = httpx.Client(
             base_url=config.base_url,
             headers={
-                "Authorization": f"Bearer {token}",
+                "Authorization": f"Bearer {api_key}",
                 # FileBrowser may gzip resource downloads while preserving a
                 # compressed Content-Length.  httpx transparently decodes the
                 # body, so request the identity representation to keep the

@@ -39,7 +39,7 @@ FileBrowser 配置见 [references/configuration.md](references/configuration.md)
 以 Quantum V2 为准，可携带 API key 读取 `GET /swagger/doc.json`。已移除 V1 兼容逻辑。
 Quantum 与上游 filebrowser/filebrowser 的 REST API 不兼容。关键 API 约定：
 
-- 认证：只使用账户创建的 API key，通过 `token` / `token_env` 配置，并发送
+- 认证：只使用账户创建的 API key，通过 `api_key` / `api_key_env` 配置，并发送
   `Authorization: Bearer <API key>`。不调用密码登录或会话续期接口；配置中的
   `username`、`password`、`password_env` 会被拒绝。密钥为空时，联网命令在请求前停止；
   dry-run 和配置检查可正常执行。API key 的有效期由创建时指定的天数决定。

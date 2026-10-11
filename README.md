@@ -141,7 +141,7 @@ AI 图片生成与编辑工具，通过独立 OpenAI、Gemini 原生和 Seedream
 
 FileBrowser Quantum 文件管理与传输工具。
 
-- 支持 Quantum V2 API key 认证，配置使用 `token` / `token_env`
+- 支持 Quantum V2 API key 认证，配置使用 `api_key` / `api_key_env`
 
 - 支持多个 FileBrowser source、远程文件管理，以及 FileBrowser 与本地之间的 get/put
 - `upload` 把远端文件流式暂存后委托给独立 object-storage，S3/CDN 配置不再重复维护
@@ -224,6 +224,7 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 
 ### 2026-10-11
 
+- 统一 filebrowser 的 API key 配置为 `api_key` / `api_key_env`，移除密码配置并提示旧字段迁移，同步脚本、模板和文档。
 - 修复 filebrowser 的 Quantum V2 API 适配：移除旧下载回退，分块上传复用每次上传独立的 session ID，source 列表改用账户可见接口，补充回归测试。
 
 ### 2026-10-09

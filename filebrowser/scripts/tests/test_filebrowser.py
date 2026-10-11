@@ -21,7 +21,7 @@ def _config(
     return FileBrowserSourceConfig(
         name="main",
         base_url="https://files.example.test",
-        token=SecretValue(direct="secret-token"),
+        api_key=SecretValue(direct="secret-token"),
         source="projects",
         max_transfer_bytes=max_bytes,
         upload_chunk_bytes=upload_chunk_bytes,
@@ -247,7 +247,7 @@ def test_upload_prefers_download_response_size_over_stale_metadata(tmp_path: Pat
     assert remote.size == 7
 
 
-def test_empty_token_fails_before_request() -> None:
+def test_empty_api_key_fails_before_request() -> None:
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -255,14 +255,14 @@ def test_empty_token_fails_before_request() -> None:
         return httpx.Response(200)
 
     config = FileBrowserSourceConfig(
-        name="main", base_url="https://files.example.test", token=SecretValue()
+        name="main", base_url="https://files.example.test", api_key=SecretValue()
     )
     with pytest.raises(ConfigurationError, match="Missing FileBrowser API key"):
         FileBrowserClient(config, transport=httpx.MockTransport(handler))
     assert not requests
 
 
-def test_token_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_api_key_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("REVIEW_FILEBROWSER_KEY", "environment-api-key")
     seen: list[str] = []
 
@@ -274,7 +274,7 @@ def test_token_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     config = FileBrowserSourceConfig(
         name="main",
         base_url="https://files.example.test",
-        token=SecretValue(env_var="REVIEW_FILEBROWSER_KEY"),
+        api_key=SecretValue(env_var="REVIEW_FILEBROWSER_KEY"),
     )
     with FileBrowserClient(config, transport=httpx.MockTransport(handler)) as client:
         client.info("/")

@@ -193,12 +193,18 @@ def _summary(
 ) -> dict[str, object]:
     sources: list[dict[str, object]] = []
     for source in config.sources.values():
+        if source.api_key.configured:
+            auth = "api_key"
+        elif source.api_key.declared:
+            auth = "api_key (unresolved)"
+        else:
+            auth = "none"
         sources.append(
             {
                 "name": source.name,
                 "base_url": source.base_url,
                 "source": source.source,
-                "token_configured": source.token.configured,
+                "auth": auth,
             }
         )
     storage_summary = object_storage.summary()
@@ -482,9 +488,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 for name, seconds in durations.items():
                     print(f"{name}: {seconds}s")
-                print(
-                    f"total: {len(durations)} files, {total}s = {_format_hms(total)}"
-                )
+                print(f"total: {len(durations)} files, {total}s = {_format_hms(total)}")
             return 0
 
         remote_path = cast(str, args.remote_path)

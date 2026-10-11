@@ -24,7 +24,7 @@ def _config(
     return FileBrowserSourceConfig(
         name="main",
         base_url="https://files.example.test",
-        token=SecretValue(direct="secret-token"),
+        api_key=SecretValue(direct="secret-token"),
         source="projects",
         max_transfer_bytes=max_bytes,
         upload_chunk_bytes=upload_chunk_bytes,
@@ -586,7 +586,7 @@ def _skill_config_with_two_sources() -> SkillConfig:
             "staging": FileBrowserSourceConfig(
                 name="staging",
                 base_url="https://staging.example.test",
-                token=SecretValue(direct="stage-token"),
+                api_key=SecretValue(direct="stage-token"),
                 source="drafts",
             ),
         },

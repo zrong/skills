@@ -36,7 +36,7 @@ class SecretValue:
 class FileBrowserSourceConfig:
     name: str
     base_url: str
-    token: SecretValue = field(repr=False)
+    api_key: SecretValue = field(repr=False)
     source: str = "default"
     verify_tls: bool = True
     timeout_seconds: float = 600.0

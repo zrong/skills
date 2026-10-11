@@ -69,10 +69,10 @@ def _http_url(value: str, label: str) -> str:
 def _parse_source(name: str, value: TomlValue) -> FileBrowserSourceConfig:
     label = f"filebrowser.sources.{name}"
     table = _table(value, f"[{label}]")
-    if any(key in table for key in ("username", "password", "password_env")):
+    if any(key in table for key in ("username", "password", "password_env", "token", "token_env")):
         raise ConfigError(
-            f"{label} only supports API keys via token/token_env; "
-            "remove username/password/password_env"
+            f"{label} only supports API keys via api_key/api_key_env; "
+            "remove username/password/password_env and token/token_env"
         )
     adapter = _string(table, "adapter", default="filebrowser")
     if adapter != "filebrowser":
@@ -80,7 +80,7 @@ def _parse_source(name: str, value: TomlValue) -> FileBrowserSourceConfig:
     return FileBrowserSourceConfig(
         name=name,
         base_url=_http_url(_required_string(table, "base_url", label), f"{label}.base_url"),
-        token=_secret(table, "token"),
+        api_key=_secret(table, "api_key"),
         source=_required_string(table, "source", label),
         verify_tls=_bool(table, "verify_tls", default=True),
         timeout_seconds=_float(table, "timeout_seconds", default=600.0, minimum=1.0),
