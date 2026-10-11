@@ -10,7 +10,7 @@ from filebrowser_transfer.filebrowser import (
     FileBrowserError,
     normalize_remote_path,
 )
-from filebrowser_transfer.models import FileBrowserSourceConfig, SecretValue
+from filebrowser_transfer.models import ConfigurationError, FileBrowserSourceConfig, SecretValue
 
 
 def _config(
@@ -65,27 +65,25 @@ def test_modern_metadata_and_stream_download(tmp_path: Path) -> None:
     assert seen_authorization == "Bearer secret-token"
 
 
-def test_falls_back_to_legacy_raw_download(tmp_path: Path) -> None:
+@pytest.mark.parametrize("status", [404, 405])
+def test_download_propagates_error_without_retry(tmp_path: Path, status: int) -> None:
     requested_paths: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         requested_paths.append(request.url.path)
-        if request.url.path == "/api/resources" and request.method == "GET":
+        if request.url.path == "/api/resources":
             return httpx.Response(200, json={"type": "text/plain", "size": 3})
-        if request.url.path == "/api/resources/download":
-            return httpx.Response(405)
-        if request.url.path == "/api/raw":
-            assert request.url.params["files"] == "projects::/docs/a.txt"
-            return httpx.Response(200, content=b"abc")
-        return httpx.Response(404)
+        return httpx.Response(status)
 
     output = tmp_path / "a.txt"
     with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
         remote = client.metadata("/docs/a.txt")
-        client.download(remote, output)
+        with pytest.raises(FileBrowserError):
+            client.download(remote, output)
 
-    assert output.read_bytes() == b"abc"
-    assert requested_paths[-2:] == ["/api/resources/download", "/api/raw"]
+    assert requested_paths == ["/api/resources", "/api/resources/download"]
+    assert not output.exists()
+    assert not output.with_suffix(".txt.part").exists()
 
 
 def test_rejects_directory_and_oversized_file() -> None:
@@ -180,19 +178,33 @@ def test_upload_rejects_existing_destination_without_overwrite(tmp_path: Path) -
         client.upload_file(local, "/shows/output.mp4")
 
 
-def test_upload_uses_sequential_chunks(tmp_path: Path) -> None:
-    chunks: list[tuple[str, str, bytes]] = []
+def test_upload_uses_sequential_chunks_with_per_file_session(tmp_path: Path) -> None:
+    chunks: dict[str, list[tuple[str, str, bytes]]] = {}
+    sessions: dict[str, set[str]] = {}
+    metadata_requests: dict[str, int] = {}
     local = tmp_path / "output.mp4"
     local.write_bytes(b"abcdefg")
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/resources" and request.method == "GET":
-            if not chunks:
+            path = request.url.params["path"]
+            metadata_requests[path] = metadata_requests.get(path, 0) + 1
+            if metadata_requests[path] == 1:
                 return httpx.Response(404)
             return httpx.Response(200, json={"type": "video/mp4", "size": 7})
         if request.url.path == "/api/resources/download":
             return httpx.Response(200, headers={"content-length": "7"})
-        chunks.append(
+        assert request.method == "POST"
+        session = request.headers.get("x-file-upload-session", "")
+        if not session:
+            return httpx.Response(400)
+        assert len(session) <= 128
+        assert all(
+            c in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for c in session
+        )
+        path = request.url.params["path"]
+        sessions.setdefault(path, set()).add(session)
+        chunks.setdefault(path, []).append(
             (
                 request.headers["x-file-chunk-offset"],
                 request.headers["x-file-total-size"],
@@ -205,8 +217,12 @@ def test_upload_uses_sequential_chunks(tmp_path: Path) -> None:
         _config(upload_chunk_bytes=3), transport=httpx.MockTransport(handler)
     ) as client:
         client.upload_file(local, "/shows/output.mp4")
+        client.upload_file(local, "/shows/another.mp4")
 
-    assert chunks == [("0", "7", b"abc"), ("3", "7", b"def"), ("6", "7", b"g")]
+    expected = [("0", "7", b"abc"), ("3", "7", b"def"), ("6", "7", b"g")]
+    assert chunks == {"/shows/output.mp4": expected, "/shows/another.mp4": expected}
+    assert all(len(ids) == 1 for ids in sessions.values())
+    assert sessions["/shows/output.mp4"].isdisjoint(sessions["/shows/another.mp4"])
 
 
 def test_upload_prefers_download_response_size_over_stale_metadata(tmp_path: Path) -> None:
@@ -229,3 +245,61 @@ def test_upload_prefers_download_response_size_over_stale_metadata(tmp_path: Pat
         remote = client.upload_file(local, "/shows/output.mp4")
 
     assert remote.size == 7
+
+
+def test_empty_token_fails_before_request() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200)
+
+    config = FileBrowserSourceConfig(
+        name="main", base_url="https://files.example.test", token=SecretValue()
+    )
+    with pytest.raises(ConfigurationError, match="Missing FileBrowser API key"):
+        FileBrowserClient(config, transport=httpx.MockTransport(handler))
+    assert not requests
+
+
+def test_token_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REVIEW_FILEBROWSER_KEY", "environment-api-key")
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/resources"
+        seen.append(request.headers["authorization"])
+        return httpx.Response(200, json={"type": "directory"})
+
+    config = FileBrowserSourceConfig(
+        name="main",
+        base_url="https://files.example.test",
+        token=SecretValue(env_var="REVIEW_FILEBROWSER_KEY"),
+    )
+    with FileBrowserClient(config, transport=httpx.MockTransport(handler)) as client:
+        client.info("/")
+    assert seen == ["Bearer environment-api-key"]
+
+
+@pytest.mark.parametrize("status", [404, 405])
+def test_upload_verification_propagates_error_without_retry(tmp_path: Path, status: int) -> None:
+    seen: list[str] = []
+    local = tmp_path / "a.txt"
+    local.write_bytes(b"abc")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if request.method == "POST":
+            return httpx.Response(200)
+        if len(seen) == 1:
+            return httpx.Response(404)
+        if request.url.path == "/api/resources":
+            return httpx.Response(200, json={"type": "text/plain", "size": 3})
+        return httpx.Response(status)
+
+    with (
+        FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client,
+        pytest.raises(FileBrowserError),
+    ):
+        client.upload_file(local, "/a.txt")
+    assert seen == ["/api/resources"] * 3 + ["/api/resources/download"]

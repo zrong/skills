@@ -12,7 +12,8 @@ staging_dir = ""
 adapter = "filebrowser"
 base_url = "https://files.example.com"
 
-# 推荐通过环境变量提供 token；不要提交真实 token。
+# Quantum V2 账户创建的 API key。推荐通过环境变量提供，不要提交真实密钥。
+# 也可以直接填写 token；留空且环境变量未设置时，联网命令会提前报错。
 token = ""
 token_env = "FILEBROWSER_TOKEN"
 

@@ -1,6 +1,5 @@
 ---
 name: filebrowser
-version: 26.37.58
 description: |
   FileBrowser Quantum 一体化 CLI。包含两类操作：
     1) 文件管理：浏览（info/list-dir）、读写（update）、创建目录（mkdir）、删除（delete）、
@@ -28,7 +27,7 @@ uv run --project {SKILL_DIR}/scripts filebrowser --non-interactive <command>
 配置查找顺序为：当前工作目录、skill 目录、当前 Git 项目根目录、`~/.agents/agent_config.toml`。也可以用全局 `--config PATH` 显式指定；显式路径不存在时直接停止。
 
 FileBrowser 配置见 [references/configuration.md](references/configuration.md)。S3/CDN 配置与上传
-语义见相邻 `object-storage` Skill。不要输出 FileBrowser token、S3 secret 或包含它们的异常详情。
+语义见相邻 `object-storage` Skill。不要输出 FileBrowser API key、密码、S3 secret 或包含它们的异常详情。
 
 `upload`、`list`、`doctor` 和 `cdn` 会查找独立 `object-storage` Skill。优先读取
 `OBJECT_STORAGE_SKILL_DIR`，否则查找项目或用户 Skills 目录以及当前 Skills 仓库中的相邻目录。
@@ -36,11 +35,19 @@ FileBrowser 配置见 [references/configuration.md](references/configuration.md)
 
 ## 服务端：FileBrowser Quantum
 
-所有 source 指向的都是 **FileBrowser Quantum**（gtsteffaniak/filebrowser fork），**不是**上游
-filebrowser/filebrowser。两者的 REST API 不兼容，查阅或调试接口时必须以 Quantum 为准（可从
-服务端 `GET /swagger/doc.json` 取当前部署的 swagger 定义），不要套用上游 filebrowser 的
-API 文档。已知差异：
+本 skill 支持 **FileBrowser Quantum V2**（gtsteffaniak/filebrowser fork）。查阅或调试接口时
+以 Quantum V2 为准，可携带 API key 读取 `GET /swagger/doc.json`。已移除 V1 兼容逻辑。
+Quantum 与上游 filebrowser/filebrowser 的 REST API 不兼容。关键 API 约定：
 
+- 认证：只使用账户创建的 API key，通过 `token` / `token_env` 配置，并发送
+  `Authorization: Bearer <API key>`。不调用密码登录或会话续期接口；配置中的
+  `username`、`password`、`password_env` 会被拒绝。密钥为空时，联网命令在请求前停止；
+  dry-run 和配置检查可正常执行。API key 的有效期由创建时指定的天数决定。
+- source 列表：`GET /api/settings/sources` 返回当前账户可见的 source，以名称为键的 JSON
+  对象；CLI 将其转换为含 `name` 的列表，不要求账户具有管理员权限。
+- 分块上传：`POST /api/resources` 的每个分块都必须发送 `X-File-Chunk-Offset`、
+  `X-File-Total-Size` 和 `X-File-Upload-Session`。客户端为每次文件上传生成唯一 session ID，
+  同一文件的所有分块复用此 ID。
 - 移动/重命名/复制：`PATCH /api/resources` 要求 JSON body——`items` 数组逐项携带
   `fromSource/fromPath/toSource/toPath`，顶层为 `action`（`copy|move|rename`）与 `overwrite`。
   上游的 query-string 形式（`from`/`destination`）会被以 400 拒绝。
@@ -55,7 +62,7 @@ API 文档。已知差异：
   这是界面显示视频时长的数据来源，**无需下载文件体**。索引可能滞后于新上传/覆盖的文件；
   `duration` 只精确到整秒，需要亚秒精度仍须下载后用 ffprobe 实测。
 - 打包下载：`GET /api/resources/download` 用重复 `file` 参数 + `algo`（`zip|tar.gz`）；
-  当前部署没有旧版的 `/api/raw` 端点。
+  单文件下载和上传后大小校验也使用此端点。404/405 直接报告错误，不尝试旧端点。
 - 资源元数据滞后：`list-dir` / `info` 返回的 `size` 来自服务端索引，文件被同名覆盖或
   删除重传后可能长期不更新——无 reindex API、不会自愈（实测差值数千字节且数小时后
   仍不恢复），`modified` 也可能停留在上一次写入。**判断远端内容是否变化时禁止用列表

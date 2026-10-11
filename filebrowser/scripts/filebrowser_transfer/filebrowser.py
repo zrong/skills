@@ -5,6 +5,7 @@ from __future__ import annotations
 import mimetypes
 from pathlib import Path, PurePosixPath
 from typing import Literal, cast
+from uuid import uuid4
 
 import httpx
 
@@ -52,7 +53,7 @@ class FileBrowserClient:
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.config = config
-        token = config.token.resolve(f"FileBrowser token for source {config.name}")
+        token = config.token.resolve(f"FileBrowser API key for source {config.name}")
         self._client = httpx.Client(
             base_url=config.base_url,
             headers={
@@ -122,7 +123,7 @@ class FileBrowserClient:
         partial = destination.with_suffix(f"{destination.suffix}.part")
         partial.unlink(missing_ok=True)
         try:
-            written = self._download_modern(remote, partial)
+            written = self._download_file(remote, partial)
             partial.replace(destination)
             return written
         except Exception:
@@ -394,20 +395,21 @@ class FileBrowserClient:
         return destination
 
     def list_sources(self) -> list[dict[str, object]]:
-        """Return configured sources (best-effort; tolerates empty listings)."""
-        response = self._client.get("/api/settings", params={"property": "sources"})
+        """Return the sources visible to the authenticated account."""
+        response = self._client.get("/api/settings/sources")
         self._raise_for_status(response, "list FileBrowser sources")
         try:
             value: object = response.json()
         except ValueError as exc:
             raise FileBrowserError("FileBrowser returned invalid sources JSON") from exc
-        if not isinstance(value, list):
-            return []
-        return [
-            cast(dict[str, object], item)
-            for item in cast(list[object], value)
-            if isinstance(item, dict)
-        ]
+        if not isinstance(value, dict):
+            raise FileBrowserError("FileBrowser returned unexpected sources")
+        items: list[dict[str, object]] = []
+        for name, item in cast(dict[str, object], value).items():
+            if not isinstance(item, dict):
+                raise FileBrowserError("FileBrowser returned unexpected source info")
+            items.append({**cast(dict[str, object], item), "name": name})
+        return items
 
     def upload_file_to_dir(
         self,
@@ -447,22 +449,12 @@ class FileBrowserClient:
         if not files:
             raise FileBrowserError("download_files requires at least one path")
         if algo not in ("zip", "tar.gz"):
-            raise FileBrowserError(
-                f"download_files algo must be zip or tar.gz, got {algo!r}"
-            )
+            raise FileBrowserError(f"download_files algo must be zip or tar.gz, got {algo!r}")
         params: list[tuple[str, str]] = [
             ("file", self._strip_source_prefix(item)) for item in files
         ]
         params += [("algo", algo), ("source", self.config.source)]
-        with self._client.stream(
-            "GET", "/api/resources/download", params=params
-        ) as response:
-            if response.status_code in {404, 405}:
-                response.read()
-                # Older Quantum builds expose the same handler at /api/raw.
-                with self._client.stream("GET", "/api/raw", params=params) as legacy:
-                    self._raise_for_status(legacy, "download FileBrowser bundle")
-                    return self._write_bundle(legacy, output, algo)
+        with self._client.stream("GET", "/api/resources/download", params=params) as response:
             self._raise_for_status(response, "download FileBrowser bundle")
             return self._write_bundle(response, output, algo)
 
@@ -470,7 +462,7 @@ class FileBrowserClient:
         """Drop the skill-level ``<source-name>::`` prefix and normalize the path."""
         prefix = f"{self.config.name}::"
         if item.startswith(prefix):
-            item = item[len(prefix):]
+            item = item[len(prefix) :]
         elif "::" in item:
             other = item.split("::", 1)[0]
             raise FileBrowserError(
@@ -480,9 +472,7 @@ class FileBrowserClient:
         return normalize_remote_path(item)
 
     @staticmethod
-    def _write_bundle(
-        response: httpx.Response, output: str | Path | None, algo: str
-    ) -> Path:
+    def _write_bundle(response: httpx.Response, output: str | Path | None, algo: str) -> Path:
         if output is None:
             suffix = ".zip" if algo == "zip" else f".{algo}"
             from tempfile import NamedTemporaryFile
@@ -592,6 +582,7 @@ class FileBrowserClient:
         overwrite: bool,
     ) -> None:
         offset = 0
+        session_id = uuid4().hex
         with local_path.open("rb") as stream:
             while chunk := stream.read(self.config.upload_chunk_bytes):
                 response = self._client.post(
@@ -606,19 +597,18 @@ class FileBrowserClient:
                         "content-type": "application/octet-stream",
                         "X-File-Chunk-Offset": str(offset),
                         "X-File-Total-Size": str(size),
+                        "X-File-Upload-Session": session_id,
                     },
                 )
                 self._raise_for_status(response, "upload FileBrowser file chunk")
                 offset += len(chunk)
 
-    def _download_modern(self, remote: RemoteFile, destination: Path) -> int:
+    def _download_file(self, remote: RemoteFile, destination: Path) -> int:
         with self._client.stream(
             "GET",
             "/api/resources/download",
             params={"source": remote.source, "file": remote.path},
         ) as response:
-            if response.status_code in {404, 405}:
-                return self._download_legacy(remote, destination)
             self._raise_for_status(response, "download FileBrowser file")
             return self._write_stream(response, remote, destination)
 
@@ -628,28 +618,8 @@ class FileBrowserClient:
             "/api/resources/download",
             params={"source": remote.source, "file": remote.path},
         ) as response:
-            if response.status_code in {404, 405}:
-                return self._legacy_download_response_size(remote)
             self._raise_for_status(response, "verify FileBrowser upload")
             return _non_negative_int(response.headers.get("content-length"))
-
-    def _legacy_download_response_size(self, remote: RemoteFile) -> int | None:
-        with self._client.stream(
-            "GET",
-            "/api/raw",
-            params={"files": f"{remote.source}::{remote.path}", "inline": "true"},
-        ) as response:
-            self._raise_for_status(response, "verify FileBrowser upload through legacy API")
-            return _non_negative_int(response.headers.get("content-length"))
-
-    def _download_legacy(self, remote: RemoteFile, destination: Path) -> int:
-        with self._client.stream(
-            "GET",
-            "/api/raw",
-            params={"files": f"{remote.source}::{remote.path}", "inline": "true"},
-        ) as response:
-            self._raise_for_status(response, "download FileBrowser file through legacy API")
-            return self._write_stream(response, remote, destination)
 
     def _write_stream(
         self,
@@ -689,7 +659,7 @@ class FileBrowserClient:
             return
         message = {
             400: "FileBrowser rejected the request",
-            401: "FileBrowser token is invalid",
+            401: "FileBrowser API key is invalid",
             403: "FileBrowser denied access to the resource",
             404: "FileBrowser resource does not exist",
             409: "FileBrowser reported a resource conflict",

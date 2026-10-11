@@ -77,3 +77,18 @@ def test_rejects_missing_sources(tmp_path: Path) -> None:
     config_path.write_text("[filebrowser]\n", encoding="utf-8")
     with pytest.raises(ConfigError, match=r"filebrowser\.sources"):
         load_skill_config(config_path)
+
+
+@pytest.mark.parametrize("key", ["username", "password", "password_env"])
+def test_rejects_removed_auth_fields(tmp_path: Path, key: str) -> None:
+    config_path = tmp_path / "agent_config.toml"
+    config_path.write_text(CONFIG + f'\n{key} = ""\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="only supports API keys"):
+        load_skill_config(config_path)
+
+
+def test_empty_token_can_be_configured(tmp_path: Path) -> None:
+    config_path = tmp_path / "agent_config.toml"
+    config_path.write_text(CONFIG.replace('token = "secret"', 'token = ""'), encoding="utf-8")
+    config, _ = load_skill_config(config_path)
+    assert not config.source("secondary").token.configured

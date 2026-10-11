@@ -39,12 +39,26 @@ secret_access_key_env = "ARCHIVE_S3_SECRET_ACCESS_KEY"
 ## FileBrowser source
 
 - `base_url`：FileBrowser Quantum HTTP(S) 地址。
-- `token` / `token_env`：直接 token 或保存 token 的环境变量名，推荐后者。
+- `token` / `token_env`：账户创建的 API key 或保存它的环境变量名，推荐环境变量。
+  V2 API key 支持独立的名称、有效期和权限；有效期按创建时指定的天数计算。
+  CLI 直接发送 Bearer API key，不登录、不续期；过期或撤销后需要重新配置有效 key。
+  `token = ""` 可用于等待填写密钥，此时配置检查和 dry-run 可用，联网命令会提前报错。
+  配置了 `token_env` 时，留空的 `token` 会读取该环境变量。
+- 本 skill 只支持 Quantum V2 的 API key，不支持密码配置；移除 source 中的
+  `username`、`password`、`password_env`，包括空字段。不要使用浏览器会话 JWT 代替 API key。
 - `source`：FileBrowser Quantum 内部 source 名称。
 - `timeout_seconds`：HTTP 请求超时，至少 1 秒。
 - `max_transfer_bytes`：单文件限制，`0` 表示不设置 Skill 级限制。
 - `upload_chunk_bytes`：`put` 上传时每个流式块的字节数。
 - `staging_dir`：FileBrowser 转存至 object-storage 时的临时目录；完成或失败后清理。
+
+API key 可在 Quantum 的账户 API 管理界面创建，也可通过 `POST /api/auth/token` 创建，
+填写 `name`、`days` 和需要的权限。建议使用专用账户，并配置相应 source 的文件权限。
+本 CLI 不订阅 SSE，通常无需 `realtime`；`sources` 使用账户可见的 source 接口，无需 admin。
+source 的访问权限与下载、创建、修改、删除权限仍由服务端账户配置决定。
+
+连接应使用 HTTPS 并保持 `verify_tls = true`；私有 CA 应配置可信证书。
+改成 API key 后仍需保护传输，API key 不会加密 HTTP 连接。
 
 ## 委托协议
 

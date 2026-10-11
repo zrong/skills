@@ -369,17 +369,36 @@ def test_preview_writes_to_output(tmp_path: Path) -> None:
 
 def test_list_sources_returns_items() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/settings"
-        assert request.url.params["property"] == "sources"
+        assert request.url.path == "/api/settings/sources"
+        assert not request.url.params
         return httpx.Response(
             200,
-            json=[{"name": "projects"}, {"name": "archive"}, "skip"],
+            json={"projects": {"status": "ready"}, "archive": {"status": "ready"}},
         )
 
     with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
         items = client.list_sources()
 
     assert [item["name"] for item in items] == ["projects", "archive"]
+    assert all(item["status"] == "ready" for item in items)
+
+
+def test_list_sources_accepts_no_visible_sources() -> None:
+    with FileBrowserClient(
+        _config(), transport=httpx.MockTransport(lambda _: httpx.Response(200, json={}))
+    ) as client:
+        assert client.list_sources() == []
+
+
+@pytest.mark.parametrize("payload", [[], {"projects": "invalid"}])
+def test_list_sources_rejects_invalid_payload(payload: object) -> None:
+    with (
+        FileBrowserClient(
+            _config(), transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
+        ) as client,
+        pytest.raises(FileBrowserError, match="unexpected source"),
+    ):
+        client.list_sources()
 
 
 def test_media_metadata_requests_index_endpoint() -> None:
@@ -505,20 +524,23 @@ def test_download_files_uses_repeated_file_params() -> None:
     assert path.read_bytes() == b"PK\x03\x04zip"
 
 
-def test_download_files_falls_back_to_raw_endpoint() -> None:
+@pytest.mark.parametrize("status", [404, 405])
+def test_download_files_propagates_error_without_retry(tmp_path: Path, status: int) -> None:
     seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request.url.path)
-        if request.url.path == "/api/resources/download":
-            return httpx.Response(404)
-        return httpx.Response(200, content=b"PK\x03\x04zip")
+        return httpx.Response(status)
 
-    with FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client:
-        path = client.download_files(["/a.txt"], algo="zip")
+    output = tmp_path / "bundle.zip"
+    with (
+        FileBrowserClient(_config(), transport=httpx.MockTransport(handler)) as client,
+        pytest.raises(FileBrowserError),
+    ):
+        client.download_files(["/a.txt"], output=output)
 
-    assert seen == ["/api/resources/download", "/api/raw"]
-    assert path.read_bytes() == b"PK\x03\x04zip"
+    assert seen == ["/api/resources/download"]
+    assert not output.exists()
 
 
 def test_download_files_rejects_foreign_source_prefix() -> None:
@@ -536,7 +558,7 @@ def test_download_files_rejects_unsupported_algo() -> None:
         FileBrowserClient(
             _config(), transport=httpx.MockTransport(lambda _: httpx.Response(200))
         ) as client,
-        pytest.raises(FileBrowserError, match="zip or tar.gz"),
+        pytest.raises(FileBrowserError, match=r"zip or tar\.gz"),
     ):
         client.download_files(["/a.txt"], algo="tar")
 

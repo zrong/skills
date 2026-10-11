@@ -69,6 +69,11 @@ def _http_url(value: str, label: str) -> str:
 def _parse_source(name: str, value: TomlValue) -> FileBrowserSourceConfig:
     label = f"filebrowser.sources.{name}"
     table = _table(value, f"[{label}]")
+    if any(key in table for key in ("username", "password", "password_env")):
+        raise ConfigError(
+            f"{label} only supports API keys via token/token_env; "
+            "remove username/password/password_env"
+        )
     adapter = _string(table, "adapter", default="filebrowser")
     if adapter != "filebrowser":
         raise ConfigError(f"Unsupported source adapter for {name}: {adapter}")
