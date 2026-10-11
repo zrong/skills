@@ -224,6 +224,7 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 
 ### 2026-10-11
 
+- 统一 vikunja 的 `api_key` / `api_key_env` 配置，补齐独立模板、环境变量读取、全局配置兜底、无交互入口和回归测试。
 - 统一 joplin 的 `api_key` / `api_key_env` 配置，补齐独立模板、环境变量读取、全局配置兜底、无交互入口和回归测试；Joplin 请求保留协议规定的 token 参数。
 - 更新 AGENTS.md 与 shared/agent-config 共享模板：明确静态 API 密钥命名、环境变量字段、第三方协议和其他凭据类型的边界。
 - 统一 filebrowser 的 API key 配置为 `api_key` / `api_key_env`，移除密码配置并提示旧字段迁移，同步脚本、模板和文档。

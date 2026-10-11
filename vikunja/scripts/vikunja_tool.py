@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import sys
 import json
 import re
@@ -9,67 +10,49 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 
-try:
-    import tomllib
-except ImportError:
-    import tomli as tomllib
-
+from agent_config import load_section
 
 LOCAL_TZ = timezone(timedelta(hours=8))
 
 
-def _find_config() -> Path:
-    """查找 agent_config.toml"""
-    skill_dir = Path(__file__).resolve().parent.parent
-
-    candidates = [
-        Path.cwd() / "agent_config.toml",
-        skill_dir / "agent_config.toml",
-    ]
-
-    for parent in Path.cwd().parents:
-        if (parent / ".git").exists():
-            candidates.append(parent / "agent_config.toml")
-            break
-
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-
-    raise FileNotFoundError(
-        f"未找到 agent_config.toml\n"
-        f"搜索了: {', '.join(str(c) for c in candidates)}"
-    )
+SKILL_DIR = Path(__file__).resolve().parent.parent
 
 
-CONFIG_PATH = _find_config()
+def _resolve_api_key(config: dict, section: str) -> str:
+    for old in ("token", "token_env", "api_token", "api_token_env"):
+        if old in config:
+            raise ValueError(f"[{section}] 的 {old} 请改名为 api_key / api_key_env")
+    direct = config.get("api_key", "")
+    env_name = config.get("api_key_env", "")
+    if not isinstance(direct, str) or not isinstance(env_name, str):
+        raise ValueError(f"[{section}] api_key / api_key_env 必须为字符串")
+    return direct or (os.environ.get(env_name, "") if env_name else "")
+
 
 try:
-    _config = tomllib.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-except Exception as e:
-    print(f"Error loading config: {e}", file=sys.stderr)
+    _vikunja_config, CONFIG_PATH = load_section("vikunja", SKILL_DIR)
+    VIKUNJA_API_KEY = _resolve_api_key(_vikunja_config, "vikunja")
+except (ValueError, TypeError, OSError) as exc:
+    print(f"Error loading config: {exc}", file=sys.stderr)
     sys.exit(1)
 
-_vikunja_config = _config.get("vikunja", {})
 VIKUNJA_BASE_URL = _vikunja_config.get("base_url", "").rstrip("/")
-VIKUNJA_API_TOKEN = _vikunja_config.get("api_token", "")
-
-_joplin_config = _config.get("joplin", {})
-JOPLIN_TOKEN = _joplin_config.get("token", "")
-JOPLIN_BASE_URL = _joplin_config.get("base_url", "http://localhost:41184")
 
 
 class VikunjaClient:
     """Vikunja REST API 客户端"""
 
-    def __init__(self, base_url: str, token: str):
+    def __init__(self, base_url: str, api_key: str):
         self.base_url = base_url.rstrip("/")
-        self.token = token
+        self.api_key = api_key
 
     def _request(self, method: str, path: str, params: Optional[Dict[str, Any]] = None,
                  json_data: Optional[Dict[str, Any]] = None):
+        if not self.api_key:
+            click.echo("Error: configure [vikunja] api_key or api_key_env", err=True)
+            sys.exit(1)
         url = f"{self.base_url}/{path.lstrip('/')}"
-        headers = {"Authorization": f"Bearer {self.token}"}
+        headers = {"Authorization": f"Bearer {self.api_key}"}
 
         try:
             with httpx.Client(timeout=30.0) as client:
@@ -127,7 +110,8 @@ def _call_joplin(*args) -> dict:
 
 
 @click.group()
-def cli():
+@click.option("--non-interactive", is_flag=True, help="无交互执行。")
+def cli(non_interactive):
     """Vikunja CLI Tool — 任务管理与 Joplin 同步"""
     pass
 
@@ -135,7 +119,7 @@ def cli():
 @cli.command("list-projects")
 def list_projects():
     """列出所有项目"""
-    client = VikunjaClient(VIKUNJA_BASE_URL, VIKUNJA_API_TOKEN)
+    client = VikunjaClient(VIKUNJA_BASE_URL, VIKUNJA_API_KEY)
     projects = client.list_projects()
     click.echo(json.dumps(projects, indent=2, ensure_ascii=False))
 
@@ -147,7 +131,7 @@ def list_projects():
 @click.option("--limit", "-l", default=50, help="每页数量")
 def list_tasks(project, done, week, limit):
     """列出任务"""
-    client = VikunjaClient(VIKUNJA_BASE_URL, VIKUNJA_API_TOKEN)
+    client = VikunjaClient(VIKUNJA_BASE_URL, VIKUNJA_API_KEY)
     filters = {}
 
     if project:
@@ -201,7 +185,7 @@ def sync_weekly(note, week):
     click.echo(f"找到笔记: {note_data.get('title', note_id)}")
 
     # 4. 获取 Vikunja 任务
-    client = VikunjaClient(VIKUNJA_BASE_URL, VIKUNJA_API_TOKEN)
+    client = VikunjaClient(VIKUNJA_BASE_URL, VIKUNJA_API_KEY)
     tasks = _get_vikunja_tasks_for_week(client, monday, sunday)
     if not tasks:
         click.echo("该周没有已完成的任务")
