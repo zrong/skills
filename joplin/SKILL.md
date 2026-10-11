@@ -8,12 +8,27 @@ description: 完整的 Joplin REST API 客户端，支持笔记(Notes)、笔记�
 此 Skill 提供了对 Joplin REST API 的全面访问，允许 Agent 深度管理 Joplin 笔记库。
 
 ## 环境配置
-- `JOPLIN_TOKEN`: Joplin API Token（保存在项目根目录 `.env` 文件中）。
-- `JOPLIN_BASE_URL`: 默认为 `http://localhost:41184`。
+
+在 `agent_config.toml` 中配置：
+
+```toml
+[joplin]
+base_url = "http://localhost:41184"
+api_key = ""
+api_key_env = "JOPLIN_API_KEY"
+```
+
+`api_key` 是 Web Clipper 设置中的授权密钥。直接值非空时优先使用，否则读取
+`api_key_env` 指定的环境变量；脚本不会自动加载 `.env`。旧配置 `token` / `token_env`
+应改名为 `api_key` / `api_key_env`。请求仍按 Joplin 协议使用 `token` query 参数。
+
+配置查找顺序为：当前工作目录、skill 目录、当前 Git 项目根目录、
+`~/.agents/agent_config.toml`。密钥为空时，联网操作在请求前停止。
+可将 [agent_config.example.toml](agent_config.example.toml) 的 section 合并到现有配置。
 
 ## 功能列表与命令指南
 
-建议使用 `uv run --project joplin/scripts joplin/scripts/joplin_tool.py <command>` 执行。
+建议使用 `uv run --project joplin/scripts joplin/scripts/joplin_tool.py --non-interactive <command>` 执行。
 
 ### 1. 全局与系统
 - **检查连接**: `ping`

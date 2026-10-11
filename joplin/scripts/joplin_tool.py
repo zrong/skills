@@ -7,62 +7,46 @@ import httpx
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Union
 
-try:
-    import tomllib
-except ImportError:
-    import tomli as tomllib
+from agent_config import load_section
+
+SKILL_DIR = Path(__file__).resolve().parent.parent
 
 
-def _find_config() -> Path:
-    """查找配置文件（与 rspeak 相同的策略）"""
-    skill_dir = Path(__file__).resolve().parent.parent
+def _resolve_api_key(config: dict, section: str) -> str:
+    for old in ("token", "token_env", "api_token", "api_token_env"):
+        if old in config:
+            raise ValueError(f"[{section}] 的 {old} 请改名为 api_key / api_key_env")
+    direct = config.get("api_key", "")
+    env_name = config.get("api_key_env", "")
+    if not isinstance(direct, str) or not isinstance(env_name, str):
+        raise ValueError(f"[{section}] api_key / api_key_env 必须为字符串")
+    return direct or (os.environ.get(env_name, "") if env_name else "")
 
-    candidates = [
-        Path.cwd() / "agent_config.toml",
-        skill_dir / "agent_config.toml",
-    ]
-
-    for parent in Path.cwd().parents:
-        if (parent / ".git").exists():
-            candidates.append(parent / "agent_config.toml")
-            break
-
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-
-    raise FileNotFoundError(
-        f"未找到 agent_config.toml\n"
-        f"搜索了: {', '.join(str(c) for c in candidates)}"
-    )
-
-
-CONFIG_PATH = _find_config()
 
 try:
-    _config = tomllib.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-except Exception as e:
-    print(f"Error loading config: {e}", file=sys.stderr)
+    _joplin_config, CONFIG_PATH = load_section("joplin", SKILL_DIR)
+    JOPLIN_API_KEY = _resolve_api_key(_joplin_config, "joplin")
+except (ValueError, TypeError, OSError) as exc:
+    print(f"Error loading config: {exc}", file=sys.stderr)
     sys.exit(1)
 
-_joplin_config = _config.get("joplin", {})
-JOPLIN_TOKEN = _joplin_config.get("token", "")
-JOPLIN_BASE_URL = _joplin_config.get("base_url", "http://localhost:41184")
+JOPLIN_BASE_URL = _joplin_config.get("base_url", "http://localhost:41184").rstrip("/")
+
 
 class JoplinClient:
-    def __init__(self, token: str, base_url: str):
-        self.token = token
+    def __init__(self, api_key: str, base_url: str):
+        self.api_key = api_key
         self.base_url = base_url.rstrip("/")
 
     def _request(self, method: str, path: str, params: Optional[Dict[str, Any]] = None, 
                  json_data: Optional[Dict[str, Any]] = None, files: Optional[Dict[str, Any]] = None,
                  return_json: bool = True, return_raw: bool = False):
-        if not self.token:
-            click.echo("Error: JOPLIN_TOKEN not found in .env", err=True)
+        if not self.api_key:
+            click.echo("Error: configure [joplin] api_key or api_key_env", err=True)
             sys.exit(1)
             
         params = params or {}
-        params["token"] = self.token
+        params["token"] = self.api_key
         url = f"{self.base_url}/{path.lstrip('/')}"
         
         try:
@@ -214,14 +198,15 @@ class JoplinClient:
 # --- CLI Implementation ---
 
 @click.group()
-def cli():
+@click.option("--non-interactive", is_flag=True, help="无交互执行。")
+def cli(non_interactive):
     """Complete Joplin REST API CLI Tool."""
     pass
 
 @cli.command()
 def ping():
     """Check connection."""
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(client.ping())
 
 @cli.command()
@@ -229,7 +214,7 @@ def ping():
 @click.option("--limit", default=100)
 def events(cursor, limit):
     """List events."""
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.events(cursor, limit), indent=2))
 
 @cli.group()
@@ -244,13 +229,13 @@ def note():
 @click.option("--order-by", default="updated_time")
 @click.option("--order-dir", default="DESC")
 def note_list(limit, page, fields, order_by, order_dir):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.list_notes(fields, limit, page, order_by, order_dir), indent=2))
 
 @note.command(name="get")
 @click.argument("id")
 def note_get(id):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.get_note(id), indent=2))
 
 @note.command(name="create")
@@ -261,7 +246,7 @@ def note_get(id):
 def note_create(title, body, body_from, parent):
     if body_from:
         body = Path(body_from).read_text(encoding="utf-8")
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.create_note(title, body, parent), indent=2))
 
 @note.command(name="update")
@@ -273,7 +258,7 @@ def note_create(title, body, body_from, parent):
 def note_update(id, title, body, body_from, parent):
     if body_from:
         body = Path(body_from).read_text(encoding="utf-8")
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     kwargs = {}
     if title: kwargs["title"] = title
     if body: kwargs["body"] = body
@@ -283,7 +268,7 @@ def note_update(id, title, body, body_from, parent):
 @note.command(name="delete")
 @click.argument("id")
 def note_delete(id):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     client.delete_note(id)
     click.echo(f"Note {id} deleted.")
 
@@ -291,14 +276,14 @@ def note_delete(id):
 @click.argument("id")
 def note_tags(id):
     """List tags for a note."""
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.get_note_tags(id), indent=2))
 
 @note.command(name="resources")
 @click.argument("id")
 def note_resources(id):
     """List resources for a note."""
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.get_note_resources(id), indent=2))
 
 @cli.group()
@@ -309,33 +294,33 @@ def folder():
 @folder.command(name="list")
 @click.option("--fields", default="id,title,parent_id")
 def folder_list(fields):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.list_folders(fields=fields), indent=2))
 
 @folder.command(name="get")
 @click.argument("id")
 def folder_get(id):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.get_folder(id), indent=2))
 
 @folder.command(name="create")
 @click.argument("title")
 @click.option("--parent", "-p")
 def folder_create(title, parent):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.create_folder(title, parent), indent=2))
 
 @folder.command(name="update")
 @click.argument("id")
 @click.argument("title")
 def folder_update(id, title):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.update_folder(id, title), indent=2))
 
 @folder.command(name="delete")
 @click.argument("id")
 def folder_delete(id):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     client.delete_folder(id)
     click.echo(f"Folder {id} deleted.")
 
@@ -346,32 +331,32 @@ def tag():
 
 @tag.command(name="list")
 def tag_list():
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.list_tags(), indent=2))
 
 @tag.command(name="get")
 @click.argument("id")
 def tag_get(id):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.get_tag(id), indent=2))
 
 @tag.command(name="create")
 @click.argument("title")
 def tag_create(title):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.create_tag(title), indent=2))
 
 @tag.command(name="update")
 @click.argument("id")
 @click.argument("title")
 def tag_update(id, title):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.update_tag(id, title), indent=2))
 
 @tag.command(name="delete")
 @click.argument("id")
 def tag_delete(id):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     client.delete_tag(id)
     click.echo(f"Tag {id} deleted.")
 
@@ -379,14 +364,14 @@ def tag_delete(id):
 @click.argument("tag_id")
 @click.argument("note_id")
 def tag_add(tag_id, note_id):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.add_tag_to_note(tag_id, note_id), indent=2))
 
 @tag.command(name="remove")
 @click.argument("tag_id")
 @click.argument("note_id")
 def tag_remove(tag_id, note_id):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     client.remove_tag_from_note(tag_id, note_id)
     click.echo(f"Tag {tag_id} removed from note {note_id}")
 
@@ -398,27 +383,27 @@ def resource():
 @resource.command(name="list")
 @click.option("--limit", default=100)
 def res_list(limit):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.list_resources(limit=limit), indent=2))
 
 @resource.command(name="get")
 @click.argument("id")
 def res_get(id):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.get_resource(id), indent=2))
 
 @resource.command(name="upload")
 @click.argument("file_path")
 @click.option("--title", "-t")
 def res_upload(file_path, title):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.upload_resource(file_path, title), indent=2))
 
 @resource.command(name="download")
 @click.argument("id")
 @click.argument("dest")
 def res_download(id, dest):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     content = client.download_resource(id)
     with open(dest, "wb") as f:
         f.write(content)
@@ -427,7 +412,7 @@ def res_download(id, dest):
 @resource.command(name="delete")
 @click.argument("id")
 def res_delete(id):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     client.delete_resource(id)
     click.echo(f"Resource {id} deleted.")
 
@@ -438,13 +423,13 @@ def revision():
 
 @revision.command(name="list")
 def rev_list():
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.list_revisions(), indent=2))
 
 @revision.command(name="get")
 @click.argument("id")
 def rev_get(id):
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.get_revision(id), indent=2))
 
 @cli.command()
@@ -454,7 +439,7 @@ def rev_get(id):
 @click.option("--page", default=1)
 def search(query, type, limit, page):
     """Search query."""
-    client = JoplinClient(JOPLIN_TOKEN, JOPLIN_BASE_URL)
+    client = JoplinClient(JOPLIN_API_KEY, JOPLIN_BASE_URL)
     click.echo(json.dumps(client.search(query, type, limit, page), indent=2))
 
 if __name__ == "__main__":

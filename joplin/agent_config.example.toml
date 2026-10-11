@@ -1,0 +1,7 @@
+# 将此 section 合并到项目级或 ~/.agents/agent_config.toml。
+[joplin]
+base_url = "http://localhost:41184"
+# Web Clipper 设置中的授权密钥；直接值非空时优先，否则读取指定环境变量。
+api_key = ""
+api_key_env = "JOPLIN_API_KEY"
+# 旧字段 token/token_env 请改名，不要提交真实密钥。

@@ -155,7 +155,7 @@ FileBrowser Quantum 文件管理与传输工具。
 - 当用户需要查看、搜索、保存内容到 Joplin 时自动激活
 - 支持通过命令行读写 Joplin 笔记（需要开启 Joplin Clipper 服务）
 - 支持笔记搜索、内容获取、创建、列出笔记本等操作
-- 自动读取 `.env` 中的 API Token
+- 从 `agent_config.toml` 的 `api_key` / `api_key_env` 读取 Web Clipper 授权密钥
 
 ### immich
 
@@ -224,6 +224,7 @@ DNS 解析记录管理工具（腾讯云 DNSPod，可扩展多服务商）。
 
 ### 2026-10-11
 
+- 统一 joplin 的 `api_key` / `api_key_env` 配置，补齐独立模板、环境变量读取、全局配置兜底、无交互入口和回归测试；Joplin 请求保留协议规定的 token 参数。
 - 更新 AGENTS.md 与 shared/agent-config 共享模板：明确静态 API 密钥命名、环境变量字段、第三方协议和其他凭据类型的边界。
 - 统一 filebrowser 的 API key 配置为 `api_key` / `api_key_env`，移除密码配置并提示旧字段迁移，同步脚本、模板和文档。
 - 修复 filebrowser 的 Quantum V2 API 适配：移除旧下载回退，分块上传复用每次上传独立的 session ID，source 列表改用账户可见接口，补充回归测试。
