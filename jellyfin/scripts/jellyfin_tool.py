@@ -95,13 +95,11 @@ def _find_config() -> dict:
 
 
 def _get_omdb_config(cfg: dict) -> tuple[str, str]:
-    """从配置中提取 OMDb base_url 和 api_key。
-    支持两种格式：
-      [jellyfin.omdb] api_key = "..."  （新格式）
-      [jellyfin] omdb_api_key = "..."  （旧格式兼容）
-    """
+    """从 [jellyfin.omdb] 提取 base_url 和 api_key。"""
+    if "omdb_api_key" in cfg:
+        raise click.ClickException("请将 [jellyfin].omdb_api_key 移至 [jellyfin.omdb].api_key")
     omdb = cfg.get("omdb", {})
-    api_key = omdb.get("api_key") or cfg.get("omdb_api_key", "")
+    api_key = omdb.get("api_key", "")
     base_url = omdb.get("base_url", "http://www.omdbapi.com").rstrip("/")
     return base_url, api_key
 

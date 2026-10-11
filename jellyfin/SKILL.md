@@ -8,6 +8,8 @@ description: Jellyfin 媒体库命名与服务器维护工具。当用户需要�
 
 ## 配置
 
+旧字段 `[jellyfin].omdb_api_key` 请迁移到 `[jellyfin.omdb].api_key`；旧字段会给出迁移提示。
+
 在 `agent_config.toml` 中添加（完整示例见 `agent_config.example.toml`）：
 
 ```toml
